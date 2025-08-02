@@ -12,6 +12,7 @@ from agent.qwen.turn import Turn, TurnStatus
 from tools.base import ToolResult
 from utils.llm_basics import LLMMessage, LLMResponse
 from utils.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse
+from agent.qwen.loop_detection_service import AgentLoopDetectionService, LoopDetectedEvent
 
 
 class EventType(Enum):
@@ -42,6 +43,9 @@ class QwenAgent(BaseAgent):
         self.original_user_task = ""
         self.max_iterations = config.max_iterations
         
+        # Initialize loop detection service
+        self.loop_detector = AgentLoopDetectionService()
+        
         # Initialize shared components via base class (includes tool setup)
         super().__init__(config, cli_console)
         
@@ -54,8 +58,8 @@ class QwenAgent(BaseAgent):
         self.current_turn: Optional[Turn] = None
         
         # Build system prompt
-        self.system_prompt = self._build_system_prompt()
-    
+        self.system_prompt = self._build_system_prompt()    
+
 
     #Need: Different Agent need to rewrite
     def get_enabled_tools(self) -> List[str]:
@@ -92,6 +96,9 @@ class QwenAgent(BaseAgent):
         # Reset task tracking for new user input
         self.original_user_task = user_message
         self.current_task_turns = 0
+        
+        # Reset loop detection for new task
+        self.loop_detector.reset()
         
         # Start trajectory recording
         self.trajectory_recorder.start_recording(
@@ -163,6 +170,25 @@ class QwenAgent(BaseAgent):
                                 }}
                                 break
                             else:
+                                # Check for loops before continuing
+                                loop_detected = self.loop_detector.add_and_check(
+                                    continuation_check.reasoning,
+                                    continuation_check.next_action or "continue task"
+                                )
+                                
+                                if loop_detected:
+                                    yield {"type": "loop_detected", "data": {
+                                        "loop_type": loop_detected.loop_type.value,
+                                        "repetition_count": loop_detected.repetition_count,
+                                        "pattern": loop_detected.detected_pattern,
+                                        "turn": self.current_task_turns
+                                    }}
+                                    yield {"type": "task_complete", "data": {
+                                        "total_turns": self.current_task_turns,
+                                        "reasoning": f"Task stopped due to loop detection: {loop_detected.loop_type.value}"
+                                    }}
+                                    break
+                                
                                 # model continue
                                 yield {"type": "model_continues", "data": {
                                     "reasoning": continuation_check.reasoning,
@@ -184,23 +210,22 @@ class QwenAgent(BaseAgent):
                             }}
                             break
                     else:
-                        # cannot determine task continuation
-                        yield {"type": "task_complete", "data": {
+                        # reached max turns
+                        yield {"type": "max_turns_reached", "data": {
                             "total_turns": self.current_task_turns,
-                            "reasoning": "Unable to determine if task should continue"
+                            "max_turns": self.max_task_turns
                         }}
                         break
                 else:
-                    # reached max turns
-                    yield {"type": "max_turns_reached", "data": {
+                    # cannot determine task continuation
+                    yield {"type": "task_complete", "data": {
                         "total_turns": self.current_task_turns,
-                        "max_turns": self.max_task_turns
+                        "reasoning": "Unable to determine if task should continue"
                     }}
                     break
                     
             except Exception as e:
                 yield {"type": "error", "data": {"error": str(e)}}
-                turn.error(str(e))
                 break
 
 
