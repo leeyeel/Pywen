@@ -1,9 +1,9 @@
 """Qwen Python Agent - AI-powered software development assistant."""
 
-from .agent.qwen_agent import QwenAgent
+from .agent.qwen.qwen_agent import QwenAgent
 from .core.client import LLMClient
 from .core.logger import Logger
-from .core.turn import Turn
+from .agent.qwen.turn import Turn
 from .core.tool_scheduler import CoreToolScheduler
 from .core.tool_executor import NonInteractiveToolExecutor
 from .config.config import Config, ModelConfig

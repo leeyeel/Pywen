@@ -7,8 +7,8 @@ from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 import uuid
 
-from .base_agent import BaseAgent
-from core.turn import Turn, TurnStatus
+from agent.base_agent import BaseAgent
+from agent.qwen.turn import Turn, TurnStatus
 from tools.base import ToolResult
 from utils.llm_basics import LLMMessage, LLMResponse
 from utils.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse

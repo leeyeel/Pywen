@@ -16,7 +16,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
 from config.config import ApprovalMode
 from config.loader import create_default_config, load_config_with_cli_overrides
-from agent.qwen_agent import QwenAgent
+from agent.qwen.qwen_agent import QwenAgent
 from ui.cli_console import CLIConsole
 from ui.command_processor import CommandProcessor
 from ui.utils.keyboard import create_key_bindings
