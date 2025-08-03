@@ -163,7 +163,8 @@ class QwenContentGenerator(ContentGenerator):
             "temperature": config.temperature if config else self.config.model_params.temperature,
             "max_tokens": config.max_output_tokens if config else self.config.model_params.max_tokens,
             "top_p": config.top_p if config else self.config.model_params.top_p,
-            "stream": True
+            "stream": True,
+            "stream_options": {"include_usage": True}
         }
 
         if config and config.top_k is not None:
@@ -185,6 +186,12 @@ class QwenContentGenerator(ContentGenerator):
             content_yielded_before_tools = False
 
             async for chunk in stream:
+                if chunk.usage:
+                    final_usage = LLMUsage(
+                        input_tokens=chunk.usage.prompt_tokens,
+                        output_tokens=chunk.usage.completion_tokens,
+                        total_tokens=chunk.usage.total_tokens
+                    )
                 if not chunk.choices:
                     continue
 
@@ -269,14 +276,16 @@ class QwenContentGenerator(ContentGenerator):
                         content="".join(accumulated_content),
                         model=final_model,
                         finish_reason="tool_calls",
-                        tool_calls=final_tool_calls
+                        tool_calls=final_tool_calls,
+                        usage=final_usage
                     )
             else:
                 # 没有工具调用的情况
                 yield LLMResponse(
                     content="".join(accumulated_content),
                     model=final_model,
-                    finish_reason=final_finish_reason or "stop"
+                    finish_reason=final_finish_reason or "stop",
+                    usage=final_usage
                 )
 
         except Exception as e:

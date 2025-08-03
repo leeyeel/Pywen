@@ -20,7 +20,6 @@ class TrajectoryRecorder:
 
         self.trajectory_path: Path = Path(trajectory_path)
         self.trajectory_data: Dict[str, Any] = {
-            "task": "",
             "start_time": "",
             "end_time": "",
             "provider": "",
@@ -39,22 +38,39 @@ class TrajectoryRecorder:
 
     def start_recording(self, task: str, provider: str, model: str, max_steps: int):
         """Start recording a new trajectory."""
-        self._start_time = datetime.now()
-        # 不要重置整个trajectory_data，只更新必要字段
+        current_time = datetime.now()
+        
+        # 如果是第一次记录，设置初始时间
+        if self._start_time is None:
+            self._start_time = current_time
+            self.trajectory_data.update({
+                "start_time": self._start_time.isoformat(),
+            })
+        
+        # 对于新任务，可以追加到任务列表或更新当前任务
+        if isinstance(self.trajectory_data.get("task"), str):
+            # 将单个任务转换为任务列表
+            self.trajectory_data["task"] = [self.trajectory_data["task"], task]
+        elif isinstance(self.trajectory_data.get("task"), list):
+            # 追加新任务到列表
+            self.trajectory_data["task"].append(task)
+        else:
+            # 首次设置任务
+            self.trajectory_data["task"] = task
+        
         self.trajectory_data.update({
-            "task": task,
-            "start_time": self._start_time.isoformat(),
             "provider": provider,
             "model": model,
             "max_steps": max_steps,
         })
+        
         # 如果是新任务，才重置interactions和steps
         if not self.trajectory_data.get("llm_interactions"):
             self.trajectory_data["llm_interactions"] = []
         if not self.trajectory_data.get("agent_steps"):
             self.trajectory_data["agent_steps"] = []
         
-        self.save_trajectory(show_message=True)  # 只在开始时显示
+        self.save_trajectory(show_message=True)
 
     def record_llm_interaction(
         self,
@@ -63,12 +79,14 @@ class TrajectoryRecorder:
         provider: str,
         model: str,
         tools: Optional[List[Any]] = None,
+        current_task: Optional[str] = None,
     ):
         """Record an LLM interaction."""
         interaction = {
             "timestamp": datetime.now().isoformat(),
             "provider": provider,
             "model": model,
+            "current_task": current_task or self._get_current_task(),
             "input_messages": [self._serialize_message(msg) for msg in messages],
             "response": {
                 "content": response.content,
@@ -216,4 +234,11 @@ class TrajectoryRecorder:
     def get_trajectory_path(self) -> str:
         """Get the path where trajectory is being saved."""
         return str(self.trajectory_path)
+
+    def _get_current_task(self) -> Optional[str]:
+        """Get the current task being executed."""
+        task = self.trajectory_data.get("task")
+        if isinstance(task, list):
+            return task[-1] if task else None
+        return task
 
