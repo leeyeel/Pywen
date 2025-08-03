@@ -1,18 +1,15 @@
 """Qwen Agent implementation with streaming logic."""
 
-import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
-import uuid
 
 from agent.base_agent import BaseAgent
 from agent.qwen.turn import Turn, TurnStatus
-from tools.base import ToolResult
-from utils.llm_basics import LLMMessage, LLMResponse
+from utils.llm_basics import LLMMessage
 from utils.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse
-from agent.qwen.loop_detection_service import AgentLoopDetectionService, LoopDetectedEvent
+from agent.qwen.loop_detection_service import AgentLoopDetectionService
 
 
 class EventType(Enum):

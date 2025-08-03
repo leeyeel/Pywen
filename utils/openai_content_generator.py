@@ -6,7 +6,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import openai
 
-from .base_client import ContentGenerator
+from .base_content_generator import ContentGenerator
 from .config import Config, GenerateContentConfig
 from .llm_basics import LLMMessage, LLMResponse, LLMUsage
 from tools.base import Tool, ToolCall

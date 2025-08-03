@@ -1,7 +1,7 @@
 """Base Agent implementation for shared components."""
 
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 
 from config.config import Config
 from core.client import LLMClient

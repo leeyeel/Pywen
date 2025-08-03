@@ -14,7 +14,7 @@ except ImportError:
     genai = None
     types = None
 
-from .base_client import BaseLLMClient, ContentGenerator
+from .base_content_generator import BaseLLMClient, ContentGenerator
 from .config import Config, GenerateContentConfig, ModelParameters
 from .llm_basics import LLMMessage, LLMResponse, LLMUsage
 from tools.base import Tool, ToolCall, ToolResult
