@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from .base import BaseTool, ToolResult
-from utils.config import Config
+from config.config import Config
 
 
 @dataclass

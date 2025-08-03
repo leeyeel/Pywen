@@ -8,7 +8,7 @@ from typing import List, Optional, Union, AsyncGenerator
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.config import Config, ModelConfig, ModelProvider
-from utils.config import Config as UtilsConfig, AuthType, ModelParameters
+from utils.llm_config import Config as UtilsConfig, AuthType, ModelParameters
 from utils.llm_client import LLMClient as UtilsLLMClient
 from utils.llm_basics import LLMMessage, LLMResponse
 from tools.base import Tool

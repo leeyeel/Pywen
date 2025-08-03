@@ -4,12 +4,12 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, List
 from dataclasses import dataclass
 
-from .llm_basics import LLMMessage, LLMResponse
+from .llm_basics import LLMMessage
 from .llm_client import LLMClient
-from .config import Config, GenerateContentConfig
+from .llm_config import Config
 
 
 @dataclass

@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from typing import AsyncGenerator, List, Optional
 
 from tools.base import Tool
-from .config import Config, GenerateContentConfig
+from .llm_config import Config, GenerateContentConfig
 from .llm_basics import LLMMessage, LLMResponse
 
 class ContentGenerator(ABC):

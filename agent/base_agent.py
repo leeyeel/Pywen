@@ -9,6 +9,7 @@ from core.logger import Logger
 from utils.trajectory_recorder import TrajectoryRecorder
 from tools.registry import ToolRegistry
 from tools.executor import NonInteractiveToolExecutor
+from utils.llm_basics import LLMMessage
 
 
 class BaseAgent(ABC):
@@ -23,6 +24,8 @@ class BaseAgent(ABC):
         self.logger.info(f"{self.__class__.__name__} initialized with file logging")
         
         self.llm_client = LLMClient(config.model_config)
+
+        self.conversation_history: List[LLMMessage] = []
         
         self.trajectory_recorder = TrajectoryRecorder()
         self.logger.info(f"Trajectory will be saved to: {self.trajectory_recorder.trajectory_path}")

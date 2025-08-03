@@ -3,7 +3,7 @@
 import asyncio
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
-from .config import Config, GenerateContentConfig
+from .llm_config import Config, GenerateContentConfig
 from .llm_basics import LLMMessage, LLMResponse
 from .base_content_generator import ContentGenerator
 from tools.base import Tool

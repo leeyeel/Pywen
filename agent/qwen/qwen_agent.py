@@ -50,7 +50,6 @@ class QwenAgent(BaseAgent):
         self.task_continuation_checker = TaskContinuationChecker(self.llm_client, config)
         
         # Conversation state
-        self.conversation_history: List[LLMMessage] = []
         self.turns: List[Turn] = []
         self.current_turn: Optional[Turn] = None
         
