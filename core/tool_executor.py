@@ -7,34 +7,25 @@ from typing import List, Dict, Any, Optional
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.base import ToolCall, ToolResult, ToolRegistry
+from tools.base import ToolCall, ToolResult
+from core.tool_registry import ToolRegistry
 from core.tool_scheduler import CoreToolScheduler
-from core.logger import Logger
 
 
 class NonInteractiveToolExecutor:
     """Non-interactive tool executor for batch processing."""
     
-    def __init__(self, tool_registry: ToolRegistry, logger: Optional[Logger] = None):
+    def __init__(self, tool_registry: ToolRegistry):
         self.tool_registry = tool_registry
-        self.scheduler = CoreToolScheduler(tool_registry, logger)
-        self.logger = logger or Logger("tool_executor")
+        self.scheduler = CoreToolScheduler(tool_registry)
     
     async def execute_tools(self, tool_calls: List[ToolCall]) -> List[ToolResult]:
         """Execute multiple tool calls non-interactively."""
         if not tool_calls:
             return []
         
-        self.logger.info(f"Executing {len(tool_calls)} tool calls")
-        
         # Use scheduler for execution
         results = await self.scheduler.schedule_tool_calls(tool_calls)
-        
-        # Log summary
-        success_count = sum(1 for r in results if r.status.value == "success")
-        error_count = len(results) - success_count
-        
-        self.logger.info(f"Tool execution completed: {success_count} success, {error_count} errors")
         
         return results
     
@@ -71,7 +62,6 @@ class NonInteractiveToolExecutor:
             return result
         
         except Exception as e:
-            self.logger.error(f"Error executing tool {tool_call.name}: {e}")
             return ToolResult(
                 call_id=tool_call.call_id,
                 error=str(e)

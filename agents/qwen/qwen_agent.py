@@ -5,11 +5,11 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 
-from agent.base_agent import BaseAgent
-from agent.qwen.turn import Turn, TurnStatus
+from agents.base_agent import BaseAgent
+from agents.qwen.turn import Turn, TurnStatus
 from utils.llm_basics import LLMMessage
 from utils.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse
-from agent.qwen.loop_detection_service import AgentLoopDetectionService
+from agents.qwen.loop_detection_service import AgentLoopDetectionService
 
 
 class EventType(Enum):
@@ -107,8 +107,6 @@ class QwenAgent(BaseAgent):
         # reset CLI tracking
         if self.cli_console:
             self.cli_console.reset_display_tracking()
-        
-        self.logger.info("start streaming task")
         
         # Execute task with continuation logic in streaming mode
         current_message = user_message
@@ -374,44 +372,43 @@ You are an agent - keep working until the user's request is completely resolved 
         
         while turn.iterations < self.max_iterations:
             turn.iterations += 1
-            
-            # 立即发送迭代开始事件
             yield {"type": "iteration_start", "data": {"iteration": turn.iterations}}
             
             messages = self._prepare_messages_for_iteration()
             available_tools = self.tool_registry.list_tools()
             
             try:
-                # 生成LLM流式响应
                 response_stream = await self.llm_client.generate_response(
                     messages=messages,
                     tools=available_tools,
                     stream=True
                 )
                 
-                # 发送流式开始标记
                 yield {"type": "llm_stream_start", "data": {}}
                 
-                # 处理流式响应
+                # 1. 流式处理响应，收集工具调用
                 final_response = None
                 previous_content = ""
+                collected_tool_calls = []
                 
                 async for response_chunk in response_stream:
                     final_response = response_chunk
                     
-                    # 发送增量内容，而不是累积内容
+                    # 发送内容增量
                     if response_chunk.content:
                         current_content = response_chunk.content
-                        # 只发送新增的部分
                         if current_content != previous_content:
                             new_content = current_content[len(previous_content):]
                             if new_content:
                                 yield {"type": "llm_chunk", "data": {"content": new_content}}
                             previous_content = current_content
+                    
+                    # 收集工具调用（不立即执行）
+                    if response_chunk.tool_calls:
+                        collected_tool_calls.extend(response_chunk.tool_calls)
                 
-                # 使用最终的完整响应
+                # 2. 流结束后处理
                 if final_response:
-                    # 记录到turn中
                     turn.add_assistant_response(final_response)
                     
                     # 记录LLM交互
@@ -430,9 +427,9 @@ You are an agent - keep working until the user's request is completely resolved 
                         tool_calls=final_response.tool_calls
                     ))
                     
-                    if final_response.tool_calls:
-                        # 流式处理工具调用
-                        async for tool_event in self._process_tool_calls_streaming(turn, final_response.tool_calls):
+                    # 3. 批量处理所有工具调用
+                    if collected_tool_calls:
+                        async for tool_event in self._process_tool_calls_streaming(turn, collected_tool_calls):
                             yield tool_event
                         continue
                     else:
@@ -486,8 +483,8 @@ You are an agent - keep working until the user's request is completely resolved 
                     continue
             
             try:
-                result = await self.tool_executor.execute_tool(tool_call)
-                
+                results = await self.tool_executor.execute_tools([tool_call])
+                result = results[0]
                 # 立即发送工具结果
                 yield {"type": "tool_result", "data": {
                     "call_id": tool_call.call_id,

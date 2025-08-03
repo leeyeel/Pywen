@@ -10,8 +10,8 @@ from dataclasses import dataclass
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.base import Tool, ToolCall, ToolResult, ToolRegistry, ToolStatus
-from core.logger import Logger
+from tools.base import ToolCall, ToolResult
+from core.tool_registry import ToolRegistry
 
 
 @dataclass
@@ -27,9 +27,8 @@ class ScheduledTask:
 class CoreToolScheduler:
     """Core scheduler for managing tool execution."""
     
-    def __init__(self, tool_registry: ToolRegistry, logger: Optional[Logger] = None):
+    def __init__(self, tool_registry: ToolRegistry):
         self.tool_registry = tool_registry
-        self.logger = logger or Logger("tool_scheduler")
         self.task_queue: List[ScheduledTask] = []
         self.running_tasks: Dict[str, asyncio.Task] = {}
         self.max_concurrent_tasks = 5
@@ -56,7 +55,6 @@ class CoreToolScheduler:
             if isinstance(result, Exception):
                 tool_results.append(ToolResult(
                     tool_call_id=tasks[i].tool_call.id,
-                    status=ToolStatus.ERROR,
                     content="",
                     error=str(result)
                 ))
@@ -73,29 +71,18 @@ class CoreToolScheduler:
         if not tool:
             return ToolResult(
                 tool_call_id=tool_call.id,
-                status=ToolStatus.ERROR,
                 content="",
                 error=f"Tool not found: {tool_call.name}"
             )
         
         try:
-            self.logger.info(f"Executing tool: {tool_call.name}")
-            result = await tool.execute(tool_call.arguments)
-            result.tool_call_id = tool_call.id
-            
-            self.logger.log_tool_call(
-                tool_name=tool_call.name,
-                arguments=tool_call.arguments,
-                result=result
-            )
-            
+            result = await tool.execute(**tool_call.arguments)
+            result.tool_call_id = tool_call.call_id
             return result
             
         except Exception as e:
-            self.logger.error(f"Tool execution failed: {tool_call.name} - {str(e)}")
             return ToolResult(
                 tool_call_id=tool_call.id,
-                status=ToolStatus.ERROR,
                 content="",
                 error=f"Tool execution failed: {str(e)}"
             )

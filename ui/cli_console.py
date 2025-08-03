@@ -1,9 +1,7 @@
 """CLI Console for displaying agent progress."""
 
-import asyncio
-import os
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, List
+from typing import Optional, Any, List
 
 from rich.console import Console, Group
 from rich.live import Live

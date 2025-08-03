@@ -1,7 +1,7 @@
 """Enhanced tool registry matching TypeScript version."""
 
 from typing import Dict, List, Optional, Any
-from .base import BaseTool, ToolCall, ToolResult
+from tools.base import BaseTool
 
 
 class ToolRegistry:

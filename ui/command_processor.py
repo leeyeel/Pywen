@@ -1,9 +1,8 @@
-"""命令处理器"""
+"""command processor"""
 
-import re
 import subprocess
 import os
-from typing import Dict, Optional
+from typing import Dict
 from .commands.help_command import HelpCommand
 from .commands.about_command import AboutCommand
 from .commands.clear_command import ClearCommand

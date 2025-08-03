@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .llm_basics import LLMMessage, LLMResponse, ToolCall
+from utils.llm_basics import LLMMessage, LLMResponse, ToolCall
 from tools.base import ToolResult
 
 

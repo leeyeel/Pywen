@@ -5,10 +5,9 @@ from typing import List, Dict, Any
 
 from config.config import Config
 from core.client import LLMClient
-from core.logger import Logger
-from utils.trajectory_recorder import TrajectoryRecorder
-from tools.registry import ToolRegistry
-from tools.executor import NonInteractiveToolExecutor
+from core.trajectory_recorder import TrajectoryRecorder
+from core.tool_registry import ToolRegistry
+from core.tool_executor import NonInteractiveToolExecutor
 from utils.llm_basics import LLMMessage
 
 
@@ -18,17 +17,13 @@ class BaseAgent(ABC):
     def __init__(self, config: Config, cli_console=None):
         self.config = config
         self.cli_console = cli_console
-        
-        # Shared components
-        self.logger = Logger(level=config.log_level)
-        self.logger.info(f"{self.__class__.__name__} initialized with file logging")
+
         
         self.llm_client = LLMClient(config.model_config)
 
         self.conversation_history: List[LLMMessage] = []
         
         self.trajectory_recorder = TrajectoryRecorder()
-        self.logger.info(f"Trajectory will be saved to: {self.trajectory_recorder.trajectory_path}")
         
         # Initialize tools with agent-specific configuration
         self.tool_registry = ToolRegistry()
@@ -47,9 +42,8 @@ class BaseAgent(ABC):
                 tool_instance = self._create_tool_instance(tool_name, tool_configs.get(tool_name, {}))
                 if tool_instance:
                     self.tool_registry.register(tool_instance)
-                    self.logger.info(f"Registered tool: {tool_name}")
             except Exception as e:
-                self.logger.warning(f"Failed to register tool {tool_name}: {e}")
+                self.cli_console.print(f"Failed to register tool {tool_name}: {e}")
     
     def _create_tool_instance(self, tool_name: str, tool_config: Dict[str, Any]):
         """Create tool instance by name."""
@@ -70,7 +64,7 @@ class BaseAgent(ABC):
         if tool_name in tool_map:
             return tool_map[tool_name]()
         else:
-            self.logger.warning(f"Unknown tool: {tool_name}")
+            
             return None
     
     def _import_and_create(self, module_name: str, class_name: str, *args):
@@ -134,8 +128,8 @@ class BaseAgent(ABC):
             if hasattr(self, '_build_system_prompt'):
                 self.system_prompt = self._build_system_prompt()
             
-            self.logger.info(f"Config reloaded - Model: {new_config.model_config.model}")
+            self.cli_console.print(f"Config reloaded - Model: {new_config.model_config.model}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to reload config: {e}")
+            self.cli_console.print(f"Failed to reload config: {e}")
             return False

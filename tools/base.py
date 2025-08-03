@@ -2,9 +2,9 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, List
-from datetime import datetime
+from typing import Any, Dict, Optional
 from enum import Enum
+from datetime import datetime
 
 
 @dataclass
@@ -22,6 +22,13 @@ class ToolCall:
             "arguments": self.arguments
         }
 
+@dataclass
+class ToolStatus(Enum):
+    """Tool execution status."""
+    SUCCESS = "success"
+    ERROR = "error"
+    PENDING = "pending"
+    RUNNING = "running"
 
 class ToolResultDisplay:
     """Tool result display configuration."""
