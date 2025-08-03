@@ -1,7 +1,6 @@
 """Web search tool using Serper API."""
 
 import asyncio
-import json
 import aiohttp
 import os
 from typing import Dict, Any, List, Optional

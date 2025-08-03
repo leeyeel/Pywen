@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 
 from .config import Config, ModelConfig, ModelProvider
 
+from .config import ApprovalMode
 
 def load_config_from_file(config_path: str = "pywen_config.json") -> Config:
     """Load configuration from JSON file."""
@@ -75,12 +76,20 @@ def parse_config_data(config_data: Dict[str, Any]) -> Config:
     if not model_config.api_key:
         raise ValueError(f"API key is required for provider '{default_provider}'")
     
+
+    approval_mode_str = config_data.get("approval_mode", "default")
+    approval_mode = ApprovalMode.YOLO if approval_mode_str == "yolo" else ApprovalMode.DEFAULT
+    
     # Create main config
     config = Config(
         model_config=model_config,
         max_iterations=int(config_data.get("max_steps", 10)),
         enable_logging=True,
-        log_level="INFO"
+        log_level="INFO",
+        approval_mode=approval_mode,
+        # 添加工具API配置
+        serper_api_key=config_data.get("serper_api_key") or os.getenv("SERPER_API_KEY"),
+        jina_api_key=config_data.get("jina_api_key") or os.getenv("JINA_API_KEY")
     )
     
     return config
