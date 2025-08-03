@@ -121,7 +121,7 @@ class BaseAgent(ABC):
             
             # 重新初始化task continuation checker (如果存在)
             if hasattr(self, 'task_continuation_checker'):
-                from utils.task_continuation_checker import TaskContinuationChecker
+                from agents.qwen.task_continuation_checker import TaskContinuationChecker
                 self.task_continuation_checker = TaskContinuationChecker(self.llm_client, new_config)
             
             # 重建系统提示 (如果子类实现了该方法)

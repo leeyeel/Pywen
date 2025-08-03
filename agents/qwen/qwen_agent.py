@@ -8,7 +8,7 @@ from datetime import datetime
 from agents.base_agent import BaseAgent
 from agents.qwen.turn import Turn, TurnStatus
 from utils.llm_basics import LLMMessage
-from utils.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse
+from agents.qwen.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse
 from agents.qwen.loop_detection_service import AgentLoopDetectionService
 
 

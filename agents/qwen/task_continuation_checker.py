@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Optional, List
 from dataclasses import dataclass
 
-from .llm_basics import LLMMessage
-from .llm_client import LLMClient
-from .llm_config import Config
+from utils.llm_basics import LLMMessage
+from utils.llm_client import LLMClient
+from utils.llm_config import Config
 
 
 @dataclass
