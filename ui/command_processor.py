@@ -9,9 +9,10 @@ from .commands.clear_command import ClearCommand
 from .commands.quit_command import QuitCommand
 from .commands.memory_command import MemoryCommand
 from .commands.auth_command import AuthCommand
+from .commands.stats_command import StatsCommand
 from .commands.placeholder_commands import (
     PrivacyCommand, ThemeCommand, DocsCommand,
-    EditorCommand, StatsCommand, McpCommand, ExtensionsCommand,
+    EditorCommand, McpCommand, ExtensionsCommand,
     ToolsCommand, BugCommand, ChatCommand, CompressCommand
 )
 
@@ -29,7 +30,8 @@ class CommandProcessor:
             ClearCommand(),
             QuitCommand(),
             MemoryCommand(),
-            AuthCommand(),  # 现在是完整实现
+            AuthCommand(),
+            StatsCommand(),
             # 占位符命令
             PrivacyCommand(),
             ThemeCommand(),

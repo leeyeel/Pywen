@@ -7,8 +7,9 @@ from .quit_command import QuitCommand
 from .memory_command import MemoryCommand
 from .base_command import BaseCommand
 from .placeholder_commands import *
+from .stats_command import StatsCommand
 
 __all__ = [
     'HelpCommand', 'AboutCommand', 'ClearCommand', 'QuitCommand',
-    'MemoryCommand', 'BaseCommand'
+    'MemoryCommand', 'BaseCommand', 'StatsCommand'
 ]

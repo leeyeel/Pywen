@@ -16,7 +16,6 @@ class PlaceholderCommand(BaseCommand):
         self.console.print(f"[dim]Description: {self.description}[/dim]")
         return True
 
-# 移除 AuthCommand，因为现在有真实实现了
 class PrivacyCommand(PlaceholderCommand):
     def __init__(self):
         super().__init__("privacy", "display the privacy notice")
@@ -33,9 +32,6 @@ class EditorCommand(PlaceholderCommand):
     def __init__(self):
         super().__init__("editor", "set external editor preference")
 
-class StatsCommand(PlaceholderCommand):
-    def __init__(self):
-        super().__init__("stats", "check session stats. Usage: /stats [model|tools]")
 
 class McpCommand(PlaceholderCommand):
     def __init__(self):

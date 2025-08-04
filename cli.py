@@ -20,7 +20,6 @@ from agents.qwen.qwen_agent import QwenAgent
 from ui.cli_console import CLIConsole
 from ui.command_processor import CommandProcessor
 from ui.utils.keyboard import create_key_bindings
-from ui.commands.quit_command import QuitException
 
 
 def generate_session_id() -> str:
@@ -224,9 +223,7 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
                 in_task_execution = False
                 current_task = None
                 cancel_event.clear()
-                
-        except QuitException:
-            break
+
         except KeyboardInterrupt:
             console.print("\nInterrupted by user. Press Ctrl+C again to quit.", "yellow")
             in_task_execution = False

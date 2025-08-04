@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from utils.llm_basics import LLMMessage, LLMResponse, ToolCall
 from tools.base import ToolResult
+from .session_stats import session_stats
 
 
 class TrajectoryRecorder:
@@ -82,6 +83,13 @@ class TrajectoryRecorder:
         current_task: Optional[str] = None,
     ):
         """Record an LLM interaction."""
+        # 记录到session stats
+        session_stats.record_llm_interaction(
+            provider=provider,
+            model=model,
+            usage=response.usage,
+            error=False
+        )
         interaction = {
             "timestamp": datetime.now().isoformat(),
             "provider": provider,

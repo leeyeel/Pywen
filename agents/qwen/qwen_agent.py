@@ -410,7 +410,7 @@ You are an agent - keep working until the user's request is completely resolved 
                 # 2. 流结束后处理
                 if final_response:
                     turn.add_assistant_response(final_response)
-                    print(final_response)
+                    #print(final_response)
                     # 记录LLM交互
                     self.trajectory_recorder.record_llm_interaction(
                         messages=messages,
