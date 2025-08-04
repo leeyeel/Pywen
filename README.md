@@ -44,7 +44,11 @@ cd Pywen
 uv venv
 uv sync --all-extras
 
+# linux/macos
 source .venv/bin/activate
+
+# windows
+.venv\Scripts\activate
 ```
 
 ### First Use
