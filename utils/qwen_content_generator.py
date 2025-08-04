@@ -218,6 +218,7 @@ class QwenContentGenerator(ContentGenerator):
                 if delta.tool_calls:
                     # 如果这是第一次遇到工具调用，先输出已有的文本内容
                     if not content_yielded_before_tools and accumulated_content:
+                        print("🔧 Generating tool calls...")
                         yield LLMResponse(
                             content="".join(accumulated_content),
                             model=final_model,

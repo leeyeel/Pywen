@@ -684,7 +684,6 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                             if new_content:
                                 yield {"type": "llm_chunk", "data": {"content": new_content}}
                             previous_content = current_content
-                    
                     # 收集工具调用（不立即执行）
                     if response_chunk.tool_calls:
                         collected_tool_calls.extend(response_chunk.tool_calls)
