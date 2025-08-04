@@ -39,12 +39,12 @@ class MemoryTool(BaseTool):
         
         # Create memory directory in project folder
         project_root = Path(__file__).parent.parent  # 获取项目根目录
-        self.memory_dir = project_root / ".pywen_agent" / "memory"
+        self.memory_dir = project_root / ".memory"
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.memory_file = self.memory_dir / "user_memory.json"
 
         # Debug: 打印存储路径
-        print(f"[MemoryTool] Memory file path: {self.memory_file}")
+        #print(f"[MemoryTool] Memory file path: {self.memory_file}")
     
     def _load_memory(self) -> Dict[str, str]:
         """Load memory from file."""
