@@ -165,7 +165,7 @@ class CLIConsole:
                 )
                 response = response.lower().strip()
                 
-                if response in ['y', 'yes']:
+                if response in ['y', 'yes','']:
                     return True
                 elif response in ['n', 'no']:
                     return False
