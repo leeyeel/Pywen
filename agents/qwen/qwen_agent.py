@@ -268,6 +268,7 @@ When requested to perform tasks like fixing bugs, adding features, refactoring, 
 
 ## File Operations
 - Use `write_file` to create or modify files
+- Use `read_many_files` to examine multiple files
 - Use `read_file` to examine file contents
 - Use `bash` for system operations when needed
 

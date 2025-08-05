@@ -1,13 +1,13 @@
 """Qwen Python Agent - AI-powered software development assistant."""
 
-from .agent.qwen.qwen_agent import QwenAgent
+from .agents.qwen.qwen_agent import QwenAgent
 from .core.client import LLMClient
-from .core.logger import Logger
-from .agent.qwen.turn import Turn
+from .agents.qwen.turn import Turn
 from .core.tool_scheduler import CoreToolScheduler
 from .core.tool_executor import NonInteractiveToolExecutor
 from .config.config import Config, ModelConfig
-from .tools.base import Tool, ToolCall, ToolResult
+from .tools.base import Tool
+from .utils.tool_basics import ToolCall, ToolResult
 from .utils.token_limits import TokenLimits
 
 __version__ = "1.0.0"

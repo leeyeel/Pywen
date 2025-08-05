@@ -54,7 +54,7 @@ class CoreToolScheduler:
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 tool_results.append(ToolResult(
-                    tool_call_id=tasks[i].tool_call.id,
+                    call_id=tasks[i].tool_call.id,
                     content="",
                     error=str(result)
                 ))
@@ -70,7 +70,7 @@ class CoreToolScheduler:
         
         if not tool:
             return ToolResult(
-                tool_call_id=tool_call.id,
+                call_id=tool_call.call_id,
                 content="",
                 error=f"Tool not found: {tool_call.name}"
             )
@@ -82,7 +82,7 @@ class CoreToolScheduler:
             
         except Exception as e:
             return ToolResult(
-                tool_call_id=tool_call.id,
+                call_id=tool_call.call_id,
                 content="",
                 error=f"Tool execution failed: {str(e)}"
             )
