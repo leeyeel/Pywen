@@ -12,12 +12,6 @@ from rich.text import Text
 from config.config import Config, ApprovalMode
 
 
-@dataclass
-class ConsoleStep:
-    """Represents a console step with panel and completion status."""
-    panel: Panel
-    completed: bool = False
-
 
 class CLIConsole:
     """Console for displaying agent progress and handling user interactions."""
@@ -31,16 +25,15 @@ class CLIConsole:
         self.agent_execution: Any = None
         self.execution_log: List[str] = []
         
+        # Token tracking
+        self.current_session_tokens = 0
+        self.max_context_tokens = 32768  # Default, will be updated from config
+        
         # Track displayed content to avoid duplicates
         self.displayed_iterations: set = set()
         self.displayed_responses: set = set()
         self.displayed_tool_calls: set = set()
         self.displayed_tool_results: set = set()
-
-    def update_status(self, agent_step=None, agent_execution=None):
-        """Update the console status."""
-        if agent_execution:
-            self.agent_execution = agent_execution
 
     def log_execution(self, message: str, color: str = "white"):
         """Log execution message - keep logs but avoid duplicate display."""
@@ -129,9 +122,6 @@ class CLIConsole:
         else:
             tool_name = tool_call.name
             arguments = tool_call.arguments
-
-        # Display tool information
-        from rich.json import JSON
         
         # Format parameter display
         self.console.print(f"🔧 [bold cyan]{tool_name}[/bold cyan]")
@@ -312,11 +302,14 @@ class CLIConsole:
                 model_name = self.config.model_providers[default_provider].get('model', model_name)
         
         # Build status information
+        context_percentage = max(0, 100 - (self.current_session_tokens * 100 // self.max_context_tokens))
+        context_status = f"({context_percentage}% context left)"
+        
         status_parts = [
             f"[blue]{display_dir}[/blue]",
             "[dim]no sandbox (see /docs)[/dim]",
             f"[green]{model_name}[/green]",
-            "[dim](100% context left)[/dim]"
+            f"[dim]{context_status}[/dim]"
         ]
         
         status_line = "  ".join(status_parts)
@@ -330,5 +323,13 @@ class CLIConsole:
     def print_user_input_prompt(self):
         """Display user input prompt - now handled by prompt_toolkit."""
         pass  # prompt_toolkit handles prompt display
+
+    def update_token_usage(self, tokens_used: int):
+        """Update current session token usage."""
+        self.current_session_tokens += tokens_used
+        
+    def set_max_context_tokens(self, max_tokens: int):
+        """Set maximum context tokens for current model."""
+        self.max_context_tokens = max_tokens
 
 

@@ -128,6 +128,7 @@ class TrajectoryRecorder:
             self.trajectory_data["total_input_tokens"] += response.usage.input_tokens or 0
             self.trajectory_data["total_output_tokens"] += response.usage.output_tokens or 0
             self.trajectory_data["total_tokens"] += (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+            self.trajectory_data["context_tokens"] = response.usage.input_tokens or 0
         
         self.save_trajectory()
 

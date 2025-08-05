@@ -20,6 +20,7 @@ class LLMClient:
         self.request_count = 0
         self.total_tokens_used = 0
         self.input_tokens = 0
+        self.context_tokens = 0
         self.output_tokens = 0
         self.error_count = 0
     
@@ -65,6 +66,7 @@ class LLMClient:
                 # Update statistics
                 if response.usage:
                     self.total_tokens_used += response.usage.total_tokens
+                    self.context_tokens = response.usage.input_tokens
                     self.input_tokens += response.usage.input_tokens
                     self.output_tokens += response.usage.output_tokens
                 
@@ -96,6 +98,7 @@ class LLMClient:
         # Update statistics with final usage
         if last_usage:
             self.total_tokens_used += last_usage.total_tokens
+            self.context_tokens = response.usage.input_tokens
             self.input_tokens += last_usage.input_tokens
             self.output_tokens += last_usage.output_tokens
     

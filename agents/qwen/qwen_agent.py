@@ -13,6 +13,8 @@ from agents.qwen.loop_detection_service import AgentLoopDetectionService
 import os
 import subprocess
 from pathlib import Path
+import uuid
+from utils.token_limits import TokenLimits, ModelProvider
 
 class EventType(Enum):
     """Types of events during agent execution."""
@@ -90,7 +92,10 @@ class QwenAgent(BaseAgent):
     #Need: Different Agent need to rewrite
     async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run agent with streaming output and task continuation."""
-        import uuid
+        model_name = self.llm_client.utils_config.model_params.model
+        # Get token limit from TokenLimits class
+        max_tokens = TokenLimits.get_limit(ModelProvider.QWEN, model_name)
+        self.cli_console.set_max_context_tokens(max_tokens)
         
         # Reset task tracking for new user input
         self.original_user_task = user_message
@@ -691,6 +696,7 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 # 2. 流结束后处理
                 if final_response:
                     turn.add_assistant_response(final_response)
+                    self.cli_console.update_token_usage(final_response.usage.input_tokens)
                     #print(final_response)
                     # 记录LLM交互
                     self.trajectory_recorder.record_llm_interaction(

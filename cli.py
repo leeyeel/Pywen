@@ -6,7 +6,6 @@ import os
 import sys
 import uuid
 import threading
-import signal
 
 from rich.console import Console
 from prompt_toolkit import PromptSession

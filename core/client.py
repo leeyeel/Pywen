@@ -25,8 +25,8 @@ class LLMClient:
             self.model_config = config.model_config
         
         # Convert to utils config format
-        utils_config = self._convert_config(self.model_config)
-        self.client = UtilsLLMClient(utils_config)
+        self.utils_config = self._convert_config(self.model_config)
+        self.client = UtilsLLMClient(self.utils_config)
     
     def _convert_config(self, model_config: ModelConfig) -> UtilsConfig:
         """Convert ModelConfig to utils config format."""
