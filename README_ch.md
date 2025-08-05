@@ -5,6 +5,8 @@
 
 **中文版** | [English](README.md)
 
+![Pywen Logo](./docs/Pywen.png)
+
 **Pywen** 是一个基于 **Qwen3-Coder** 的 Python CLI 工具，专为智能软件工程任务设计。它提供对话式界面，能够理解自然语言指令并通过先进的智能体系统执行复杂的开发工作流。
 
 ## 🎯 项目背景
@@ -38,7 +40,7 @@ Pywen 是一个基于 Python 开发的 CLI 工具，具有良好的 Python 生�
 ### 安装
 
 ```bash 
-pip install pywen
+pip install pywen-agent
 ```
 
 <details>

@@ -76,43 +76,15 @@ Follow the research process step by step and use the appropriate prompts for eac
         """Run research agent with multi-step research workflow."""
         try:
             all_summaries = []
-            max_iterations = 3
-            
-            # Step 1: 生成初始搜索查询
-            yield {"type": "status", "data": {"message": "🔍 Generating initial search queries..."}}
-            queries = await self._generate_search_queries(user_message)
-            yield {"type": "queries_generated", "data": {"queries": queries}}
-            
-            for iteration in range(max_iterations):
-                # Step 2: 并行执行搜索
-                yield {"type": "status", "data": {"message": f"🌐 Conducting searches (iteration {iteration + 1})..."}}
-                batch_summaries = await self._parallel_web_search(queries)
-                all_summaries.extend(batch_summaries)
-                
-                # Step 3: 反思是否足够
-                yield {"type": "status", "data": {"message": "🤔 Analyzing findings and identifying gaps..."}}
-                reflection_result = await self._reflect_on_summaries(user_message, all_summaries)
-                
-                yield {"type": "reflection", "data": reflection_result}
-                
-                # 如果足够了，跳出循环
-                if reflection_result.get("is_sufficient", True):
-                    break
-                
-                # 如果不足够，准备下一轮搜索
-                follow_up_queries = reflection_result.get("follow_up_queries", [])
-                if not follow_up_queries:
-                    break
-                    
-                queries = follow_up_queries
-                yield {"type": "follow_up_queries", "data": {"queries": queries}}
-            
-            # Step 4: 生成最终答案
-            yield {"type": "status", "data": {"message": "📝 Generating comprehensive answer..."}}
-            final_answer = await self._generate_final_answer(user_message, all_summaries)
-            
-            yield {"type": "llm_chunk", "data": {"content": final_answer}}
-            yield {"type": "task_complete", "data": {}}
+            # 处理用户输入，生成多个搜索请求
+
+            # 处理搜索请求
+
+            # 整合搜索结果
+
+            # 反思搜索结果
+
+            # 提交最终答案
             
         except Exception as e:
             yield {"type": "error", "data": {"error": str(e)}}
