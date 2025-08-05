@@ -2,6 +2,18 @@
 name = "pywen-agent"
 version = "0.1.0"
 description = "LLM-based agent for general purpose tasks"
+authors = [
+  { name ="PAMPAS-Lab" },
+  { name = "CHEN LONGRONG", email = "longrongchen@163.com" },
+  { name = "XUE YIBO", email = "yiboxue@163.com" },
+]
+license = {text = "MIT"}
+keywords = ["agent", "cli", "llm"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
