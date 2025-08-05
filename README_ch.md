@@ -1,6 +1,6 @@
 # Pywen
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Alpha](https://img.shields.io/badge/Status-Alpha-red)
 
 **中文版** | [English](README.md)
@@ -37,7 +37,12 @@ Pywen 是一个基于 Python 开发的 CLI 工具，具有良好的 Python 生�
 
 ### 安装
 
-我们强烈推荐使用 [uv](https://docs.astral.sh/uv/) 来设置项目：
+```bash 
+pip install pywen
+```
+
+<details>
+<summary>使用uv从源码开始构建 (recommended)</summary>
 
 ```bash
 git clone https://github.com/PAMPAS-Lab/Pywen.git
@@ -51,6 +56,8 @@ source .venv/bin/activate
 # windows
 .venv\Scripts\activate
 ```
+
+</details>
 
 ### 首次使用
 
@@ -240,7 +247,7 @@ trajectories/trajectory_xxxxxx.json
 
 ## 📋 要求
 
-- Python 3.12+
+- Python 3.8+
 - 通义千问 API 密钥（推荐）或其他支持的 LLM 提供商 API 密钥
 - 用于 API 访问的互联网连接
 
