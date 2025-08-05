@@ -1,6 +1,6 @@
 [project]
 name = "pywen-agent"
-version = "0.1.0"
+version = "0.1.1"
 description = "LLM-based agent for general purpose tasks"
 authors = [
   { name ="PAMPAS-Lab" },
@@ -15,7 +15,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "openai>=1.86.0",
     "anthropic>=0.54.0",
