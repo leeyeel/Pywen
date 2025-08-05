@@ -3,7 +3,6 @@
 from datetime import datetime
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
-import json
 
 
 @dataclass

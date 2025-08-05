@@ -1,9 +1,8 @@
 """Memory tool for storing user preferences and facts."""
 
 import json
-import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict
 
 from .base import BaseTool, ToolResult
 

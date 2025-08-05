@@ -12,7 +12,7 @@ from enum import Enum
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.client import LLMMessage, LLMResponse
-from tools.base import ToolCall, ToolResult
+from utils.tool_basics import ToolCall, ToolResult
 
 
 class TurnStatus(Enum):

@@ -2,7 +2,6 @@
 
 import asyncio
 import aiohttp
-from typing import Dict, Any
 
 from .base import BaseTool, ToolResult
 

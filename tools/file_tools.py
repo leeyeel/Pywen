@@ -1,8 +1,6 @@
 """File operation tools."""
 
 import os
-from pathlib import Path
-from typing import Dict, Any
 
 from .base import BaseTool, ToolResult
 

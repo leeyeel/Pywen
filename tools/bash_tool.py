@@ -1,11 +1,9 @@
 """Bash command execution tool."""
 
 import asyncio
-import subprocess
 import os
 import locale
 import re
-from typing import Dict, Any
 
 from .base import BaseTool, ToolResult
 

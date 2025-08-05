@@ -10,6 +10,7 @@ from .commands.quit_command import QuitCommand
 from .commands.memory_command import MemoryCommand
 from .commands.auth_command import AuthCommand
 from .commands.stats_command import StatsCommand
+from .commands.agent_command import AgentCommand
 from .commands.placeholder_commands import (
     PrivacyCommand, ThemeCommand, DocsCommand,
     EditorCommand, McpCommand, ExtensionsCommand,
@@ -32,12 +33,12 @@ class CommandProcessor:
             MemoryCommand(),
             AuthCommand(),
             StatsCommand(),
+            AgentCommand(),  # 添加agent命令
             # 占位符命令
             PrivacyCommand(),
             ThemeCommand(),
             DocsCommand(),
             EditorCommand(),
-            StatsCommand(),
             McpCommand(),
             ExtensionsCommand(),
             ToolsCommand(),

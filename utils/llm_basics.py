@@ -1,15 +1,9 @@
 """Basic LLM data structures."""
 
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
+from utils.tool_basics import ToolCall
 
-
-@dataclass
-class ToolCall:
-    """Represents a tool call."""
-    call_id: str
-    name: str
-    arguments: Dict[str, Any]
 
 
 @dataclass

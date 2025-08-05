@@ -1,7 +1,6 @@
 """Tool for reading multiple files at once."""
 
 import os
-from typing import Dict, Any, List
 
 from .base import BaseTool, ToolResult
 

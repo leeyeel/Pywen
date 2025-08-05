@@ -1,8 +1,6 @@
 """File pattern matching tool."""
 
 import glob
-import os
-from typing import Dict, Any
 
 from .base import BaseTool, ToolResult
 

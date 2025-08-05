@@ -1,7 +1,6 @@
 """File editing tool."""
 
 import os
-from typing import Dict, Any
 
 from .base import BaseTool, ToolResult
 

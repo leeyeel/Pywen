@@ -8,8 +8,9 @@ from .memory_command import MemoryCommand
 from .base_command import BaseCommand
 from .placeholder_commands import *
 from .stats_command import StatsCommand
+from .agent_command import AgentCommand
 
 __all__ = [
     'HelpCommand', 'AboutCommand', 'ClearCommand', 'QuitCommand',
-    'MemoryCommand', 'BaseCommand', 'StatsCommand'
+    'MemoryCommand', 'BaseCommand', 'StatsCommand', 'AgentCommand'
 ]

@@ -4,13 +4,13 @@ import asyncio
 import uuid
 import sys
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.base import ToolCall, ToolResult
+from utils.tool_basics import ToolCall, ToolResult
 from core.tool_registry import ToolRegistry
 
 

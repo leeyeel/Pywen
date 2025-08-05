@@ -121,6 +121,7 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
     in_task_execution = False
     cancel_event = threading.Event()
     current_task = None
+    current_agent = agent  # 添加这行：跟踪当前agent
     
     # Create key bindings
     bindings = create_key_bindings(
@@ -175,13 +176,19 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
             
             # Handle shell commands (!)
             if user_input.startswith('!'):
-                context = {'console': console, 'agent': agent}
+                context = {'console': console, 'agent': current_agent}  # 修改这行：使用current_agent
                 await command_processor._handle_shell_command(user_input, context)
                 continue
             
             # Handle slash commands (/)
-            context = {'console': console, 'agent': agent}
-            if await command_processor.process_command(user_input, context):
+            context = {'console': console, 'agent': current_agent, 'config': console.config}  # 修改这行：添加config和使用current_agent
+            command_result = await command_processor.process_command(user_input, context)
+            
+            # 添加这段：检查agent是否被切换
+            if command_result and 'agent' in context and context['agent'] != current_agent:
+                current_agent = context['agent']
+            
+            if command_result:
                 continue
             
             # Reset display tracking and enter task execution
@@ -192,7 +199,7 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
             # Execute user request
             try:
                 current_task = asyncio.create_task(
-                    execute_streaming_with_cancellation(agent, user_input, console, cancel_event)
+                    execute_streaming_with_cancellation(current_agent, user_input, console, cancel_event)  # 修改这行：使用current_agent
                 )
                 
                 result = await current_task
