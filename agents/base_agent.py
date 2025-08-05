@@ -112,6 +112,10 @@ class BaseAgent(ABC):
             # 更新配置
             self.config = new_config
             
+            # 更新 max_iterations (如果 Agent 有这个属性)
+            if hasattr(self, 'max_iterations'):
+                self.max_iterations = new_config.max_iterations
+            
             # 恢复会话ID
             if old_session_id:
                 self.config.session_id = old_session_id
@@ -128,7 +132,7 @@ class BaseAgent(ABC):
             if hasattr(self, '_build_system_prompt'):
                 self.system_prompt = self._build_system_prompt()
             
-            self.cli_console.print(f"Config reloaded - Model: {new_config.model_config.model}")
+            self.cli_console.print(f"Config reloaded - Model: {new_config.model_config.model}, Max Steps: {new_config.max_iterations}")
             return True
         except Exception as e:
             self.cli_console.print(f"Failed to reload config: {e}")

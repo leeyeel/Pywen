@@ -58,8 +58,8 @@ class QwenAgent(BaseAgent):
         self.current_turn: Optional[Turn] = None
         
         # Build system prompt
-        self.system_prompt = self._build_system_prompt()    
-        #self.system_prompt = self.get_core_system_prompt()
+        #self.system_prompt = self._build_system_prompt()    
+        self.system_prompt = self.get_core_system_prompt()
 
 
     #Need: Different Agent need to rewrite
