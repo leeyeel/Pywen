@@ -298,3 +298,9 @@ echo $QWEN_API_KEY
 **Pywen - 让 Qwen3-Coder 的强大能力触手可及，助力智能软件开发！** 🚀
 
 **PAMPAS-Lab - 致力于大模型智能体框架突破，为 AI 研究与应用架桥铺路！** 🚀
+
+---
+
+## 🌟Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=PAMPAS-Lab/Pywen&type=Date)](https://www.star-history.com/#PAMPAS-Lab/Pywen&Date)
