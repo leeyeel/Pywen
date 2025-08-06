@@ -30,7 +30,7 @@ class ToolsCommand(BaseCommand):
             tools = tool_registry.list_tools()
              
             # 创建工具表格
-            table = Table(title="Available Pywen Tools")
+            table = Table(title=f"Available Pywen -  {type(agent).__name__} Tools")
             table.add_column("Tool Name", style="green")
             table.add_column("Description", style="white")
             

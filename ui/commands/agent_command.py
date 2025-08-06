@@ -11,8 +11,8 @@ AVAILABLE_AGENTS = {
         "description": "General purpose conversational and coding assistant"
     },
     "research": {
-        "name": "🔬 Research Agent", 
-        "description": "Multi-step research agent for comprehensive information gathering"
+        "name": "🔬 GeminiResearchDemo", 
+        "description": "Gemini open-sourced Multi-step research agent demo for comprehensive information gathering"
     }
 }
 
@@ -33,6 +33,7 @@ class AgentCommand(BaseCommand):
             await self._switch_agent(context, parts[0])
         else:
             self.console.print("[red]Usage: /agent [agent_type][/red]")
+            self.console.print("")
         
         return True
     
@@ -84,12 +85,12 @@ class AgentCommand(BaseCommand):
         # 动态导入避免循环依赖
         try:
             from agents.qwen.qwen_agent import QwenAgent
-            from agents.research.google_research_agent import ResearchAgent
+            from agents.research.google_research_agent import GeminiResearchDemo
             
             if isinstance(agent, QwenAgent):
                 return "qwen"
-            elif isinstance(agent, ResearchAgent):
-                return "research"
+            elif isinstance(agent, GeminiResearchDemo):
+                return "GeminiResearchDemo"
         except ImportError:
             pass
         
@@ -101,7 +102,7 @@ class AgentCommand(BaseCommand):
             from agents.qwen.qwen_agent import QwenAgent
             return QwenAgent(config)
         elif agent_type == "research":
-            from agents.research.google_research_agent import ResearchAgent
-            return ResearchAgent(config)
+            from agents.research.google_research_agent import GeminiResearchDemo
+            return GeminiResearchDemo(config)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
