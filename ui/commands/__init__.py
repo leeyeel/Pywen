@@ -10,9 +10,10 @@ from .placeholder_commands import *
 from .stats_command import StatsCommand
 from .agent_command import AgentCommand
 from .bug_command import BugCommand
+from .tools_command import ToolsCommand
 
 __all__ = [
     'HelpCommand', 'AboutCommand', 'ClearCommand', 'QuitCommand',
     'MemoryCommand', 'BaseCommand', 'StatsCommand', 'AgentCommand',
-    'BugCommand'
+    'BugCommand', 'ToolsCommand'
 ]

@@ -12,10 +12,11 @@ from .commands.auth_command import AuthCommand
 from .commands.stats_command import StatsCommand
 from .commands.agent_command import AgentCommand
 from .commands.bug_command import BugCommand
+from .commands.tools_command import ToolsCommand
 from .commands.placeholder_commands import (
     PrivacyCommand, ThemeCommand, DocsCommand,
     EditorCommand, McpCommand, ExtensionsCommand,
-    ToolsCommand, ChatCommand, CompressCommand
+    ChatCommand, CompressCommand
 )
 
 class CommandProcessor:
@@ -36,6 +37,7 @@ class CommandProcessor:
             StatsCommand(),
             AgentCommand(),
             BugCommand(),
+            ToolsCommand(),
             # 占位符命令
             PrivacyCommand(),
             ThemeCommand(),
@@ -43,7 +45,6 @@ class CommandProcessor:
             EditorCommand(),
             McpCommand(),
             ExtensionsCommand(),
-            ToolsCommand(),
             ChatCommand(),
             CompressCommand(),
         ]

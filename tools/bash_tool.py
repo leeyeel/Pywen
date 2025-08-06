@@ -14,25 +14,25 @@ class BashTool(BaseTool):
     def __init__(self):
         # Set description based on OS
         if os.name == "nt":
-            description = """Run commands in Windows Command Prompt (cmd.exe)
-* Current platform: Windows - use Windows commands (dir, type, copy, etc.)
-* Common commands: dir (list files), type (view file), cd (change directory)
-* File paths should use backslashes or be quoted: "C:\\path\\to\\file"
-* State is persistent across command calls
-* Avoid commands that produce very large output
-* Please run long lived commands in the background, e.g. 'sleep 10 &'
-* Please use "python" and "pip" instead of "python3" and "pip3"
-"""
+            description = """Run commands in Windows Command Prompt (cmd.exe)"""
+# """* Current platform: Windows - use Windows commands (dir, type, copy, etc.)
+# * Common commands: dir (list files), type (view file), cd (change directory)
+# * File paths should use backslashes or be quoted: "C:\\path\\to\\file"
+# * State is persistent across command calls
+# * Avoid commands that produce very large output
+# * Please run long lived commands in the background, e.g. 'sleep 10 &'
+# * Please use "python" and "pip" instead of "python3" and "pip3"
+# """
         else:
-            description = """Run commands in a bash shell
-* Current platform: Unix/Linux - use standard bash commands
-* You have access to common linux and python packages via apt and pip
-* State is persistent across command calls and discussions with the user
-* To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'
-* Please avoid commands that may produce a very large amount of output
-* Please run long lived commands in the background, e.g. 'sleep 10 &'
-* Please use "python" and "pip" instead of "python3" and "pip3"
-"""
+            description = """Run commands in a bash shell"""
+# * Current platform: Unix/Linux - use standard bash commands
+# * You have access to common linux and python packages via apt and pip
+# * State is persistent across command calls and discussions with the user
+# * To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'
+# * Please avoid commands that may produce a very large amount of output
+# * Please run long lived commands in the background, e.g. 'sleep 10 &'
+# * Please use "python" and "pip" instead of "python3" and "pip3"
+# """
         
         super().__init__(
             name="bash",

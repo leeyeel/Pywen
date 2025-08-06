@@ -41,14 +41,6 @@ class ExtensionsCommand(PlaceholderCommand):
     def __init__(self):
         super().__init__("extensions", "list active extensions")
 
-class ToolsCommand(PlaceholderCommand):
-    def __init__(self):
-        super().__init__("tools", "list available Pywen tools")
-
-class BugCommand(PlaceholderCommand):
-    def __init__(self):
-        super().__init__("bug", "submit a bug report")
-
 class ChatCommand(PlaceholderCommand):
     def __init__(self):
         super().__init__("chat", "Manage conversation history. Usage: /chat <list|save|resume> <tag>")

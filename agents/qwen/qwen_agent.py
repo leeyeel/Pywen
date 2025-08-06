@@ -38,6 +38,9 @@ class QwenAgent(BaseAgent):
     """Qwen Agent with streaming iterative tool calling logic."""
     
     def __init__(self, config, cli_console=None):
+        # Initialize shared components via base class (includes tool setup)
+        super().__init__(config, cli_console)
+
         # QwenAgent specific initialization (before calling super)
         self.max_task_turns = getattr(config, 'max_task_turns', 5)
         self.current_task_turns = 0
@@ -46,9 +49,6 @@ class QwenAgent(BaseAgent):
         
         # Initialize loop detection service
         self.loop_detector = AgentLoopDetectionService()
-        
-        # Initialize shared components via base class (includes tool setup)
-        super().__init__(config, cli_console)
         
         # Initialize task continuation checker after llm_client is available
         self.task_continuation_checker = TaskContinuationChecker(self.llm_client, config)
