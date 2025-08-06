@@ -17,6 +17,7 @@ class TokenLimits:
     MODEL_LIMITS = {
         ModelProvider.QWEN: {
             "qwen3-coder-plus": 1000000,
+            "Qwen/Qwen3-Coder-480B-A35B-Instruct": 1000000,
         },
         ModelProvider.OPENAI: {
             "gpt-4": 8192,
