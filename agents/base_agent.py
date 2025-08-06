@@ -17,7 +17,7 @@ class BaseAgent(ABC):
     def __init__(self, config: Config, cli_console=None):
         self.config = config
         self.cli_console = cli_console
-
+        self.type = "BaseAgent"
         
         self.llm_client = LLMClient(config.model_config)
 

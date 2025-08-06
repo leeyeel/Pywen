@@ -278,56 +278,70 @@ async def handle_streaming_event(event, console, agent=None):
     """Handle streaming events from agent."""
     event_type = event.get("type")
     data = event.get("data", {})
+
+    if agent.type == "QwenAgent":
+        
+        if event_type == "user_message":
+            console.print(f"[bold blue]🔵 User:[/bold blue] {data['message']}")
+            console.print("")
+        
+        elif event_type == "task_continuation":
+            console.print(f"[bold yellow]🔄 Continuing Task (Turn {data['turn']}):[/bold yellow]")
+            console.print(f"[dim]{data['message']}[/dim]")
+            console.print("")
+        
+        elif event_type == "llm_stream_start":
+            print("🤖 ", end="", flush=True)
+        
+        elif event_type == "llm_chunk":
+            print(data["content"], end="", flush=True)
+        
+        elif event_type == "tool_result":
+            display_tool_result(data, console)
+        
+        elif event_type == "waiting_for_user":
+            console.print(f"💭 [yellow]{data['reasoning']}[/yellow]")
+            console.print("")
+            return "waiting_for_user"
+        
+        elif event_type == "model_continues":
+            console.print(f"🔄 [cyan]Model continues: {data['reasoning']}[/cyan]")
+            if data.get('next_action'):
+                console.print(f"🎯 [dim]Next: {data['next_action'][:100]}...[/dim]")
+            console.print("")
+        
+        elif event_type == "task_complete":
+            console.print(f"\n✅ [bold green]Task completed![/bold green]")
+            console.print("")
+            return "task_complete"
+        
+        elif event_type == "max_turns_reached":
+            console.print(f"⚠️ [bold yellow]Maximum turns reached[/bold yellow]")
+            console.print("")
+            return "max_turns_reached"
+        
+        elif event_type == "error":
+            console.print(f"❌ [red]Error: {data['error']}[/red]")
+            console.print("")
+            return "error"
+        
+        elif event_type == "trajectory_saved":
+            # Only show trajectory save info at task start
+            if data.get('is_task_start', False):
+                console.print(f"✅ [dim]Trajectory saved to: {data['path']}[/dim]")
     
-    if event_type == "user_message":
-        console.print(f"[bold blue]🔵 User:[/bold blue] {data['message']}")
-        console.print("")
-    
-    elif event_type == "task_continuation":
-        console.print(f"[bold yellow]🔄 Continuing Task (Turn {data['turn']}):[/bold yellow]")
-        console.print(f"[dim]{data['message']}[/dim]")
-        console.print("")
-    
-    elif event_type == "llm_stream_start":
-        print("🤖 ", end="", flush=True)
-    
-    elif event_type == "llm_chunk":
-        print(data["content"], end="", flush=True)
-    
-    elif event_type == "tool_result":
-        display_tool_result(data, console)
-    
-    elif event_type == "waiting_for_user":
-        console.print(f"💭 [yellow]{data['reasoning']}[/yellow]")
-        console.print("")
-        return "waiting_for_user"
-    
-    elif event_type == "model_continues":
-        console.print(f"🔄 [cyan]Model continues: {data['reasoning']}[/cyan]")
-        if data.get('next_action'):
-            console.print(f"🎯 [dim]Next: {data['next_action'][:100]}...[/dim]")
-        console.print("")
-    
-    elif event_type == "task_complete":
-        console.print(f"\n✅ [bold green]Task completed![/bold green]")
-        console.print("")
-        return "task_complete"
-    
-    elif event_type == "max_turns_reached":
-        console.print(f"⚠️ [bold yellow]Maximum turns reached[/bold yellow]")
-        console.print("")
-        return "max_turns_reached"
-    
-    elif event_type == "error":
-        console.print(f"❌ [red]Error: {data['error']}[/red]")
-        console.print("")
-        return "error"
-    
-    elif event_type == "trajectory_saved":
-        # Only show trajectory save info at task start
-        if data.get('is_task_start', False):
-            console.print(f"✅ [dim]Trajectory saved to: {data['path']}[/dim]")
-    
+    elif agent.type == "GeminiResearchDemo":
+
+        if event_type == "tool_call":
+            tool_name = data.get('name', 'Tool')
+            tool_result = data.get('result', '')
+            console.print(f"[bold blue]🤖 Tool: {tool_name}[/bold blue]")
+            console.print(f"[dim]{tool_result}[/dim]")
+            console.print("")
+            return "tool_result"
+        
+
+
     return None
 
 
