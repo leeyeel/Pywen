@@ -1,6 +1,6 @@
 # Pywen
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/) [![Python 3.12-](https://img.shields.io/badge/python-3.12-red.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Alpha](https://img.shields.io/badge/Status-Alpha-red)
 
 [**中文版**](README_ch.md) | **English**
@@ -272,7 +272,7 @@ We welcome contributions to Pywen! Here's how to get started:
 
 ## 📋 Requirements
 
-- Python 3.9+
+- Python 3.9+,<3.13
 - Qwen API key (recommended) or other supported LLM provider API keys
 - Internet connection for API access
 

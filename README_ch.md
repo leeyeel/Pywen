@@ -1,6 +1,7 @@
 # Pywen
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12-](https://img.shields.io/badge/python-3.12-red.svg)](https://www.python.org/downloads/)  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Alpha](https://img.shields.io/badge/Status-Alpha-red)
 
 **中文版** | [English](README.md)
@@ -249,7 +250,7 @@ trajectories/trajectory_xxxxxx.json
 
 ## 📋 要求
 
-- Python 3.9+
+- Python 3.9+,<3.13
 - 通义千问 API 密钥（推荐）或其他支持的 LLM 提供商 API 密钥
 - 用于 API 访问的互联网连接
 
