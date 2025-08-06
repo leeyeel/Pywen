@@ -175,12 +175,12 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
             
             # Handle shell commands (!)
             if user_input.startswith('!'):
-                context = {'console': console, 'agent': current_agent}  # 修改这行：使用current_agent
+                context = {'console': console, 'agent': current_agent}
                 await command_processor._handle_shell_command(user_input, context)
                 continue
             
             # Handle slash commands (/)
-            context = {'console': console, 'agent': current_agent, 'config': console.config}  # 修改这行：添加config和使用current_agent
+            context = {'console': console, 'agent': current_agent, 'config': console.config} 
             command_result = await command_processor.process_command(user_input, context)
             
             # 添加这段：检查agent是否被切换
@@ -198,7 +198,7 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
             # Execute user request
             try:
                 current_task = asyncio.create_task(
-                    execute_streaming_with_cancellation(current_agent, user_input, console, cancel_event)  # 修改这行：使用current_agent
+                    execute_streaming_with_cancellation(current_agent, user_input, console, cancel_event)  
                 )
                 
                 result = await current_task
@@ -220,6 +220,9 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
             
             except asyncio.CancelledError:
                 console.print("\n[yellow]⚠️ Operation cancelled by user[/yellow]")
+            except UnicodeError as e:
+                console.print(f"Unicode 错误: {e}", "red")
+                continue
             except KeyboardInterrupt:
                 console.print("\n[yellow]⚠️ Operation interrupted by user[/yellow]")
                 if current_task and not current_task.done():
@@ -236,6 +239,9 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
         except EOFError:
             console.print("\nGoodbye!", "yellow")
             break
+        except UnicodeError as e:
+            console.print(f"Unicode 错误: {e}", "red")
+            continue
         except Exception as e:
             console.print(f"Error: {e}", "red")
             in_task_execution = False

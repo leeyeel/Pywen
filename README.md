@@ -116,15 +116,21 @@ Once you enter the Pywen command-line interface, you can:
 
 ```bash
 # System commands
-/help, /?     - Show help information
-/clear        - Clear screen and conversation history
-/status       - Show agent status
-/config       - Show current configuration
-/stats        - Check session statistics (API calls, tokens, etc.)
-/quit, /exit  - Exit Pywen
+/about       show version info
+/auth        change the auth method
+/clear       clear the screen and conversation history
+/help        for help on pywen code
+/memory      Commands for interacting with memory.show
+  Show       the current memory contents.add
+  Add        content to the memory.refresh
+  Refresh    the memory from the source.
+/stats       check session stats. Usage:/stats         
+/tools       list available Pywen tools 
+/bug         submit a bug report
+/quit        exit the cli
+!            shell command                                  
 
 # Special commands
-@<file>       - Include file content in prompt
 !<command>    - Execute shell command
 
 # Keyboard shortcuts

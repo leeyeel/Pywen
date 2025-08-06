@@ -118,19 +118,25 @@ Model: qwen3-coder-plus
 
 ```bash
 # 系统命令
-/help, /?     - 显示帮助信息
-/clear        - 清屏和对话历史
-/status       - 显示智能体状态
-/config       - 显示当前配置
-/stats        - 检查会话统计（API 调用、Token等）
-/quit, /exit  - 退出 Pywen
+/about       show version info
+/auth        change the auth method
+/clear       clear the screen and conversation history
+/help        for help on pywen code
+/memory      Commands for interacting with memory.show
+  Show       the current memory contents.add
+  Add        content to the memory.refresh
+  Refresh    the memory from the source.
+/stats       check session stats. Usage:/stats         
+/tools       list available Pywen tools 
+/bug         submit a bug report
+/quit        exit the cli
+!            shell command                                  
 
 # 特殊命令
-@<file>       - 在提示中包含文件内容
-!<command>    - 执行 shell 命令
+!<command>    - Execute shell command
 
 # 键盘快捷键
-Ctrl+Y        - 切换 YOLO 模式（自动批准所有操作 - 请谨慎使用！）
+Ctrl+Y        - Toggle YOLO mode (auto-approve all operations - use with caution!)
 
 # 直接输入任务描述即可执行智能体
 ```
