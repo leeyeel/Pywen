@@ -39,7 +39,7 @@ Pywen is a Python-based CLI tool with excellent Python ecosystem compatibility a
 ### Installation
 
 ```bash 
-pip install pywen-agent
+pip install pywen
 ```
 
 <details>

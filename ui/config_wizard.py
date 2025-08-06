@@ -370,14 +370,63 @@ class ConfigWizard:
         with open(self.config_file, 'w', encoding='utf-8') as f:
             json.dump(config_data, f, indent=2, ensure_ascii=False)
         
-        # 同时保存到 .env (备用)
-        env_content = f"QWEN_API_KEY={pywen_config['api_key']}\n"
-        with open(self.env_file, 'w', encoding='utf-8') as f:
-            f.write(env_content)
+        # 保存到 .env (备用) - 避免重复添加
+        self._update_env_file(pywen_config)
         
         self.console.print(f"\n[green]✅ Configuration saved to {self.config_file}[/green]")
         self.console.print(f"[green]✅ API Key saved to {self.env_file}[/green]")
-    
+
+    def _update_env_file(self, pywen_config: Dict[str, Any]):
+        """更新.env文件，避免重复添加环境变量"""
+        # 要设置的环境变量
+        env_vars = {
+            "QWEN_API_KEY": pywen_config['api_key']
+        }
+        
+        # 只有当值存在时才添加其他API密钥
+        if pywen_config.get("serper_api_key"):
+            env_vars["SERPER_API_KEY"] = pywen_config['serper_api_key']
+        
+        if pywen_config.get("jina_api_key"):
+            env_vars["JINA_API_KEY"] = pywen_config['jina_api_key']
+        
+        # 读取现有的.env文件内容
+        existing_lines = []
+        if os.path.exists(self.env_file):
+            with open(self.env_file, 'r', encoding='utf-8') as f:
+                existing_lines = f.readlines()
+        
+        # 处理现有行，更新已存在的变量
+        updated_lines = []
+        processed_keys = set()
+        
+        for line in existing_lines:
+            stripped_line = line.strip()
+            # 跳过空行和注释行
+            if not stripped_line or stripped_line.startswith('#'):
+                updated_lines.append(line)
+                continue
+            
+            # 解析键值对
+            if '=' in stripped_line:
+                key = stripped_line.split('=', 1)[0]
+                # 如果这是我们想要更新的键，则替换值
+                if key in env_vars:
+                    updated_lines.append(f"{key}={env_vars[key]}\n")
+                    processed_keys.add(key)
+                    continue
+            
+            # 保留其他行
+            updated_lines.append(line)
+        
+        # 添加新的环境变量（在文件末尾）
+        for key, value in env_vars.items():
+            if key not in processed_keys:
+                updated_lines.append(f"\n{key}={value}\n")
+        
+        # 写回文件
+        with open(self.env_file, 'w', encoding='utf-8') as f:
+            f.writelines(updated_lines)
     def run(self):
         """运行配置向导"""
         self.console.print(Panel.fit(

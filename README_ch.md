@@ -40,7 +40,7 @@ Pywen 是一个基于 Python 开发的 CLI 工具，具有良好的 Python 生�
 ### 安装
 
 ```bash 
-pip install pywen-agent
+pip install pywen
 ```
 
 <details>
