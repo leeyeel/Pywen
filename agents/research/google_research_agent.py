@@ -80,10 +80,35 @@ Follow the research process step by step and use the appropriate prompts for eac
         )
     def _get_summary_generator_prompt(self, topic: str, search_results: Optional[List[Any]] = None) -> str:
         """生成总结生成提示"""
+        # 格式化搜索结果，包含网页内容
+        formatted_results = []
+        for query_result in search_results:
+            if isinstance(query_result, dict) and 'results' in query_result:
+                query = query_result.get('query', '')
+                formatted_results.append(f"查询: {query}")
+                
+                for i, result in enumerate(query_result['results'], 1):
+                    title = result.get('title', '')
+                    url = result.get('url', '')
+                    snippet = result.get('snippet', '')
+                    web_content = result.get('web_content', '')
+                    
+                    formatted_results.append(f"{i}. 标题: {title}")
+                    formatted_results.append(f"   URL: {url}")
+                    formatted_results.append(f"   摘要: {snippet}")
+                    
+                    if web_content:
+                        # 限制网页内容长度，避免过长
+                        content_preview = web_content[:5000] + "..." if len(web_content) > 5000 else web_content
+                        formatted_results.append(f"   详细内容: {content_preview}")
+                    
+                    formatted_results.append("")  # 空行分隔
+        
+        results_text = "\n".join(formatted_results)
         
         return summary_generator_instructions.format(
             research_topic=topic,
-            search_results=search_results
+            search_results=results_text
         )
 
     def _get_reflection_prompt(self, topic: str) -> str:
@@ -234,6 +259,7 @@ Follow the research process step by step and use the appropriate prompts for eac
                     search_results.append(data["metadata"])
                 if data and "result" in data and data["result"]:
                     str_search_results.append(data["result"])
+        
         # 2. 获取网页内容
         if search_results:
             fetch_prompt = self._get_web_fetch_executor_prompt(self.research_state['queries'], str_search_results)
@@ -242,27 +268,44 @@ Follow the research process step by step and use the appropriate prompts for eac
                 tools=self.available_tools
             )
             fetch_results = {}
+            
             if fetch_response.content:
                 yield {"type": "fetch", "data": {"content": fetch_response.content}}
             
             if fetch_response.tool_calls:
+                # 先输出工具调用信息
+                for tool_call in fetch_response.tool_calls:
+                    yield {"type": "tool_call", "data": {"tool_call": tool_call}}
+                    
                 async for result in self._process_tool_calls(fetch_response.tool_calls):
                     yield result
                     data = result.get('data')
-                    if data and 'meta' in data and 'result' in data:
-                        fetch_results[data['meta']['url']] = data['result']
+                    # 从工具结果中提取URL和内容
+                    if (data and 'result' in data and data['result'] and 
+                        'call_id' in data):
+                        # 从tool_calls中找到对应的URL
+                        for tool_call in fetch_response.tool_calls:
+                            if tool_call.call_id == data['call_id']:
+                                url = tool_call.arguments.get('url')
+                                if url:
+                                    fetch_results[url] = data['result']
+                                break
             
             # 合并搜索结果和网页内容
-            for query_result in search_results:
-                if isinstance(query_result, list):
+            for query_dict in search_results:
+                if isinstance(query_dict, dict):
+                    query_result = query_dict.get('results')
                     for search_result in query_result:
-                        if isinstance(search_result, dict) and search_result.get('url') in fetch_results:
-                            search_result['web_content'] = fetch_results[search_result['url']]
-        print("Search results:")
-        print(search_results)
+                        if isinstance(search_result, dict):
+                            url = search_result.get('url')
+                            if url and url in fetch_results:
+                                search_result['web_content'] = fetch_results[url]
+        
+        self.research_state['search_results'].append(search_results)
         # 3. 生成总结
         summary_prompt = self._get_summary_generator_prompt(self.research_state['topic'], search_results)
         summary_response = await self.llm_client.generate_response([LLMMessage(role="user", content=summary_prompt)])
+
         yield {"type": "summary", "data": {"content": summary_response.content}}
         
         # 更新研究状态

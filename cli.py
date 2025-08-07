@@ -348,7 +348,7 @@ async def handle_streaming_event(event, console, agent=None):
         elif event_type == "fetch":
             console.print(f"{data['content']}")
         elif event_type == "summary":
-            console.print(f"📝Summary: {data['summaries']}","yellow",True)
+            console.print(f"📝Summary: {data['content']}","yellow",True)
             console.print("")
         elif event_type == "tool_call":
             handle_tool_call_event(data, console)
