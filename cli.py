@@ -347,15 +347,16 @@ async def handle_streaming_event(event, console, agent=None):
             console.print(f"{data['content']}")
         elif event_type == "fetch":
             console.print(f"{data['content']}")
-        elif event_type == "summary":
-            console.print(f"📝Summary: {data['content']}","yellow",True)
-            console.print("")
+        elif event_type == "summary_start":
+            print(f"\n📝Summary", end="", flush=True)
+        elif event_type == "summary_chunk":
+            print(f"{data['content']}", end="", flush=True)
         elif event_type == "tool_call":
             handle_tool_call_event(data, console)
         elif event_type == "tool_result":
             display_tool_result(data, console)
         elif event_type == "final_answer":
-            console.print(f"📄final answer: {data['content']}","white",True)
+            console.print(f"\n📄final answer: {data['content']}","yellow",True)
         elif event_type == "error":
             console.print(f"❌ Error: {data['error']}",color="red")
         

@@ -78,8 +78,8 @@ class CommandProcessor:
         # 未知命令
         console = context.get('console')
         if console:
-            console.print(f"[red]Unknown command: /{command_name}[/red]")
-            console.print("[dim]Type '/help' to see available commands.[/dim]")
+            console.print(f"Unknown command: /{command_name}", "red")
+            console.print("Type '/help' to see available commands.","dim")
         
         return True  # 返回True表示已处理（即使是错误）
     

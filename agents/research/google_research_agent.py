@@ -345,30 +345,51 @@ Follow the research process step by step and use the appropriate prompts for eac
             model="web_fetcher_generator",
             current_task=self.research_state['topic'],
         )
-        # 3. 生成总结
+        # 3. 生成总结 - 流式输出
         summary_prompt = self._get_summary_generator_prompt(self.research_state['topic'], search_results)
-        summary_response = await self.llm_client.generate_response([LLMMessage(role="user", content=summary_prompt)])
-
-        self.conversation_history.append(LLMMessage(role="assistant", content=summary_response.content))
-        self.trajectory_recorder.record_llm_interaction(
-            messages= self.conversation_history,
-            response=LLMResponse(
-                content=summary_response.content,
-                model=self.config.model_config.model,
-                usage=summary_response.usage,
-                tool_calls=None,
-            ),
-            provider=self.config.model_config.provider.value,
-            model="summary_generator",
-            current_task=self.research_state['topic'],
-        )
-        yield {"type": "summary", "data": {"content": summary_response.content}}
         
-        # 更新研究状态
-        if isinstance(self.research_state["summaries"], list):
-            self.research_state["summaries"].append(summary_response.content)
-        else:
-            self.research_state["summaries"] = [summary_response.content]
+        accumulated_content = ""
+        final_response = None
+        
+        yield {"type": "summary_start", "data": {}}
+        stream_generator = await self.llm_client.generate_response(
+            messages=[LLMMessage(role="user", content=summary_prompt)], 
+            stream=True
+        )
+        
+        async for summary_response_chunk in stream_generator:
+            final_response = summary_response_chunk
+            
+            # 流式输出内容增量
+            if summary_response_chunk.content:
+                current_content = summary_response_chunk.content
+                if current_content != accumulated_content:
+                    new_content = current_content[len(accumulated_content):]
+                    if new_content:
+                        yield {"type": "summary_chunk", "data": {"content": new_content}}
+                    accumulated_content = current_content
+
+        # 流式结束后处理
+        if final_response:
+            self.conversation_history.append(LLMMessage(role="assistant", content=final_response.content))
+            self.trajectory_recorder.record_llm_interaction(
+                messages=self.conversation_history,
+                response=LLMResponse(
+                    content=final_response.content,
+                    model=self.config.model_config.model,
+                    usage=final_response.usage,
+                    tool_calls=None,
+                ),
+                provider=self.config.model_config.provider.value,
+                model="summary_generator",
+                current_task=self.research_state['topic'],
+            )
+            
+            # 更新研究状态
+            if isinstance(self.research_state["summaries"], list):
+                self.research_state["summaries"].append(final_response.content)
+            else:
+                self.research_state["summaries"] = [final_response.content]
     async def _process_tool_calls(self, tool_calls):
         """处理工具调用"""
         try:
