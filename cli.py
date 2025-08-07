@@ -63,7 +63,7 @@ async def main():
         # After wizard completes, check if config was created
         if not os.path.exists(args.config):
             console = Console()
-            console.print("Configuration was not created. Exiting.", style="red")
+            console.print("Configuration was not created. Exiting.", color="red")
             sys.exit(1)
     
     # Load configuration
@@ -72,8 +72,8 @@ async def main():
         config.session_id = session_id
     except Exception as e:
         console = Console()
-        console.print(f"Error loading configuration: {e}", style="red")
-        console.print("Configuration may be invalid. Starting configuration wizard...", style="yellow")
+        console.print(f"Error loading configuration: {e}", color="red")
+        console.print("Configuration may be invalid. Starting configuration wizard...", color="yellow")
         
         # Import and run config wizard
         from ui.config_wizard import ConfigWizard
@@ -85,7 +85,7 @@ async def main():
             config = load_config_with_cli_overrides(args.config, args)
             config.session_id = session_id
         except Exception as e2:
-            console.print(f"Still unable to load configuration: {e2}", style="red")
+            console.print(f"Still unable to load configuration: {e2}", color="red")
             sys.exit(1)
     
     # Create console and agent
@@ -97,7 +97,7 @@ async def main():
     
     # Display current mode
     mode_status = "🚀 YOLO" if config.get_approval_mode() == ApprovalMode.YOLO else "🔒 CONFIRM"
-    console.print(f"[dim]Mode: {mode_status} (Ctrl+Y to toggle)[/dim]")
+    console.print(f"Mode: {mode_status} (Ctrl+Y to toggle)")
 
     # Start interactive interface
     console.start_interactive_mode()
@@ -219,12 +219,12 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
                     cancel_event.clear()
             
             except asyncio.CancelledError:
-                console.print("\n[yellow]⚠️ Operation cancelled by user[/yellow]")
+                console.print("\n⚠️ Operation cancelled by user",color="yellow")
             except UnicodeError as e:
                 console.print(f"Unicode 错误: {e}", "red")
                 continue
             except KeyboardInterrupt:
-                console.print("\n[yellow]⚠️ Operation interrupted by user[/yellow]")
+                console.print("\n⚠️ Operation interrupted by user",color="yellow")
                 if current_task and not current_task.done():
                     current_task.cancel()
             finally:
@@ -253,7 +253,7 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
         async for event in agent.run(user_input):
             # Check if cancelled
             if cancel_event.is_set():
-                console.print("\n[yellow]⚠️ Operation cancelled by user[/yellow]")
+                console.print("\n⚠️ Operation cancelled by user",color="yellow")
                 return "cancelled"
             
             # Handle streaming event
@@ -273,10 +273,10 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
         return "completed"
         
     except asyncio.CancelledError:
-        console.print("\n[yellow]⚠️ Task was cancelled[/yellow]")
+        console.print("\n⚠️ Task was cancelled","yellow")
         return "cancelled"
     except Exception as e:
-        console.print(f"\n[red]Error: {e}[/red]")
+        console.print(f"\nError: {e}","red")
         return "error"
 
 
@@ -288,12 +288,12 @@ async def handle_streaming_event(event, console, agent=None):
     if agent.type == "QwenAgent":
         
         if event_type == "user_message":
-            console.print(f"[bold blue]🔵 User:[/bold blue] {data['message']}")
+            console.print(f"🔵 User:{data['message']}","blue",True)
             console.print("")
         
         elif event_type == "task_continuation":
-            console.print(f"[bold yellow]🔄 Continuing Task (Turn {data['turn']}):[/bold yellow]")
-            console.print(f"[dim]{data['message']}[/dim]")
+            console.print(f"🔄 Continuing Task (Turn {data['turn']}):","yellow",True)
+            console.print(f"{data['message']}")
             console.print("")
         
         elif event_type == "llm_stream_start":
@@ -306,56 +306,56 @@ async def handle_streaming_event(event, console, agent=None):
             display_tool_result(data, console)
         
         elif event_type == "waiting_for_user":
-            console.print(f"💭 [yellow]{data['reasoning']}[/yellow]")
+            console.print(f"💭{data['reasoning']}","yellow")
             console.print("")
             return "waiting_for_user"
         
         elif event_type == "model_continues":
-            console.print(f"🔄 [cyan]Model continues: {data['reasoning']}[/cyan]")
+            console.print(f"🔄 Model continues: {data['reasoning']}","cyan")
             if data.get('next_action'):
-                console.print(f"🎯 [dim]Next: {data['next_action'][:100]}...[/dim]")
+                console.print(f"🎯 Next: {data['next_action'][:100]}...","dim")
             console.print("")
         
         elif event_type == "task_complete":
-            console.print(f"\n✅ [bold green]Task completed![/bold green]")
+            console.print(f"\n✅ Task completed!","green",True)
             console.print("")
             return "task_complete"
         
         elif event_type == "max_turns_reached":
-            console.print(f"⚠️ [bold yellow]Maximum turns reached[/bold yellow]")
+            console.print(f"⚠️ Maximum turns reached","yellow",True)
             console.print("")
             return "max_turns_reached"
         
         elif event_type == "error":
-            console.print(f"❌ [red]Error: {data['error']}[/red]")
+            console.print(f"❌ Error: {data['error']}","red")
             console.print("")
             return "error"
         
         elif event_type == "trajectory_saved":
             # Only show trajectory save info at task start
             if data.get('is_task_start', False):
-                console.print(f"✅ [dim]Trajectory saved to: {data['path']}[/dim]")
+                console.print(f"✅ Trajectory saved to: {data['path']}","dim")
     
     elif agent.type == "GeminiResearchDemo":
         if event_type == "user_message":
-            console.print(f"[bold blue]🔵 User:[/bold blue] {data['message']}")
+            console.print(f"🔵 User:{data['message']}","blue", True)
             console.print("")
         elif event_type == "query":
-            console.print(f"[dim]🔍Query: {data['queries']}[/dim]")
+            console.print(f"🔍Query: {data['queries']}","blue")
             console.print("")
         elif event_type == "search":
             console.print(f"{data['content']}")
         elif event_type == "fetch":
             console.print(f"{data['content']}")
         elif event_type == "summary":
-            console.print(f"[bold yellow]📝Summary: {data['summaries']}[/bold yellow]")
+            console.print(f"📝Summary: {data['summaries']}","yellow",True)
             console.print("")
         elif event_type == "tool_call":
             handle_tool_call_event(data, console)
         elif event_type == "tool_result":
             display_tool_result(data, console)
         elif event_type == "error":
-            console.print(f"❌ [red]Error: {data['error']}[/red]")
+            console.print(f"❌ Error: {data['error']}",color="red")
         
 
 
