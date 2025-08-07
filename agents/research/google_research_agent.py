@@ -38,6 +38,7 @@ class GeminiResearchDemo(BaseAgent):
             "iteration": 0
         }
         self.available_tools = self.tool_registry.list_tools()
+        self.max_iterations = 10
     
     def _build_system_prompt(self) -> str:
         """构建研究专用的系统提示"""
@@ -153,14 +154,14 @@ Follow the research process step by step and use the appropriate prompts for eac
             yield queries
 
         # 2. 搜索
-        async for search in self.web_search():
+        async for search in self.web_search(self.research_state['queries']):
             yield search
 
         # Google LangGraph 循环逻辑
-        while True:
+        while self.research_state["iteration"]:
             try:
+                self.research_state["iteration"] += 1
                 # 3. 反思搜索结果
-                yield {"type": "step", "data": {"step": "reflecting"}}
                 reflection_prompt = self._get_reflection_prompt(self.research_state["topic"])
                 reflection_response = await self.llm_client.generate_response([LLMMessage(role="user", content=reflection_prompt)])
                 
@@ -181,7 +182,7 @@ Follow the research process step by step and use the appropriate prompts for eac
                 is_sufficient = reflection_data.get("is_sufficient", False)
                 
                 # 4.检查研究是否充分，如果充分就退出循环
-                if is_sufficient:
+                if is_sufficient or self.research_state['iteration']> self.max_iterations:
                     break
                 else:
                     # 继续处理follow_up_queries的搜索内容
@@ -189,7 +190,7 @@ Follow the research process step by step and use the appropriate prompts for eac
                     if follow_up_queries:
                         # 更新查询并进行新的搜索
                         self.research_state["queries"] = follow_up_queries
-                        async for search in self.web_search():
+                        async for search in self.web_search(follow_up_queries):
                             yield search
 
             except Exception as e:
@@ -233,11 +234,12 @@ Follow the research process step by step and use the appropriate prompts for eac
             model="query_generator",
             current_task=user_message,
         )
-    async def web_search(self):
+        
+    async def web_search(self,query:List[str]):
         """主要工作逻辑，先搜索找到相关的URLs，然后根据URL进行精读，最终生成总结"""
 
         # 1. 搜索URLs
-        search_prompt = self._get_web_search_executor_prompt(self.research_state['queries'])
+        search_prompt = self._get_web_search_executor_prompt(query)
         search_response = await self.llm_client.generate_response(
             messages=[LLMMessage(role="user", content=search_prompt)],
             tools=self.available_tools
@@ -246,6 +248,7 @@ Follow the research process step by step and use the appropriate prompts for eac
         str_search_results = []
         if search_response.content:
             yield {"type": "search", "data": {"content": search_response.content}}
+            self.conversation_history.append(LLMMessage(role="assistant", content=search_response.content))
         
         if search_response.tool_calls:
             # 先输出工具调用信息
@@ -259,7 +262,27 @@ Follow the research process step by step and use the appropriate prompts for eac
                     search_results.append(data["metadata"])
                 if data and "result" in data and data["result"]:
                     str_search_results.append(data["result"])
+                # 添加到对话历史
+                tool_msg = LLMMessage(
+                    role="tool",
+                    content=data["result"],
+                    tool_call_id=tool_call.call_id
+                )
+                self.conversation_history.append(tool_msg)
         
+        self.trajectory_recorder.record_llm_interaction(
+            messages= self.conversation_history,
+            response=LLMResponse(
+                content=search_response.content,
+                model=self.config.model_config.model,
+                usage=search_response.usage,
+                tool_calls=search_response.tool_calls,
+            ),
+            provider=self.config.model_config.provider.value,
+            model="web_searcher_generator",
+            current_task=self.research_state['topic'],
+        )
+
         # 2. 获取网页内容
         if search_results:
             fetch_prompt = self._get_web_fetch_executor_prompt(self.research_state['queries'], str_search_results)
@@ -271,6 +294,7 @@ Follow the research process step by step and use the appropriate prompts for eac
             
             if fetch_response.content:
                 yield {"type": "fetch", "data": {"content": fetch_response.content}}
+                self.conversation_history.append(LLMMessage(role="assistant", content=fetch_response.content))
             
             if fetch_response.tool_calls:
                 # 先输出工具调用信息
@@ -289,6 +313,13 @@ Follow the research process step by step and use the appropriate prompts for eac
                                 url = tool_call.arguments.get('url')
                                 if url:
                                     fetch_results[url] = data['result']
+                                    # 添加到对话历史
+                                    tool_msg = LLMMessage(
+                                        role="tool",
+                                        content=data['result'],
+                                        tool_call_id=tool_call.call_id
+                                    )
+                                    self.conversation_history.append(tool_msg)
                                 break
             
             # 合并搜索结果和网页内容
@@ -302,10 +333,35 @@ Follow the research process step by step and use the appropriate prompts for eac
                                 search_result['web_content'] = fetch_results[url]
         
         self.research_state['search_results'].append(search_results)
+        self.trajectory_recorder.record_llm_interaction(
+            messages= self.conversation_history,
+            response=LLMResponse(
+                content=fetch_response.content,
+                model=self.config.model_config.model,
+                usage=search_response.usage,
+                tool_calls=fetch_response.tool_calls,
+            ),
+            provider=self.config.model_config.provider.value,
+            model="web_fetcher_generator",
+            current_task=self.research_state['topic'],
+        )
         # 3. 生成总结
         summary_prompt = self._get_summary_generator_prompt(self.research_state['topic'], search_results)
         summary_response = await self.llm_client.generate_response([LLMMessage(role="user", content=summary_prompt)])
 
+        self.conversation_history.append(LLMMessage(role="assistant", content=summary_response.content))
+        self.trajectory_recorder.record_llm_interaction(
+            messages= self.conversation_history,
+            response=LLMResponse(
+                content=summary_response.content,
+                model=self.config.model_config.model,
+                usage=summary_response.usage,
+                tool_calls=None,
+            ),
+            provider=self.config.model_config.provider.value,
+            model="summary_generator",
+            current_task=self.research_state['topic'],
+        )
         yield {"type": "summary", "data": {"content": summary_response.content}}
         
         # 更新研究状态

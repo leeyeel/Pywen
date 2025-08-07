@@ -354,6 +354,8 @@ async def handle_streaming_event(event, console, agent=None):
             handle_tool_call_event(data, console)
         elif event_type == "tool_result":
             display_tool_result(data, console)
+        elif event_type == "final_answer":
+            console.print(f"📄final answer: {data['content']}","white",True)
         elif event_type == "error":
             console.print(f"❌ Error: {data['error']}",color="red")
         
