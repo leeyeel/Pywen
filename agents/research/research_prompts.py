@@ -38,12 +38,16 @@ web_search_executor_instructions = """Conduct targeted web searches to gather th
 
 Instructions:
 - Query should ensure that the most current information is gathered. The current date is {current_date}.
-- Use web_search tool to conduct multiple, diverse searches to gather comprehensive information.
+- You MUST use the web_search tool for EACH of the provided search queries below.
+- Do NOT combine or merge the queries - search each one individually.
+- Each query targets a specific aspect of the research topic and should be searched separately.
 - Identify the most relevant URLs from search results for detailed content fetching.
 - Only include the information found in the search results, don't make up any information.
 
-Research Topic:
+Search Queries to Execute:
 {research_topic}
+
+IMPORTANT: Call the web_search tool once for each query listed above. Do not skip any queries.
 """
 
 web_fetch_executor_instructions = """Fetch detailed content from the provided URLs to gather in-depth information on "{research_topic}".

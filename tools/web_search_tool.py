@@ -103,7 +103,7 @@ class WebSearchTool(BaseTool):
             )
         
         query = kwargs["query"]
-        num_results = kwargs.get("num_results", 10)
+        num_results = kwargs.get("num_results", 5)
         
         try:
             # Prepare request

@@ -113,6 +113,7 @@ Follow the research process step by step and use the appropriate prompts for eac
         self.research_state["topic"] = user_message
         self.research_state["iteration"] = 0
         yield {"type": "user_message", "data": {"message": user_message}}
+        
         # Start trajectory recording
         self.trajectory_recorder.start_recording(
             task=user_message,
@@ -120,33 +121,24 @@ Follow the research process step by step and use the appropriate prompts for eac
             model=self.config.model_config.model,
             max_steps=None
         )
-        self.conversation_history.append(LLMMessage(role="user",content=user_message))
+        self.conversation_history.append(LLMMessage(role="user", content=user_message))
+        
         # 1. 首次生成查询
         async for queries in self.generate_queries(user_message):
-            # yield query事件给CLI消费
             yield queries
 
         # 2. 搜索
         async for search in self.web_search():
-            # yield summary事件给CLI消费
             yield search
 
         # Google LangGraph 循环逻辑
         while True:
             try:
-                
                 # 3. 反思搜索结果
                 yield {"type": "step", "data": {"step": "reflecting"}}
-                reflection_prompt = self._get_reflection_prompt(self.research_state["summaries"])
+                reflection_prompt = self._get_reflection_prompt(self.research_state["topic"])
                 reflection_response = await self.llm_client.generate_response([LLMMessage(role="user", content=reflection_prompt)])
-                # ```json输出格式
-                # {{
-                #     "is_sufficient": true, // or false
-                #     "knowledge_gap": "The summary lacks information about performance metrics and benchmarks", // "" if is_sufficient is true
-                #     "follow_up_queries": ["What are typical performance benchmarks and metrics used to evaluate [specific technology]?"] // [] if is_sufficient is true
-                # }}
-                # ```
-
+                
                 # 添加reflection结果到对话历史
                 self.conversation_history.append(LLMMessage(
                     role="assistant", 
@@ -154,21 +146,26 @@ Follow the research process step by step and use the appropriate prompts for eac
                 ))
 
                 # 提取反思生成响应中的JSON数据
-                reflection_data = json.loads(reflection_response.content)
+                json_content = _extract_json(reflection_response.content)
+                try:
+                    reflection_data = json.loads(json_content)
+                except json.JSONDecodeError as e:
+                    yield {"type": "error", "data": {"error": f"Failed to parse reflection response JSON: {str(e)}. Content: {reflection_response.content}"}}
+                    break
+                
                 is_sufficient = reflection_data.get("is_sufficient", False)
+                
                 # 4.检查研究是否充分，如果充分就退出循环
                 if is_sufficient:
                     break
                 else:
-                    ###继续处理follow_up_queries的搜索内容
+                    # 继续处理follow_up_queries的搜索内容
                     follow_up_queries = reflection_data.get("follow_up_queries", [])
-                    search_prompt = self._get_web_searcher_prompt(follow_up_queries)
-                    search_response = await self.llm_client.generate_response([LLMMessage(role="user", content=search_prompt)])
-                    
-                    if search_response.tool_calls:
-                        async for result in self._process_tool_calls(search_response.tool_calls):
-                            yield result
-
+                    if follow_up_queries:
+                        # 更新查询并进行新的搜索
+                        self.research_state["queries"] = follow_up_queries
+                        async for search in self.web_search():
+                            yield search
 
             except Exception as e:
                 yield {"type": "error", "data": {"error": str(e)}}
@@ -212,57 +209,108 @@ Follow the research process step by step and use the appropriate prompts for eac
             current_task=user_message,
         )
     async def web_search(self):
-        # 主要工作逻辑，先搜索找到相关的URLs，然后根据URL进行精读，最终生成总结
+        """主要工作逻辑，先搜索找到相关的URLs，然后根据URL进行精读，最终生成总结"""
 
         # 1. 搜索URLs
         search_prompt = self._get_web_search_executor_prompt(self.research_state['queries'])
         search_response = await self.llm_client.generate_response(
             messages=[LLMMessage(role="user", content=search_prompt)],
-            tools=self.availabe_tools
-            )
-        print(search_response)
+            tools=self.available_tools
+        )
         search_results = []
+        str_search_results = []
         if search_response.content:
             yield {"type": "search", "data": {"content": search_response.content}}
+        
         if search_response.tool_calls:
+            # 先输出工具调用信息
+            for tool_call in search_response.tool_calls:
+                yield {"type": "tool_call", "data": {"tool_call": tool_call}}
+
             async for result in self._process_tool_calls(search_response.tool_calls):
                 yield result
-                search_results.append(result.metadata)
-
+                data = result.get("data")
+                if data and "metadata" in data and data["metadata"]:
+                    search_results.append(data["metadata"])
+                if data and "result" in data and data["result"]:
+                    str_search_results.append(data["result"])
         # 2. 获取网页内容
-        fetch_prompt = self._get_web_fetch_executor_prompt(self.research_state['queries'], search_results)
-        fetch_response = await self.llm_client.generate_response([LLMMessage(role="user", content=fetch_prompt)])
-
-        fetch_results = {}
-        if fetch_response.content:
-            yield {"type": "fetch", "data": {"content": fetch_response.content}}
-        if fetch_response.tool_calls:
-            async for result in self._process_tool_calls(fetch_response.tool_calls):
-                yield result
-                fetch_results[result.url] = result.result
-        
-        for query_result in search_results:
-            for search_result in query_result:
-                if search_result['url'] in fetch_results:
-                    search_result['web_content'] = fetch_results[search_result['url']]
+        if search_results:
+            fetch_prompt = self._get_web_fetch_executor_prompt(self.research_state['queries'], str_search_results)
+            fetch_response = await self.llm_client.generate_response(
+                [LLMMessage(role="user", content=fetch_prompt)],
+                tools=self.available_tools
+            )
+            fetch_results = {}
+            if fetch_response.content:
+                yield {"type": "fetch", "data": {"content": fetch_response.content}}
+            
+            if fetch_response.tool_calls:
+                async for result in self._process_tool_calls(fetch_response.tool_calls):
+                    yield result
+                    data = result.get('data')
+                    if data and 'meta' in data and 'result' in data:
+                        fetch_results[data['meta']['url']] = data['result']
+            
+            # 合并搜索结果和网页内容
+            for query_result in search_results:
+                if isinstance(query_result, list):
+                    for search_result in query_result:
+                        if isinstance(search_result, dict) and search_result.get('url') in fetch_results:
+                            search_result['web_content'] = fetch_results[search_result['url']]
+        print("Search results:")
+        print(search_results)
         # 3. 生成总结
-        summary_prompt = self._get_summary_generator_prompt(self.research_state['queries'], search_results)
+        summary_prompt = self._get_summary_generator_prompt(self.research_state['topic'], search_results)
         summary_response = await self.llm_client.generate_response([LLMMessage(role="user", content=summary_prompt)])
         yield {"type": "summary", "data": {"content": summary_response.content}}
-        self.research_state["summaries"] = summary_response.content
+        
+        # 更新研究状态
+        if isinstance(self.research_state["summaries"], list):
+            self.research_state["summaries"].append(summary_response.content)
+        else:
+            self.research_state["summaries"] = [summary_response.content]
     async def _process_tool_calls(self, tool_calls):
         """处理工具调用"""
-        # 执行工具
-        results = await self.tool_executor.execute_tools(tool_calls) #ToolResult
-        self.research_state["summaries"].extend(results)
-        async for result in results:
-            yield {"type": "tool_result", "data": {"result": result}}
-            # 添加工具结果到对话历史
-            self.conversation_history.append(LLMMessage(
-                role= "tool",
-                content= str(result),
-                tool_call_id= result.tool_call_id
-            )) 
+        try:
+            # 执行工具
+            results = await self.tool_executor.execute_tools(tool_calls)
+            
+            # 确保结果数量匹配
+            if len(results) != len(tool_calls):
+                yield {"type": "error", "data": {"error": f"Tool calls count ({len(tool_calls)}) doesn't match results count ({len(results)})"}}
+                return
+            
+            # 按索引配对处理
+            for i, (tool_call, result) in enumerate(zip(tool_calls, results)):
+                
+                yield {"type": "tool_result", "data": {
+                    "call_id": tool_call.call_id,
+                    "name": tool_call.name,
+                    "metadata": getattr(result, 'metadata', None),
+                    "result": getattr(result, 'result', None),
+                    "url": getattr(result, 'url', None),
+                    "success": getattr(result, 'success', True),
+                    "error": getattr(result, 'error', None)
+                }}
+                
+                # 添加工具结果到对话历史
+                content = ""
+                if hasattr(result, 'result') and result.result:
+                    content = str(result.result)
+                elif hasattr(result, 'error') and result.error:
+                    content = f"Error: {result.error}"
+                else:
+                    content = str(result)
+                
+                self.conversation_history.append(LLMMessage(
+                    role="tool",
+                    content=content,
+                    tool_call_id=tool_call.call_id
+                ))
+                
+        except Exception as e:
+            yield {"type": "error", "data": {"error": f"Tool execution failed: {str(e)}"}}
 
     def get_enabled_tools(self) -> List[str]:
         """Return list of enabled tool names for ResearchAgent."""

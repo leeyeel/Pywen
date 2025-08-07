@@ -343,9 +343,15 @@ async def handle_streaming_event(event, console, agent=None):
         elif event_type == "query":
             console.print(f"[dim]🔍Query: {data['queries']}[/dim]")
             console.print("")
+        elif event_type == "search":
+            console.print(f"{data['content']}")
+        elif event_type == "fetch":
+            console.print(f"{data['content']}")
         elif event_type == "summary":
             console.print(f"[bold yellow]📝Summary: {data['summaries']}[/bold yellow]")
             console.print("")
+        elif event_type == "tool_call":
+            handle_tool_call_event(data, console)
         elif event_type == "tool_result":
             display_tool_result(data, console)
         elif event_type == "error":
@@ -443,8 +449,9 @@ def display_tool_result(data: dict, console: CLIConsole):
 
 def handle_tool_call_event(data: dict, console: CLIConsole):
     """Handle tool call event display."""
-    tool_name = data.get('name', 'Tool')
-    arguments = data.get('arguments', {})
+    tool_call = data.get('tool_call', None)
+    tool_name = tool_call.name
+    arguments = tool_call.arguments
     
     # Special handling for bash tool to show specific command
     if tool_name == "bash" and "command" in arguments:
