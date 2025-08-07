@@ -1,28 +1,43 @@
-from typing import Dict, Any, List, AsyncGenerator
+from typing import Dict, Any, List, AsyncGenerator, Optional
 from agents.base_agent import BaseAgent
-from utils.llm_basics import LLMMessage
+from utils.llm_basics import LLMMessage, LLMResponse
+from utils.tool_basics import ToolResult
 from agents.research.research_prompts import (
     get_current_date,
     query_writer_instructions,
-    web_searcher_instructions,
+    web_search_executor_instructions,
+    web_fetch_executor_instructions,
+    summary_generator_instructions,
     reflection_instructions,
     answer_instructions
 )
+import json
+import re
+def _extract_json(content: str) -> str:
 
-class ResearchAgent(BaseAgent):
+    # 使用正则表达式提取 ```json``` 代码块中的内容
+    json_match = re.search(r"```json\s*(\{.*?\})\s*```", content, re.DOTALL)
+    if json_match:
+        return json_match.group(1)
+    return content
+
+class GeminiResearchDemo(BaseAgent):
     """Research agent specialized for multi-step research tasks."""
     
     def __init__(self, config, cli_console=None):
         super().__init__(config, cli_console)
         
+        self.type = "GeminiResearchDemo"
         # Research state
         self.research_state = {
             "topic": "",
             "queries": [],
+            "search_results": [],
             "summaries": [],
             "current_step": "query_generation",
             "iteration": 0
         }
+        self.available_tools = self.tool_registry.list_tools()
     
     def _build_system_prompt(self) -> str:
         """构建研究专用的系统提示"""
@@ -46,11 +61,29 @@ Follow the research process step by step and use the appropriate prompts for eac
             number_queries=number_queries
         )
 
-    def _get_web_searcher_prompt(self, topic: str) -> str:
+    def _get_web_search_executor_prompt(self, queries: List[str]) -> str:
         """生成网络搜索提示"""
-        return web_searcher_instructions.format(
+        # 将查询列表格式化为多行文本
+        queries_text = "\n".join([f"- {query}" for query in queries])
+        return web_search_executor_instructions.format(
             current_date=get_current_date(),
-            research_topic=topic
+            research_topic=queries_text
+        )
+
+    def _get_web_fetch_executor_prompt(self, queries: List[str], web_search_results: List[ToolResult]) -> str:
+        """生成网络抓取提示"""
+        queries_text = "\n".join([f"- {query}" for query in queries])
+        return web_fetch_executor_instructions.format(
+            current_date=get_current_date(),
+            web_search_results="\n".join([result for result in web_search_results]),
+            research_topic=queries_text
+        )
+    def _get_summary_generator_prompt(self, topic: str, search_results: Optional[List[Any]] = None) -> str:
+        """生成总结生成提示"""
+        
+        return summary_generator_instructions.format(
+            research_topic=topic,
+            search_results=search_results
         )
 
     def _get_reflection_prompt(self, topic: str) -> str:
@@ -72,82 +105,164 @@ Follow the research process step by step and use the appropriate prompts for eac
             summaries=summaries
         )
 
+    # TODO:
     async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run research agent with multi-step research workflow."""
+        
+        # 初始化研究状态
+        self.research_state["topic"] = user_message
+        self.research_state["iteration"] = 0
+        yield {"type": "user_message", "data": {"message": user_message}}
+        # Start trajectory recording
+        self.trajectory_recorder.start_recording(
+            task=user_message,
+            provider=self.config.model_config.provider.value,
+            model=self.config.model_config.model,
+            max_steps=None
+        )
+        self.conversation_history.append(LLMMessage(role="user",content=user_message))
+        # 1. 首次生成查询
+        async for queries in self.generate_queries(user_message):
+            # yield query事件给CLI消费
+            yield queries
+
+        # 2. 搜索
+        async for search in self.web_search():
+            # yield summary事件给CLI消费
+            yield search
+
+        # Google LangGraph 循环逻辑
+        while True:
+            try:
+                
+                # 3. 反思搜索结果
+                yield {"type": "step", "data": {"step": "reflecting"}}
+                reflection_prompt = self._get_reflection_prompt(self.research_state["summaries"])
+                reflection_response = await self.llm_client.generate_response([LLMMessage(role="user", content=reflection_prompt)])
+                # ```json输出格式
+                # {{
+                #     "is_sufficient": true, // or false
+                #     "knowledge_gap": "The summary lacks information about performance metrics and benchmarks", // "" if is_sufficient is true
+                #     "follow_up_queries": ["What are typical performance benchmarks and metrics used to evaluate [specific technology]?"] // [] if is_sufficient is true
+                # }}
+                # ```
+
+                # 添加reflection结果到对话历史
+                self.conversation_history.append(LLMMessage(
+                    role="assistant", 
+                    content=reflection_response.content
+                ))
+
+                # 提取反思生成响应中的JSON数据
+                reflection_data = json.loads(reflection_response.content)
+                is_sufficient = reflection_data.get("is_sufficient", False)
+                # 4.检查研究是否充分，如果充分就退出循环
+                if is_sufficient:
+                    break
+                else:
+                    ###继续处理follow_up_queries的搜索内容
+                    follow_up_queries = reflection_data.get("follow_up_queries", [])
+                    search_prompt = self._get_web_searcher_prompt(follow_up_queries)
+                    search_response = await self.llm_client.generate_response([LLMMessage(role="user", content=search_prompt)])
+                    
+                    if search_response.tool_calls:
+                        async for result in self._process_tool_calls(search_response.tool_calls):
+                            yield result
+
+
+            except Exception as e:
+                yield {"type": "error", "data": {"error": str(e)}}
+                break
+        
+        # 5. 提交最终答案
+        yield {"type": "step", "data": {"step": "generating_final_answer"}}
+        final_prompt = self._get_answer_prompt(user_message)
+        final_response = await self.llm_client.generate_response([LLMMessage(role="user", content=final_prompt)])
+        
+        yield {"type": "final_answer", "data": {"content": final_response.content}}
+
+    async def generate_queries(self,user_message: str):
+        query_prompt = self._get_query_writer_prompt(user_message)
+        query_response = await self.llm_client.generate_response([LLMMessage(role="user", content=query_prompt)],stream=False)
+
+        json_content = _extract_json(query_response.content)
         try:
-            all_summaries = []
-            # 处理用户输入，生成多个搜索请求
+            query_data = json.loads(json_content)
+        except json.JSONDecodeError as e:
+            yield {"type": "error", "data": {"error": f"Failed to parse reflection response JSON: {str(e)}. Content: {query_response.content}"}}
+            return
+        queries = query_data.get("query", [])
 
-            # 处理搜索请求
+        yield {"type": "query", "data":{"queries": queries}}
 
-            # 整合搜索结果
+        # 记录第一步的交互轨迹
+        self.research_state["queries"] = queries
+        self.conversation_history.append(LLMMessage(role="assistant",content=json_content))
+        
+        self.trajectory_recorder.record_llm_interaction(
+            messages= self.conversation_history,
+            response=LLMResponse(
+                content=json_content,
+                model=self.config.model_config.model,
+                usage=query_response.usage,
+                tool_calls=None,
+            ),
+            provider=self.config.model_config.provider.value,
+            model="query_generator",
+            current_task=user_message,
+        )
+    async def web_search(self):
+        # 主要工作逻辑，先搜索找到相关的URLs，然后根据URL进行精读，最终生成总结
 
-            # 反思搜索结果
+        # 1. 搜索URLs
+        search_prompt = self._get_web_search_executor_prompt(self.research_state['queries'])
+        search_response = await self.llm_client.generate_response(
+            messages=[LLMMessage(role="user", content=search_prompt)],
+            tools=self.availabe_tools
+            )
+        print(search_response)
+        search_results = []
+        if search_response.content:
+            yield {"type": "search", "data": {"content": search_response.content}}
+        if search_response.tool_calls:
+            async for result in self._process_tool_calls(search_response.tool_calls):
+                yield result
+                search_results.append(result.metadata)
 
-            # 提交最终答案
-            
-        except Exception as e:
-            yield {"type": "error", "data": {"error": str(e)}}
+        # 2. 获取网页内容
+        fetch_prompt = self._get_web_fetch_executor_prompt(self.research_state['queries'], search_results)
+        fetch_response = await self.llm_client.generate_response([LLMMessage(role="user", content=fetch_prompt)])
 
-    
+        fetch_results = {}
+        if fetch_response.content:
+            yield {"type": "fetch", "data": {"content": fetch_response.content}}
+        if fetch_response.tool_calls:
+            async for result in self._process_tool_calls(fetch_response.tool_calls):
+                yield result
+                fetch_results[result.url] = result.result
+        
+        for query_result in search_results:
+            for search_result in query_result:
+                if search_result['url'] in fetch_results:
+                    search_result['web_content'] = fetch_results[search_result['url']]
+        # 3. 生成总结
+        summary_prompt = self._get_summary_generator_prompt(self.research_state['queries'], search_results)
+        summary_response = await self.llm_client.generate_response([LLMMessage(role="user", content=summary_prompt)])
+        yield {"type": "summary", "data": {"content": summary_response.content}}
+        self.research_state["summaries"] = summary_response.content
     async def _process_tool_calls(self, tool_calls):
         """处理工具调用"""
-        for tool_call in tool_calls:
-            yield {"type": "tool_call", "data": {"tool_name": tool_call.function.name}}
-            
-            # 执行工具
-            result = await self.tool_executor.execute_tool_call(tool_call)
-            
+        # 执行工具
+        results = await self.tool_executor.execute_tools(tool_calls) #ToolResult
+        self.research_state["summaries"].extend(results)
+        async for result in results:
             yield {"type": "tool_result", "data": {"result": result}}
-            
             # 添加工具结果到对话历史
             self.conversation_history.append(LLMMessage(
                 role= "tool",
                 content= str(result),
-                tool_call_id= tool_call.id
-            ))
-
-    def _is_research_sufficient(self) -> bool:
-        """检查研究是否充分，基于最后一次reflection的结果"""
-        # 检查对话历史中最后一次assistant的回复
-        for message in reversed(self.conversation_history):
-            if message.get("role") == "assistant" and message.get("content"):
-                content = message["content"]
-                try:
-                    # 尝试解析JSON格式的reflection结果
-                    import re
-                    import json
-                    
-                    # 查找JSON代码块
-                    json_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
-                    if json_match:
-                        reflection_data = json.loads(json_match.group(1))
-                        is_sufficient = reflection_data.get("is_sufficient", False)
-                        
-                        # 如果研究充分，更新研究状态
-                        if is_sufficient:
-                            self.research_state["current_step"] = "sufficient"
-                        else:
-                            # 如果不充分，保存follow_up_queries用于下一轮
-                            follow_up_queries = reflection_data.get("follow_up_queries", [])
-                            if follow_up_queries:
-                                self.research_state["queries"].extend(follow_up_queries)
-                        
-                        return is_sufficient
-                    
-                    # 如果没有找到JSON格式，尝试直接解析
-                    if '"is_sufficient"' in content:
-                        if '"is_sufficient": true' in content or '"is_sufficient":true' in content:
-                            return True
-                        elif '"is_sufficient": false' in content or '"is_sufficient":false' in content:
-                            return False
-                            
-                except (json.JSONDecodeError, KeyError, AttributeError) as e:
-                    self.cli_console.print(f"[yellow]Warning: Failed to parse reflection result: {e}[/yellow]")
-                    continue
-        
-        # 如果无法解析reflection结果，默认继续研究
-        return False
+                tool_call_id= result.tool_call_id
+            )) 
 
     def get_enabled_tools(self) -> List[str]:
         """Return list of enabled tool names for ResearchAgent."""
@@ -157,3 +272,4 @@ Follow the research process step by step and use the appropriate prompts for eac
             'write_file',
             'read_file'
         ]
+    

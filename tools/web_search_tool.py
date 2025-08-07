@@ -158,7 +158,7 @@ class WebSearchTool(BaseTool):
                     "results": [
                         {
                             "title": result.title,
-                            "link": result.link,
+                            "url": result.link,
                             "snippet": result.snippet,
                             "position": result.position
                         }

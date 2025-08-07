@@ -34,15 +34,43 @@ Topic: What revenue grew more last year apple stock or the number of people buyi
 Context: {research_topic}"""
 
 
-web_searcher_instructions = """Conduct targeted web searches to gather the most recent, credible information on "{research_topic}" and synthesize it into a verifiable text artifact.
+web_search_executor_instructions = """Conduct targeted web searches to gather the most recent, credible information on "{research_topic}".
 
 Instructions:
 - Query should ensure that the most current information is gathered. The current date is {current_date}.
 - Use web_search tool to conduct multiple, diverse searches to gather comprehensive information.
-- Use web_fetch tool to read detailed content from the most relevant URLs found in search results.
-- Consolidate key findings while meticulously tracking the source(s) for each specific piece of information.
-- The output should be a well-written summary or report based on your search findings. 
+- Identify the most relevant URLs from search results for detailed content fetching.
 - Only include the information found in the search results, don't make up any information.
+
+Research Topic:
+{research_topic}
+"""
+
+web_fetch_executor_instructions = """Fetch detailed content from the provided URLs to gather in-depth information on "{research_topic}".
+
+Instructions:
+- Use web_fetch tool to read detailed content from the provided web_search results,which contained website URLs.
+- Extract key information that helps answer the research topic.
+- Track the source URL for each piece of information.
+- Only include the information found in the web pages, don't make up any information.
+
+web_search results to fetch:
+{web_search_results}
+
+Research Topic:
+{research_topic}
+
+"""
+
+summary_generator_instructions = """Synthesize the provided search results into a verifiable text artifact.
+
+Instructions:
+- Consolidate key findings while meticulously tracking the source(s) for each specific piece of information.
+- The output should be a well-written summary or report based on the search findings.
+- Only include the information found in the search results, don't make up any information.
+
+Search Results:
+{search_results}
 
 Research Topic:
 {research_topic}

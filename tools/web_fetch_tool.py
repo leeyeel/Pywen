@@ -46,6 +46,7 @@ class WebFetchTool(BaseTool):
                         content = await response.text()
                         return ToolResult(
                             call_id="",
+                            url=url,
                             result=f"Successfully fetched content from {url}:\n\n{content}"
                         )
                     else:

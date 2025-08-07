@@ -337,14 +337,19 @@ async def handle_streaming_event(event, console, agent=None):
                 console.print(f"✅ [dim]Trajectory saved to: {data['path']}[/dim]")
     
     elif agent.type == "GeminiResearchDemo":
-
-        if event_type == "tool_call":
-            tool_name = data.get('name', 'Tool')
-            tool_result = data.get('result', '')
-            console.print(f"[bold blue]🤖 Tool: {tool_name}[/bold blue]")
-            console.print(f"[dim]{tool_result}[/dim]")
+        if event_type == "user_message":
+            console.print(f"[bold blue]🔵 User:[/bold blue] {data['message']}")
             console.print("")
-            return "tool_result"
+        elif event_type == "query":
+            console.print(f"[dim]🔍Query: {data['queries']}[/dim]")
+            console.print("")
+        elif event_type == "summary":
+            console.print(f"[bold yellow]📝Summary: {data['summaries']}[/bold yellow]")
+            console.print("")
+        elif event_type == "tool_result":
+            display_tool_result(data, console)
+        elif event_type == "error":
+            console.print(f"❌ [red]Error: {data['error']}[/red]")
         
 
 
