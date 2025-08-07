@@ -23,7 +23,7 @@ class CLIConsole:
         self.config: Config | None = config
         self.current_task: str = ""
         self.agent_execution: Any = None
-        self.execution_log: List[str] = []
+        self.execution_log: List[Text] = []
         
         # Token tracking
         self.current_session_tokens = 0
@@ -35,9 +35,9 @@ class CLIConsole:
         self.displayed_tool_calls: set = set()
         self.displayed_tool_results: set = set()
 
-    def log_execution(self, message: str, color: str = "white"):
+    def log_execution(self, message: Text):
         """Log execution message - keep logs but avoid duplicate display."""
-        self.execution_log.append(f"[{color}]{message}[/{color}]")
+        self.execution_log.append(message)
         # Keep only recent 20 records
         if len(self.execution_log) > 20:
             self.execution_log = self.execution_log[-20:]
@@ -49,11 +49,12 @@ class CLIConsole:
 
     def print(self, message: str, color: str = "blue", bold: bool = False):
         """Print a message with optional formatting."""
-        message = f"[bold]{message}[/bold]" if bold else message
-        message = f"[{color}]{message}[/{color}]"
-        self.console.print(message)
+        text = Text(message, style=color)
+        if bold:
+            text.stylize("bold")
+        self.console.print(text)
         # Also log to execution log
-        self.log_execution(message, color)
+        self.log_execution(text)
 
     def print_llm_response(self, content: str):
         """Print LLM response - incremental display."""
@@ -62,10 +63,11 @@ class CLIConsole:
             content_hash = hash(content)
             if content_hash not in self.displayed_responses:
                 self.displayed_responses.add(content_hash)
-                
+                text = Text("🤖 Assistant: ", style="blue")
+                text.append(content)
                 # Print content directly without Panel object
-                self.console.print(f"🤖 [blue]{content}[/blue]")
-                self.log_execution(f"🤖 Assistant: {content}", "blue")
+                self.console.print(text)
+                self.log_execution(text)
 
     def print_tool_call(self, tool_name: str, arguments: dict):
         """Print tool call information - incremental display."""
@@ -76,13 +78,14 @@ class CLIConsole:
             # Special handling for bash tool to show specific command
             if tool_name == "bash" and "command" in arguments:
                 command = arguments["command"]
-                message = f"🔧 Executing bash command: [cyan]{command}[/cyan]"
+                text = Text("🔧 Executing bash command: ", style="cyan")
+                text.append(str(command))
             else:
                 args_str = str(arguments)
-                message = f"🔧 Calling tool: [cyan]{tool_name}[/cyan] with args: {args_str}"
-            
-            self.console.print(message)
-            self.log_execution(f"🔧 Tool Call: {tool_name} - {arguments}", "yellow")
+                text = Text(f"🔧 Calling tool: {tool_name} with args: ", style="cyan")
+                text.append(args_str)
+            self.console.print(text)
+            self.log_execution(text)
 
     def print_tool_result(self, tool_name: str, result: Any, success: bool = True):
         """Print tool result - incremental display."""
@@ -92,22 +95,24 @@ class CLIConsole:
             
             if success:
                 result_str = str(result) if result else "Success"
-                message = f"✅ [green]{tool_name} completed:[/green] {result_str}"
-                self.console.print(message)
-                self.log_execution(f"✅ {tool_name}: {result_str}", "green")
+                text = Text("✅ ", style="green")
+                text.append(f"{tool_name} completed: ", style="bold green")
+                text.append(result_str)
             else:
                 error_str = str(result) if result else "Unknown error"
-                message = f"❌ [red]{tool_name} failed:[/red] {error_str}"
-                self.console.print(message)
-                self.log_execution(f"❌ {tool_name}: {error_str}", "red")
+                text = Text("❌ ", style="red")
+                text.append(f"{tool_name} failed: ", style="bold red")
+                text.append(error_str)
+            self.console.print(text)
+            self.log_execution(text)
 
     def print_iteration_start(self, iteration: int):
         """Print iteration start - display only once."""
         if iteration not in self.displayed_iterations:
             self.displayed_iterations.add(iteration)
-            message = f"🔄 [bold cyan]Starting iteration {iteration}[/bold cyan]"
-            self.console.print(message)
-            self.log_execution(f"🔄 Iteration {iteration} started", "cyan")
+            text = Text(f"🔄 Starting iteration {iteration}", style="bold cyan")
+            self.console.print(text)
+            self.log_execution(Text(f"🔄 Iteration {iteration} started", style="cyan"))
 
     async def confirm_tool_call(self, tool_call) -> bool:
         """Ask user to confirm tool execution."""
@@ -163,18 +168,22 @@ class CLIConsole:
                     # Switch to YOLO mode
                     if hasattr(self, 'config'):
                         self.config.set_approval_mode(ApprovalMode.YOLO)
-                        self.console.print("[green]✅ YOLO mode enabled - all future tools will be auto-approved[/green]")
+                        text = Text("✅ YOLO mode enabled - all future tools will be auto-approved", style="green")
+                        self.console.print(text)
                     return True
                 else:
-                    self.console.print("[red]Please enter 'y' (yes), 'n' (no), or 'a' (always)[/red]")
+                    text = Text("Please enter 'y' (yes), 'n' (no), or 'a' (always)", style="red")
+                    self.console.print(text)
                     
             except KeyboardInterrupt:
                 # User pressed Ctrl+C to cancel tool execution
-                self.console.print("\n[yellow]Tool execution cancelled by user (Ctrl+C)[/yellow]")
+                text = Text("\nTool execution cancelled by user (Ctrl+C)", style="yellow")
+                self.console.print(text)
                 return False
             except EOFError:
                 # User pressed Ctrl+D or input stream ended
-                self.console.print("\n[yellow]Tool execution cancelled by user[/yellow]")
+                text = Text("\nTool execution cancelled by user", style="yellow")
+                self.console.print(text)
                 return False
 
     def print_task_progress(self) -> None:
@@ -195,8 +204,10 @@ class CLIConsole:
         table.add_column("Value", style="green", width=40)
 
         if hasattr(execution, 'status'):
+            status_value = execution.status.value.title()
             status_color = "green" if execution.status.value == "success" else "red"
-            table.add_row("Status", f"[{status_color}]{execution.status.value.title()}[/{status_color}]")
+            status_text = Text(status_value, style=status_color)
+            table.add_row("Status", status_text)
         
         if hasattr(execution, 'iterations'):
             table.add_row("Iterations", str(execution.iterations))
@@ -304,16 +315,12 @@ class CLIConsole:
         # Build status information
         context_percentage = max(0, 100 - (self.current_session_tokens * 100 // self.max_context_tokens))
         context_status = f"({context_percentage}% context left)"
-        
-        status_parts = [
-            f"[blue]{display_dir}[/blue]",
-            "[dim]no sandbox (see /docs)[/dim]",
-            f"[green]{model_name}[/green]",
-            f"[dim]{context_status}[/dim]"
-        ]
-        
-        status_line = "  ".join(status_parts)
-        self.console.print(status_line)
+        status_text = Text()
+        status_text.append(display_dir, style="blue")
+        status_text.append("  no sandbox (see /docs)", style="dim")
+        status_text.append(f"  {model_name}", style="green")
+        status_text.append(f"  {context_status}", style="dim")
+        self.console.print(status_text)
         self.console.print()
 
     def start_interactive_mode(self):
@@ -331,5 +338,4 @@ class CLIConsole:
     def set_max_context_tokens(self, max_tokens: int):
         """Set maximum context tokens for current model."""
         self.max_context_tokens = max_tokens
-
 
