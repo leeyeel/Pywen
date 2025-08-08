@@ -9,6 +9,11 @@
 
 **Pywen** is a Python CLI tool based on **Qwen3-Coder**, designed specifically for intelligent software engineering tasks. It provides a conversational interface that can understand natural language instructions and execute complex development workflows through an advanced agent system.
 
+## 🧬 Recent Updates
+
+- 2025.08.06: Released the first version of Pywen, with execution logic aligned with Gemini CLI/Qwen Code
+- 2025.08.08: Updated the `/agent` switch agent module, added DeepResearch agent, with execution logic aligned with Google's open-source DeepResearch LangGraph version
+
 ## 🎯 Project Background
 
 Pywen is built on the [**Qwen3-Coder**](https://github.com/QwenLM/Qwen3-Coder) large language model, aiming to provide developers with an efficient and intelligent code assistant. The project is primarily adapted from [**Qwen-Code**](https://github.com/QwenLM/qwen-code), with deep optimizations for Python developers and the Qwen3-Coder model.
