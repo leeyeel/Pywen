@@ -12,7 +12,7 @@
 ## 🧬 Recent Updates
 
 - 2025.08.06: Released the first version of Pywen, with execution logic aligned with Gemini CLI/Qwen Code
-- 2025.08.08: Updated the `/agent` switch agent module, added DeepResearch agent, with execution logic aligned with Google's open-source DeepResearch LangGraph version
+- 2025.08.08: Updated the `/agent` switch agent module, added DeepResearch agent, with execution logic aligned with Google's open-source DeepResearch LangGraph version. You can use `/agent research` to switch GeminiResearchDemo agent.Before you use it, please make sure you have the serper api key.
 
 ## 🎯 Project Background
 

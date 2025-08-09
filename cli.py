@@ -348,15 +348,24 @@ async def handle_streaming_event(event, console, agent=None):
         elif event_type == "fetch":
             console.print(f"{data['content']}")
         elif event_type == "summary_start":
-            print(f"\n📝Summary", end="", flush=True)
+            console.console.print(f"\n📝Summary", end="", style="dim")
+            sys.stdout.flush()
         elif event_type == "summary_chunk":
-            print(f"{data['content']}", end="", flush=True)
+            console.console.print(f"{data['content']}", end="", style="dim")
+            sys.stdout.flush()
+            console.print("")
         elif event_type == "tool_call":
+            console.print("")
             handle_tool_call_event(data, console)
         elif event_type == "tool_result":
             display_tool_result(data, console)
-        elif event_type == "final_answer":
-            console.print(f"\n📄final answer: {data['content']}","yellow",True)
+        elif event_type == "final_answer_start":
+            console.console.print(f"\n📄final answer:", end="",style="yellow")
+            sys.stdout.flush()
+        elif event_type == "final_answer_chunk":
+            console.console.print(f"{data['content']}", end="", style="yellow")
+            sys.stdout.flush()
+            console.print("")
         elif event_type == "error":
             console.print(f"❌ Error: {data['error']}",color="red")
         
@@ -423,6 +432,20 @@ def display_tool_result(data: dict, console: CLIConsole):
                     border_style="green",
                     padding=(0, 1)
                 )
+        elif tool_name == "web_fetch" or tool_name == "web_search":
+            # Limit the result to 500 characters and add a note if truncated
+            max_length = 100
+            truncated_result = str(result)[:max_length]
+            if len(str(result)) > max_length:
+                truncated_result += f"\n... (显示前 {max_length} 个字符)"
+            
+            panel = Panel(
+                truncated_result,
+                title=f"✓ {tool_name} result",
+                title_align="left",
+                border_style="green",
+                padding=(0, 1)
+            )
         else:
             # Normal display for other tools
             panel = Panel(

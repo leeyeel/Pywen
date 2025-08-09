@@ -38,7 +38,7 @@ class GeminiResearchDemo(BaseAgent):
             "iteration": 0
         }
         self.available_tools = self.tool_registry.list_tools()
-        self.max_iterations = 10
+        self.max_iterations = 3
     
     def _build_system_prompt(self) -> str:
         """构建研究专用的系统提示"""
@@ -158,7 +158,7 @@ Follow the research process step by step and use the appropriate prompts for eac
             yield search
 
         # Google LangGraph 循环逻辑
-        while self.research_state["iteration"]:
+        while True:
             try:
                 self.research_state["iteration"] += 1
                 # 3. 反思搜索结果
@@ -198,12 +198,39 @@ Follow the research process step by step and use the appropriate prompts for eac
                 break
         
         # 5. 提交最终答案
-        yield {"type": "step", "data": {"step": "generating_final_answer"}}
+        accumulated_content = ""
+        final_response = None
         final_prompt = self._get_answer_prompt(user_message)
-        final_response = await self.llm_client.generate_response([LLMMessage(role="user", content=final_prompt)])
-        
-        yield {"type": "final_answer", "data": {"content": final_response.content}}
-
+        stream_generator = await self.llm_client.generate_response(
+            [LLMMessage(role="user", content=final_prompt)],
+            stream=True
+            )
+        # 流式输出最终答案
+        yield {"type": "final_answer_start", "data": {}}
+        async for chunk in stream_generator:
+            if chunk.content:
+                current_content = chunk.content
+                if current_content != accumulated_content:
+                    new_content = current_content[len(accumulated_content):]
+                    if new_content:
+                        yield {"type": "final_answer_chunk", "data": {"content": new_content}}
+                    accumulated_content = current_content
+            final_response = chunk
+        if final_response:
+            self.conversation_history.append(LLMMessage(role="assistant", content=final_response.content))
+            self.trajectory_recorder.record_llm_interaction(
+                messages=self.conversation_history,
+                response=LLMResponse(
+                    content=final_response.content,
+                    model=self.config.model_config.model,
+                    usage=final_response.usage,
+                    tool_calls=None,
+                ),
+                provider=self.config.model_config.provider.value,
+                model="answer_generator",
+                current_task=self.research_state['topic'],
+            )
+    
     async def generate_queries(self,user_message: str):
         query_prompt = self._get_query_writer_prompt(user_message)
         query_response = await self.llm_client.generate_response([LLMMessage(role="user", content=query_prompt)],stream=False)
@@ -322,15 +349,31 @@ Follow the research process step by step and use the appropriate prompts for eac
                                     self.conversation_history.append(tool_msg)
                                 break
             
-            # 合并搜索结果和网页内容
-            for query_dict in search_results:
-                if isinstance(query_dict, dict):
-                    query_result = query_dict.get('results')
-                    for search_result in query_result:
-                        if isinstance(search_result, dict):
-                            url = search_result.get('url')
-                            if url and url in fetch_results:
-                                search_result['web_content'] = fetch_results[url]
+                # 合并搜索结果和网页内容
+                for query_dict in search_results:
+                    if isinstance(query_dict, dict):
+                        query_result = query_dict.get('results')
+                        for search_result in query_result:
+                            if isinstance(search_result, dict):
+                                url = search_result.get('url')
+                                if url and url in fetch_results:
+                                    search_result['web_content'] = fetch_results[url]
+            else:
+                yield {"type": "fetch", "data": {"content": "No search results to fetch content from."}}
+                self.research_state['search_results'].append(search_results)
+                self.trajectory_recorder.record_llm_interaction(
+                    messages= self.conversation_history,
+                    response=LLMResponse(
+                        content="No search results to fetch content from.",
+                        model=self.config.model_config.model,
+                        usage=None,
+                        tool_calls=None,
+                    ),
+                    provider=self.config.model_config.provider.value,
+                    model="web_fetcher_generator",
+                    current_task=self.research_state['topic'],
+                )
+                return
         
         self.research_state['search_results'].append(search_results)
         self.trajectory_recorder.record_llm_interaction(
@@ -345,7 +388,7 @@ Follow the research process step by step and use the appropriate prompts for eac
             model="web_fetcher_generator",
             current_task=self.research_state['topic'],
         )
-        # 3. 生成总结 - 流式输出
+        # 3. 生成总结
         summary_prompt = self._get_summary_generator_prompt(self.research_state['topic'], search_results)
         
         accumulated_content = ""
@@ -358,8 +401,6 @@ Follow the research process step by step and use the appropriate prompts for eac
         )
         
         async for summary_response_chunk in stream_generator:
-            final_response = summary_response_chunk
-            
             # 流式输出内容增量
             if summary_response_chunk.content:
                 current_content = summary_response_chunk.content
@@ -368,6 +409,7 @@ Follow the research process step by step and use the appropriate prompts for eac
                     if new_content:
                         yield {"type": "summary_chunk", "data": {"content": new_content}}
                     accumulated_content = current_content
+            final_response = summary_response_chunk
 
         # 流式结束后处理
         if final_response:

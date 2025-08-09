@@ -13,7 +13,7 @@
 ## 🧬 近期更新
 
 - 2025.08.06 更新第一版Pywen，执行逻辑对标Gemini CLI/Qwen Code
-- 2025.08.08 更新 `/agent` 切换智能体模块，新增DeepResearch 智能体，执行逻辑对标Google开源的DeepResearch LangGraph版本
+- 2025.08.08 更新 `/agent` 切换智能体模块，新增DeepResearch 智能体，执行逻辑对标Google开源的DeepResearch LangGraph版本。你可以使用`/agent research`切换为 GeminiResearchDemo 智能体。在你使用之前，请确保你具有serper api key。
 
 ## 🎯 项目背景
 
