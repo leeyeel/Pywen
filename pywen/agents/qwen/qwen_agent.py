@@ -5,16 +5,16 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 
-from agents.base_agent import BaseAgent
-from agents.qwen.turn import Turn, TurnStatus
-from utils.llm_basics import LLMMessage
-from agents.qwen.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse
-from agents.qwen.loop_detection_service import AgentLoopDetectionService
+from pywen.agents.base_agent import BaseAgent
+from pywen.agents.qwen.turn import Turn, TurnStatus
+from pywen.utils.llm_basics import LLMMessage
+from pywen.agents.qwen.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse
+from pywen.agents.qwen.loop_detection_service import AgentLoopDetectionService
 import os
 import subprocess
 from pathlib import Path
 import uuid
-from utils.token_limits import TokenLimits, ModelProvider
+from pywen.utils.token_limits import TokenLimits, ModelProvider
 
 class EventType(Enum):
     """Types of events during agent execution."""
