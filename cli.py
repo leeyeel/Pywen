@@ -348,24 +348,18 @@ async def handle_streaming_event(event, console, agent=None):
         elif event_type == "fetch":
             console.print(f"{data['content']}")
         elif event_type == "summary_start":
-            console.console.print(f"\n📝Summary", end="", style="dim")
-            sys.stdout.flush()
+            print("\n📝Summary:", end="", flush=True)
         elif event_type == "summary_chunk":
-            console.console.print(f"{data['content']}", end="", style="dim")
-            sys.stdout.flush()
-            console.print("")
+            print(data["content"], end="", flush=True)
         elif event_type == "tool_call":
             console.print("")
             handle_tool_call_event(data, console)
         elif event_type == "tool_result":
             display_tool_result(data, console)
         elif event_type == "final_answer_start":
-            console.console.print(f"\n📄final answer:", end="",style="yellow")
-            sys.stdout.flush()
+            print("\n📄final answer:", end="", flush=True)
         elif event_type == "final_answer_chunk":
-            console.console.print(f"{data['content']}", end="", style="yellow")
-            sys.stdout.flush()
-            console.print("")
+            print(data["content"], end="", flush=True)
         elif event_type == "error":
             console.print(f"❌ Error: {data['error']}",color="red")
         
