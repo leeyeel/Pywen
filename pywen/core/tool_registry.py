@@ -1,7 +1,7 @@
 """Enhanced tool registry matching TypeScript version."""
 
 from typing import Dict, List, Optional, Any
-from tools.base import BaseTool
+from pywen.tools.base import BaseTool
 
 
 class ToolRegistry:

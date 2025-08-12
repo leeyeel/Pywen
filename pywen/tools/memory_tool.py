@@ -37,10 +37,10 @@ class MemoryTool(BaseTool):
         )
         
         # Create memory directory in project folder
-        project_root = Path(__file__).parent.parent  # 获取项目根目录
-        self.memory_dir = project_root / ".memory"
+        project_root = Path(".memory")
+        self.memory_dir = project_root
         self.memory_dir.mkdir(parents=True, exist_ok=True)
-        self.memory_file = self.memory_dir / "user_memory.json"
+        self.memory_file = self.memory_dir / "PYWEN.json"
 
         # Debug: 打印存储路径
         #print(f"[MemoryTool] Memory file path: {self.memory_file}")

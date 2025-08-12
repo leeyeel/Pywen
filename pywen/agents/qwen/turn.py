@@ -8,11 +8,9 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.client import LLMMessage, LLMResponse
-from utils.tool_basics import ToolCall, ToolResult
+from pywen.core.client import LLMMessage, LLMResponse
+from pywen.utils.tool_basics import ToolCall, ToolResult
 
 
 class TurnStatus(Enum):

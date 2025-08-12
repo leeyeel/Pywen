@@ -13,12 +13,12 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
-from config.config import ApprovalMode
-from config.loader import create_default_config, load_config_with_cli_overrides
-from agents.qwen.qwen_agent import QwenAgent
-from ui.cli_console import CLIConsole
-from ui.command_processor import CommandProcessor
-from ui.utils.keyboard import create_key_bindings
+from pywen.config.config import ApprovalMode
+from pywen.config.loader import create_default_config, load_config_with_cli_overrides
+from pywen.agents.qwen.qwen_agent import QwenAgent
+from pywen.ui.cli_console import CLIConsole
+from pywen.ui.command_processor import CommandProcessor
+from pywen.ui.utils.keyboard import create_key_bindings
 
 
 def generate_session_id() -> str:

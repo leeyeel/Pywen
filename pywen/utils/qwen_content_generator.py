@@ -9,8 +9,8 @@ import openai
 from .base_content_generator import ContentGenerator
 from .llm_config import Config, GenerateContentConfig
 from .llm_basics import LLMMessage, LLMResponse, LLMUsage
-from utils.tool_basics import ToolCall
-from tools.base import Tool
+from pywen.utils.tool_basics import ToolCall
+from pywen.tools.base import Tool
 
 
 class QwenContentGenerator(ContentGenerator):

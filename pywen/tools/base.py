@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
-from utils.tool_basics import ToolCallConfirmationDetails, ToolResult
+from pywen.utils.tool_basics import ToolCallConfirmationDetails, ToolResult
 
 
 class BaseTool(ABC):

@@ -6,7 +6,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 from .llm_config import Config, GenerateContentConfig
 from .llm_basics import LLMMessage, LLMResponse
 from .base_content_generator import ContentGenerator
-from tools.base import Tool
+from pywen.tools.base import Tool
 
 
 class LLMClient:

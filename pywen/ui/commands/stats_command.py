@@ -4,9 +4,8 @@ from typing import Dict, Any
 from rich.panel import Panel
 from rich.console import Console
 from rich.table import Table
-from rich.columns import Columns
 from .base_command import BaseCommand
-from core.session_stats import session_stats
+from pywen.core.session_stats import session_stats
 
 
 class StatsCommand(BaseCommand):

@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from .base import BaseTool, ToolResult
-from config.config import Config
+from pywen.config.config import Config
 
 
 @dataclass

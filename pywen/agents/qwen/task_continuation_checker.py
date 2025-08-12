@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Optional, List
 from dataclasses import dataclass
 
-from utils.llm_basics import LLMMessage
-from utils.llm_client import LLMClient
-from utils.llm_config import Config
+from pywen.utils.llm_basics import LLMMessage
+from pywen.utils.llm_client import LLMClient
+from pywen.utils.llm_config import Config
 
 
 @dataclass

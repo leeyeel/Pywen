@@ -7,11 +7,11 @@ from typing import List, Optional, Union, AsyncGenerator
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.config import Config, ModelConfig, ModelProvider
-from utils.llm_config import Config as UtilsConfig, AuthType, ModelParameters
-from utils.llm_client import LLMClient as UtilsLLMClient
-from utils.llm_basics import LLMMessage, LLMResponse
-from tools.base import Tool
+from pywen.config.config import Config, ModelConfig, ModelProvider
+from pywen.utils.llm_config import Config as UtilsConfig, AuthType, ModelParameters
+from pywen.utils.llm_client import LLMClient as UtilsLLMClient
+from pywen.utils.llm_basics import LLMMessage, LLMResponse
+from pywen.tools.base import Tool
 
 
 class LLMClient:
