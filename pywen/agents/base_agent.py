@@ -3,12 +3,12 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
-from config.config import Config
-from core.client import LLMClient
-from core.trajectory_recorder import TrajectoryRecorder
-from core.tool_registry import ToolRegistry
-from core.tool_executor import NonInteractiveToolExecutor
-from utils.llm_basics import LLMMessage
+from pywen.config.config import Config
+from pywen.core.client import LLMClient
+from pywen.core.trajectory_recorder import TrajectoryRecorder
+from pywen.core.tool_registry import ToolRegistry
+from pywen.core.tool_executor import NonInteractiveToolExecutor
+from pywen.utils.llm_basics import LLMMessage
 
 
 class BaseAgent(ABC):

@@ -8,8 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
-logs/*
+pywen/logs/*
 pywen_config.json
 .env
-trajectories/*
+pywen/trajectories/*
 !.gitkeep
