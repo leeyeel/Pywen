@@ -56,7 +56,7 @@ async def main():
     
     # Check if config exists and is valid
     if not os.path.exists(args.config):
-        from ui.config_wizard import ConfigWizard
+        from pywen.ui.config_wizard import ConfigWizard
         wizard = ConfigWizard()
         wizard.run()
         
@@ -76,7 +76,7 @@ async def main():
         console.print("Configuration may be invalid. Starting configuration wizard...", color="yellow")
         
         # Import and run config wizard
-        from ui.config_wizard import ConfigWizard
+        from pywen.ui.config_wizard import ConfigWizard
         wizard = ConfigWizard()
         wizard.run()
         

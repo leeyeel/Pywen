@@ -101,7 +101,7 @@ class BaseAgent(ABC):
         """重新加载配置"""
         try:
             # 从正确的模块导入配置加载函数
-            from config.loader import load_config_from_file
+            from pywen.config.loader import load_config_from_file
             
             # 重新读取配置文件
             new_config = load_config_from_file("pywen_config.json")
@@ -125,7 +125,7 @@ class BaseAgent(ABC):
             
             # 重新初始化task continuation checker (如果存在)
             if hasattr(self, 'task_continuation_checker'):
-                from agents.qwen.task_continuation_checker import TaskContinuationChecker
+                from pywen.agents.qwen.task_continuation_checker import TaskContinuationChecker
                 self.task_continuation_checker = TaskContinuationChecker(self.llm_client, new_config)
             
             # 重建系统提示 (如果子类实现了该方法)
