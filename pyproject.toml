@@ -1,6 +1,6 @@
 [project]
 name = "pywen"
-version = "1.0.2"
+version = "1.1.0"
 description = "LLM-based agent for general purpose tasks"
 authors = [
   { name ="PAMPAS-Lab" },
