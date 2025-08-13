@@ -1,267 +1,144 @@
-"""CLI Console for displaying agent progress."""
+"""
+Textual-based implementation of CLIConsole that preserves the original
+public API so callers don't need to change their code.
 
+Updated for latest Textual: use `Log` widget (Textual >= 0.60), since
+`TextLog` has been removed. All log outputs now call `write_line`.
+
+Install:
+  pip install textual>=0.60
+"""
+from __future__ import annotations
+
+import asyncio
+import os
 from dataclasses import dataclass
-from typing import Optional, Any, List
+from typing import Any, List, Optional, Set, Tuple
 
-from rich.console import Console, Group
-from rich.live import Live
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
+# Optional rich import for graceful CLI fallback
+try:
+    from rich.console import Console as RichConsole
+    from rich.text import Text as RichText
+except Exception:  # pragma: no cover
+    RichConsole = None  # type: ignore
+    RichText = None  # type: ignore
 
-from pywen.config.config import Config, ApprovalMode
+# Textual imports
+from textual.app import App, ComposeResult
+from textual.widgets import Header, Footer, Static, Log
+from textual.reactive import reactive
+from textual import events
+
+# Keep these imports/names to preserve compatibility with caller code
+try:
+    from pywen.config.config import Config, ApprovalMode  # type: ignore
+except Exception:  # if the project module isn't importable during testing
+    @dataclass
+    class Config:  # type: ignore
+        model_config: Any = None
+        model_providers: dict = None
+        default_provider: str = "qwen"
+
+        def get_approval_mode(self):
+            return getattr(self, "approval_mode", ApprovalMode.MANUAL)
+
+        def set_approval_mode(self, mode):
+            self.approval_mode = mode
+
+    class ApprovalMode:  # type: ignore
+        MANUAL = "manual"
+        YOLO = "yolo"
 
 
+# ---------------------------
+# Internal Textual App
+# ---------------------------
+class ConsoleApp(App):
+    CSS = """
+    Screen { layout: vertical; }
 
-class CLIConsole:
-    """Console for displaying agent progress and handling user interactions."""
+    .card { padding: 1 2; border: none; }
 
-    def __init__(self, config: Optional[Config] = None):
-        """Initialize the CLI console."""
-        self.console: Console = Console()
-        self.live_display: Live | None = None
-        self.config: Config | None = config
-        self.current_task: str = ""
-        self.agent_execution: Any = None
-        self.execution_log: List[Text] = []
-        
-        # Token tracking
-        self.current_session_tokens = 0
-        self.max_context_tokens = 32768  # Default, will be updated from config
-        
-        # Track displayed content to avoid duplicates
-        self.displayed_iterations: set = set()
-        self.displayed_responses: set = set()
-        self.displayed_tool_calls: set = set()
-        self.displayed_tool_results: set = set()
+    Log { height: 1fr; overflow: auto; }
+    """
 
-    def log_execution(self, message: Text):
-        """Log execution message - keep logs but avoid duplicate display."""
-        self.execution_log.append(message)
-        # Keep only recent 20 records
-        if len(self.execution_log) > 20:
-            self.execution_log = self.execution_log[-20:]
+    # Reactive fields for status display
+    model_name: reactive[str] = reactive("qwen3-coder-plus")
+    context_left: reactive[int] = reactive(100)
+    cwd_display: reactive[str] = reactive("~")
 
-    async def start(self):
-        """Start the console monitoring - simplified version."""
-        # No longer using loop updates, changed to event-driven
-        pass
+    def __init__(self) -> None:
+        super().__init__()
+        self.banner = Static(classes="card")
+        self.status = Static(classes="card")
+        self.log_widget = Log()
 
-    def print(self, message: str, color: str = "blue", bold: bool = False):
-        """Print a message with optional formatting."""
-        text = Text(message, style=color)
-        if bold:
-            text.stylize("bold")
-        self.console.print(text)
-        # Also log to execution log
-        self.log_execution(text)
+        # A queue for messages coming from CLIConsole public methods
+        self._msg_queue: "asyncio.Queue[Tuple[str, tuple, dict]]" = asyncio.Queue()
+        self._consumer_task: Optional[asyncio.Task] = None
 
-    def print_llm_response(self, content: str):
-        """Print LLM response - incremental display."""
-        if content.strip():
-            # Use content hash to avoid duplicate display
-            content_hash = hash(content)
-            if content_hash not in self.displayed_responses:
-                self.displayed_responses.add(content_hash)
-                text = Text("🤖 Assistant: ", style="blue")
-                text.append(content)
-                # Print content directly without Panel object
-                self.console.print(text)
-                self.log_execution(text)
+        # Future used by confirm_tool_call dialog
+        self._confirm_future: Optional[asyncio.Future] = None
 
-    def print_tool_call(self, tool_name: str, arguments: dict):
-        """Print tool call information - incremental display."""
-        call_id = f"{tool_name}_{hash(str(arguments))}"
-        if call_id not in self.displayed_tool_calls:
-            self.displayed_tool_calls.add(call_id)
-            
-            # Special handling for bash tool to show specific command
-            if tool_name == "bash" and "command" in arguments:
-                command = arguments["command"]
-                text = Text("🔧 Executing bash command: ", style="cyan")
-                text.append(str(command))
-            else:
-                args_str = str(arguments)
-                text = Text(f"🔧 Calling tool: {tool_name} with args: ", style="cyan")
-                text.append(args_str)
-            self.console.print(text)
-            self.log_execution(text)
+    def compose(self) -> ComposeResult:  # type: ignore[override]
+        yield Header(show_clock=True)
+        yield self.banner
+        yield self.status
+        yield self.log_widget
+        yield Footer()
 
-    def print_tool_result(self, tool_name: str, result: Any, success: bool = True):
-        """Print tool result - incremental display."""
-        result_id = f"{tool_name}_{hash(str(result))}"
-        if result_id not in self.displayed_tool_results:
-            self.displayed_tool_results.add(result_id)
-            
-            if success:
-                result_str = str(result) if result else "Success"
-                text = Text("✅ ", style="green")
-                text.append(f"{tool_name} completed: ", style="bold green")
-                text.append(result_str)
-            else:
-                error_str = str(result) if result else "Unknown error"
-                text = Text("❌ ", style="red")
-                text.append(f"{tool_name} failed: ", style="bold red")
-                text.append(error_str)
-            self.console.print(text)
-            self.log_execution(text)
+    async def on_mount(self) -> None:
+        # start consumer
+        self._consumer_task = asyncio.create_task(self._consume_messages())
+        # initial banner and status
+        self.show_banner()
+        self.update_status()
 
-    def print_iteration_start(self, iteration: int):
-        """Print iteration start - display only once."""
-        if iteration not in self.displayed_iterations:
-            self.displayed_iterations.add(iteration)
-            text = Text(f"🔄 Starting iteration {iteration}", style="bold cyan")
-            self.console.print(text)
-            self.log_execution(Text(f"🔄 Iteration {iteration} started", style="cyan"))
+    async def on_unmount(self) -> None:
+        if self._consumer_task:
+            self._consumer_task.cancel()
 
-    async def confirm_tool_call(self, tool_call) -> bool:
-        """Ask user to confirm tool execution."""
-        # Check if in YOLO mode
-        if hasattr(self, 'config') and self.config.get_approval_mode() == ApprovalMode.YOLO:
-            return True
-        
-        # Handle both dictionary and object cases
-        if isinstance(tool_call, dict):
-            tool_name = tool_call.get('name', 'Unknown Tool')
-            arguments = tool_call.get('arguments', {})
-        else:
-            tool_name = tool_call.name
-            arguments = tool_call.arguments
-        
-        # Format parameter display
-        self.console.print(f"🔧 [bold cyan]{tool_name}[/bold cyan]")
-        if arguments:
-            self.console.print("Arguments:")
-            
-            # 特殊处理一些常见的长参数
-            for key, value in arguments.items():
-                if key == "content" and len(str(value)) > 100:
-                    # 长内容只显示前100个字符
-                    content_preview = str(value)[:100] + "..."
-                    self.console.print(f"  [cyan]{key}[/cyan]: {content_preview}")
-                else:
-                    # 普通参数正常显示
-                    self.console.print(f"  [cyan]{key}[/cyan]: {value}")
-        else:
-            self.console.print("No arguments")
-        self.console.print()
-        
-        # Use prompt_toolkit for async input
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.formatted_text import HTML
-        
-        session = PromptSession()
-        
-        # Ask user for confirmation
+    # --------- Public helpers for CLIConsole wrapper to call via queue ---------
+    async def _consume_messages(self) -> None:
         while True:
+            kind, args, kwargs = await self._msg_queue.get()
             try:
-                response = await session.prompt_async(
-                    HTML('<ansiblue><b>Allow this tool execution? (y/n/a for always): </b></ansiblue>')
-                )
-                response = response.lower().strip()
-                
-                if response in ['y', 'yes','']:
-                    return True
-                elif response in ['n', 'no']:
-                    return False
-                elif response in ['a', 'always']:
-                    # Switch to YOLO mode
-                    if hasattr(self, 'config'):
-                        self.config.set_approval_mode(ApprovalMode.YOLO)
-                        text = Text("✅ YOLO mode enabled - all future tools will be auto-approved", style="green")
-                        self.console.print(text)
-                    return True
-                else:
-                    text = Text("Please enter 'y' (yes), 'n' (no), or 'a' (always)", style="red")
-                    self.console.print(text)
-                    
-            except KeyboardInterrupt:
-                # User pressed Ctrl+C to cancel tool execution
-                text = Text("\nTool execution cancelled by user (Ctrl+C)", style="yellow")
-                self.console.print(text)
-                return False
-            except EOFError:
-                # User pressed Ctrl+D or input stream ended
-                text = Text("\nTool execution cancelled by user", style="yellow")
-                self.console.print(text)
-                return False
+                if kind == "print":
+                    self._append_log(*args, **kwargs)
+                elif kind == "panel":
+                    self._append_panel(*args, **kwargs)
+                elif kind == "set_status":
+                    self._set_status(*args, **kwargs)
+                elif kind == "banner":
+                    self.show_banner()
+                elif kind == "confirm":
+                    tool_name, arguments, fut = args
+                    await self._show_confirm_dialog(tool_name, arguments, fut)
+            finally:
+                self._msg_queue.task_done()
 
-    def print_task_progress(self) -> None:
-        """Print current task progress - display summary information only."""
-        # No longer using Live display to avoid repeating all content
-        # Only show execution summary at the end
-        if self.agent_execution is not None and hasattr(self.agent_execution, 'status'):
-            if self.agent_execution.status.value in ['success', 'failure', 'max_iterations', 'completed', 'error']:
-                # Only show summary when task is completed
-                summary_panel = self.create_execution_summary(self.agent_execution)
-                self.console.print(summary_panel)
+    def queue(self, kind: str, *args, **kwargs) -> None:
+        if self.is_running:
+            self._msg_queue.put_nowait((kind, args, kwargs))
 
-    def create_execution_summary(self, execution) -> Panel:
-        """Display a summary of the agent execution."""
-        # Create summary table
-        table = Table(title="📊 Execution Summary", width=60)
-        table.add_column("Metric", style="cyan", width=20)
-        table.add_column("Value", style="green", width=40)
+    # UI update methods
+    def _append_log(self, text: str) -> None:
+        self.log.write_line(text)
 
-        if hasattr(execution, 'status'):
-            status_value = execution.status.value.title()
-            status_color = "green" if execution.status.value == "success" else "red"
-            status_text = Text(status_value, style=status_color)
-            table.add_row("Status", status_text)
-        
-        if hasattr(execution, 'iterations'):
-            table.add_row("Iterations", str(execution.iterations))
-        
-        if hasattr(execution, 'total_tokens'):
-            table.add_row("Total Tokens", str(execution.total_tokens))
-        
-        # Show tool calls count
-        if hasattr(execution, 'tool_calls'):
-            table.add_row("Tool Calls", str(len(execution.tool_calls)))
+    def _append_panel(self, title: str, body: str) -> None:
+        self.log.write_line("")
+        self.log.write_line(f"[bold]{title}[/bold]")
+        for line in body.splitlines():
+            self.log.write_line(line)
+        self.log.write_line("")
 
-        # Display final messages if available
-        content = ""
-        if hasattr(execution, 'get_assistant_messages'):
-            messages = execution.get_assistant_messages()
-            if messages:
-                content = "\n".join(messages[-2:])  # Show last 2 messages
-        
-        if content:
-            content_panel = Panel(
-                content[:400] + "..." if len(content) > 400 else content,
-                title="💬 Recent Messages",
-                border_style="green",
-                width=80
-            )
-            return Group(content_panel, table)
-        else:
-            return Group(table)
+    def _set_status(self, cwd: str, model: str, context_left: int) -> None:
+        self.cwd_display = cwd
+        self.model_name = model
+        self.context_left = context_left
+        self.update_status()
 
-    def reset_display_tracking(self):
-        """Reset display tracking state."""
-        self.displayed_iterations.clear()
-        self.displayed_responses.clear()
-        self.displayed_tool_calls.clear()
-        self.displayed_tool_results.clear()
-
-    def gradient_line(self, text, start_color, end_color):
-        """Add character-level color gradient to a line of text."""
-        gradient = Text()
-        length = len(text)
-        for i, char in enumerate(text):
-            r = int(start_color[0] + (end_color[0] - start_color[0]) * i / max(1, length - 1))
-            g = int(start_color[1] + (end_color[1] - start_color[1]) * i / max(1, length - 1))
-            b = int(start_color[2] + (end_color[2] - start_color[2]) * i / max(1, length - 1))
-            gradient.append(char, style=f"rgb({r},{g},{b})")
-        return gradient
-
-    def show_interactive_banner(self):
-        """Display gradient banner and tips."""
-        import os
-        os.system('cls' if os.name == 'nt' else 'clear')
-
-        console = self.console
-
+    def show_banner(self) -> None:
         ascii_logo = [
             "                                              ",
             " ██████╗ ██╗   ██╗██╗    ██╗███████╗███╗   ██╗",
@@ -272,70 +149,354 @@ class CLIConsole:
             " ╚═╝        ╚═╝    ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝",
             "                                              ",
         ]
+        tips = (
+            "[dim]Tips: Ask questions, edit files, run commands.\n"
+            "Be specific for best results. /help for help, /quit to exit.[/dim]"
+        )
+        self.banner.update("\n".join(ascii_logo) + "\n" + tips)
 
-        start_rgb = (102, 178, 255)  # Soft sky blue
-        end_rgb   = (100, 220, 160)  # Green with blue component
+    def update_status(self) -> None:
+        self.status.update(
+            f"[blue]{self.cwd_display}[/blue]  "
+            f"[dim]no sandbox (see /docs)[/dim]  "
+            f"[green]{self.model_name}[/green]  "
+            f"[dim]({self.context_left}% context left)[/dim]"
+        )
 
-        for line in ascii_logo:
-            gradient = self.gradient_line(line, start_rgb, end_rgb)
-            console.print(gradient)
+    async def _show_confirm_dialog(self, tool_name: str, arguments: dict, fut: asyncio.Future) -> None:
+        self.log.write_line("")
+        self.log.write_line(f"[bold cyan]🔧 {tool_name}[/bold cyan]")
+        if arguments:
+            for k, v in (arguments or {}).items():
+                if k == "content" and len(str(v)) > 100:
+                    self.log.write_line(f"  [cyan]{k}[/cyan]: {str(v)[:100]}...")
+                else:
+                    self.log.write_line(f"  [cyan]{k}[/cyan]: {v}")
+        else:
+            self.log.write_line("No arguments")
+        self.log.write_line("[blue]Allow this tool execution? (y = yes, n = no, a = always)[/blue]")
 
-        # Tips information
-        tips = """[dim]Tips for getting started:
-1. Ask questions, edit files, or run commands.
-2. Be specific for the best results.
-3. /help for more information. Type '/quit' to quit.[/dim]"""
-        console.print(tips)
-        console.print()
+        self._confirm_future = fut
+
+    async def on_key(self, event: events.Key) -> None:
+        if self._confirm_future and not self._confirm_future.done():
+            key = (event.character or "").lower()
+            if key in ("y", "\r", "\n"):
+                self._confirm_future.set_result((True, False))
+                self._confirm_future = None
+                self.log.write_line("[green]✅ Approved.[/green]")
+            elif key == "n":
+                self._confirm_future.set_result((False, False))
+                self._confirm_future = None
+                self.log.write_line("[red]❌ Rejected.[/red]")
+            elif key == "a":
+                self._confirm_future.set_result((True, True))
+                self._confirm_future = None
+                self.log.write_line("[green]✅ YOLO mode enabled.[/green]")
+
+
+# ---------------------------
+# Public wrapper: preserves original API
+# ---------------------------
+class CLIConsole:
+    """Console for displaying agent progress and handling user interactions.
+
+    Public API is kept compatible with the Rich-based version.
+    """
+
+    def __init__(self, config: Optional[Config] = None):
+        self.config: Optional[Config] = config
+        self.current_task: str = ""
+        self.agent_execution: Any = None
+        self.execution_log: List[str] = []
+
+        # Token tracking
+        self.current_session_tokens = 0
+        self.max_context_tokens = 32768
+
+        # Track displayed content to avoid duplicates
+        self.displayed_iterations: Set[int] = set()
+        self.displayed_responses: Set[int] = set()
+        self.displayed_tool_calls: Set[str] = set()
+        self.displayed_tool_results: Set[str] = set()
+
+        # Textual app instance
+        self.app: Optional[ConsoleApp] = None
+
+        # Fallback rich console for non-UI environments
+        self._rich_console = RichConsole() if RichConsole else None
+
+    # --------------- lifecycle ---------------
+    async def start(self):
+        """Start the console monitoring (launch Textual app)."""
+        if self.app and self.app.is_running:
+            return
+        self.app = ConsoleApp()
+        self._update_status_bar()
+        await self.app.run_async()
+
+    # --------------- logging helpers ---------------
+    def log_execution(self, message: str) -> None:
+        self.execution_log.append(message)
+        if len(self.execution_log) > 20:
+            self.execution_log = self.execution_log[-20:]
+
+    def _fallback_print(self, text: str) -> None:
+        if self._rich_console and RichText:
+            self._rich_console.print(RichText.from_markup(text))
+        else:
+            print(text.replace("[bold]", "").replace("[/bold]", ""))
+
+    def print(self, message: str, color: str = "blue", bold: bool = False):
+        style_prefix = f"[{color}]" if color else ""
+        style_suffix = "[/]" if color else ""
+        bold_prefix = "[bold]" if bold else ""
+        bold_suffix = "[/bold]" if bold else ""
+        markup = f"{style_prefix}{bold_prefix}{message}{bold_suffix}{style_suffix}"
+        if self.app and self.app.is_running:
+            self.app.queue("print", markup)
+        else:
+            self._fallback_print(markup)
+        self.log_execution(message)
+
+    def print_llm_response(self, content: str):
+        if content.strip():
+            content_hash = hash(content)
+            if content_hash not in self.displayed_responses:
+                self.displayed_responses.add(content_hash)
+                markup = f"[blue]🤖 Assistant:[/] {content}"
+                if self.app and self.app.is_running:
+                    self.app.queue("print", markup)
+                else:
+                    self._fallback_print(markup)
+                self.log_execution(content)
+
+    def print_tool_call(self, tool_name: str, arguments: dict):
+        call_id = f"{tool_name}_{hash(str(arguments))}"
+        if call_id in self.displayed_tool_calls:
+            return
+        self.displayed_tool_calls.add(call_id)
+
+        if tool_name == "bash" and isinstance(arguments, dict) and "command" in arguments:
+            text = f"[cyan]🔧 Executing bash command:[/] {arguments['command']}"
+        else:
+            text = f"[cyan]🔧 Calling tool: {tool_name} with args:[/]{arguments}"
+        if self.app and self.app.is_running:
+            self.app.queue("print", text)
+        else:
+            self._fallback_print(text)
+        self.log_execution(text)
+
+    def print_tool_result(self, tool_name: str, result: Any, success: bool = True):
+        result_id = f"{tool_name}_{hash(str(result))}"
+        if result_id in self.displayed_tool_results:
+            return
+        self.displayed_tool_results.add(result_id)
+
+        if success:
+            text = f"[green]✅ [bold]{tool_name} completed:[/bold][/green] {result if result else 'Success'}"
+        else:
+            text = f"[red]❌ [bold]{tool_name} failed:[/bold][/red] {result if result else 'Unknown error'}"
+        if self.app and self.app.is_running:
+            self.app.queue("print", text)
+        else:
+            self._fallback_print(text)
+        self.log_execution(text)
+
+    def print_iteration_start(self, iteration: int):
+        if iteration in self.displayed_iterations:
+            return
+        self.displayed_iterations.add(iteration)
+        text = f"[bold cyan]🔄 Starting iteration {iteration}[/bold cyan]"
+        if self.app and self.app.is_running:
+            self.app.queue("print", text)
+        else:
+            self._fallback_print(text)
+        self.log_execution(f"🔄 Iteration {iteration} started")
+
+    async def confirm_tool_call(self, tool_call) -> bool:
+        if hasattr(self, "config") and self.config and self.config.get_approval_mode() == ApprovalMode.YOLO:
+            return True
+
+        if isinstance(tool_call, dict):
+            tool_name = tool_call.get("name", "Unknown Tool")
+            arguments = tool_call.get("arguments", {})
+        else:
+            tool_name = getattr(tool_call, "name", "Unknown Tool")
+            arguments = getattr(tool_call, "arguments", {})
+
+        if self.app and self.app.is_running:
+            fut: asyncio.Future = asyncio.get_event_loop().create_future()
+            self.app.queue("confirm", tool_name, arguments, fut)
+            approved, always = await fut
+            if always and hasattr(self, "config") and self.config:
+                self.config.set_approval_mode(ApprovalMode.YOLO)
+                self.print("✅ YOLO mode enabled - all future tools will be auto-approved", color="green")
+            return bool(approved)
+
+        try:
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.formatted_text import HTML
+
+            session = PromptSession()
+            self.print(f"🔧 [bold cyan]{tool_name}[/bold cyan]")
+            if arguments:
+                self.print("Arguments:")
+                for k, v in arguments.items():
+                    if k == "content" and len(str(v)) > 100:
+                        self.print(f"  [cyan]{k}[/cyan]: {str(v)[:100]}...")
+                    else:
+                        self.print(f"  [cyan]{k}[/cyan]: {v}")
+            else:
+                self.print("No arguments")
+
+            while True:
+                resp = (await session.prompt_async(HTML('<ansiblue><b>Allow this tool execution? (y/n/a for always): </b></ansiblue>'))).strip().lower()
+                if resp in ("y", "yes", ""):
+                    return True
+                if resp in ("n", "no"):
+                    return False
+                if resp in ("a", "always"):
+                    if hasattr(self, "config") and self.config:
+                        self.config.set_approval_mode(ApprovalMode.YOLO)
+                        self.print("✅ YOLO mode enabled - all future tools will be auto-approved", color="green")
+                    return True
+                self.print("Please enter 'y' (yes), 'n' (no), or 'a' (always)", color="red")
+        except Exception:
+            self._fallback_print(f"🔧 {tool_name}\n{arguments if arguments else 'No arguments'}")
+            while True:
+                try:
+                    resp = input("Allow this tool execution? (y/n/a for always): ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    return False
+                if resp in ("y", "yes", ""):
+                    return True
+                if resp in ("n", "no"):
+                    return False
+                if resp in ("a", "always"):
+                    if hasattr(self, "config") and self.config:
+                        self.config.set_approval_mode(ApprovalMode.YOLO)
+                        self.print("✅ YOLO mode enabled - all future tools will be auto-approved", color="green")
+                    return True
+                self._fallback_print("Please enter 'y' (yes), 'n' (no), or 'a' (always)")
+
+    # --------------- summary & status ---------------
+    def print_task_progress(self) -> None:
+        if self.agent_execution is not None and hasattr(self.agent_execution, "status"):
+            if getattr(self.agent_execution.status, "value", "") in [
+                "success",
+                "failure",
+                "max_iterations",
+                "completed",
+                "error",
+            ]:
+                panel_title, panel_body = self._build_execution_summary(self.agent_execution)
+                if self.app and self.app.is_running:
+                    self.app.queue("panel", panel_title, panel_body)
+                else:
+                    self._fallback_print(f"\n[bold]{panel_title}[/bold]\n{panel_body}")
+
+    def create_execution_summary(self, execution) -> Tuple[str, str]:
+        return self._build_execution_summary(execution)
+
+    def _build_execution_summary(self, execution) -> Tuple[str, str]:
+        lines = []
+        if hasattr(execution, "status"):
+            status_value = getattr(execution.status, "value", "").title()
+            status_color = "green" if getattr(execution.status, "value", "") == "success" else "red"
+            lines.append(f"Status: [{status_color}]{status_value}[/]")
+        if hasattr(execution, "iterations"):
+            lines.append(f"Iterations: {execution.iterations}")
+        if hasattr(execution, "total_tokens"):
+            lines.append(f"Total Tokens: {execution.total_tokens}")
+        if hasattr(execution, "tool_calls"):
+            try:
+                lines.append(f"Tool Calls: {len(execution.tool_calls)}")
+            except Exception:
+                pass
+        content = ""
+        if hasattr(execution, "get_assistant_messages"):
+            try:
+                messages = execution.get_assistant_messages()
+                if messages:
+                    content = "\n".join(messages[-2:])
+            except Exception:
+                pass
+        if content:
+            lines.append("\n[bold]💬 Recent Messages[/bold]")
+            content_display = content[:400] + "..." if len(content) > 400 else content
+            lines.append(content_display)
+        return "📊 Execution Summary", "\n".join(lines)
+
+    # --------------- UI helpers (compat stubs mapped to Textual) ---------------
+    def reset_display_tracking(self):
+        self.displayed_iterations.clear()
+        self.displayed_responses.clear()
+        self.displayed_tool_calls.clear()
+        self.displayed_tool_results.clear()
+
+    def gradient_line(self, text: str, start_color: Tuple[int, int, int], end_color: Tuple[int, int, int]) -> str:
+        return text
+
+    def show_interactive_banner(self):
+        if self.app and self.app.is_running:
+            self.app.queue("banner")
+        else:
+            ascii_logo = [
+                "                                              ",
+                " ██████╗ ██╗   ██╗██╗    ██╗███████╗███╗   ██╗",
+                " ██╔══██╗╚██╗ ██╔╝██║    ██║██╔════╝████╗  ██║",
+                " ██████╔╝ ╚████╔╝ ██║ █╗ ██║█████╗  ██╔██╗ ██║",
+                " ██╔═══╝   ╚██╔╝  ██║███╗██║██╔══╝  ██║╚██╗██║",
+                " ██║        ██║   ╚███╔███╔╝███████╗██║ ╚████║",
+                " ╚═╝        ╚═╝    ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝",
+                "                                              ",
+            ]
+            tips = (
+                "[dim]Tips for getting started:\n"
+                "1. Ask questions, edit files, or run commands.\n"
+                "2. Be specific for the best results.\n"
+                "3. /help for more information. Type '/quit' to quit.[/dim]"
+            )
+            self._fallback_print("\n".join(ascii_logo) + "\n" + tips)
 
     def show_status_bar(self):
-        """Display status bar with current directory and model info."""
-        import os
-        
-        # Get current working directory
+        self._update_status_bar()
+
+    def _update_status_bar(self):
         current_dir = os.getcwd()
-        home_dir = os.path.expanduser('~')
-        
-        # If in user home directory, show ~ to simplify path
-        if current_dir.startswith(home_dir):
-            display_dir = current_dir.replace(home_dir, '~', 1)
-        else:
-            display_dir = current_dir
-        
-        # Get model name - read latest value from config
-        model_name = "qwen3-coder-plus"  # Default value
-        if self.config and hasattr(self.config, 'model_config'):
+        home_dir = os.path.expanduser("~")
+        display_dir = current_dir.replace(home_dir, "~", 1) if current_dir.startswith(home_dir) else current_dir
+
+        model_name = "qwen3-coder-plus"
+        if self.config and hasattr(self.config, "model_config") and getattr(self.config.model_config, "model", None):
             model_name = self.config.model_config.model
-        elif self.config and hasattr(self.config, 'model_providers'):
-            # Get model from model_providers for current provider
-            default_provider = getattr(self.config, 'default_provider', 'qwen')
+        elif self.config and hasattr(self.config, "model_providers") and self.config.model_providers:
+            default_provider = getattr(self.config, "default_provider", "qwen")
             if default_provider in self.config.model_providers:
-                model_name = self.config.model_providers[default_provider].get('model', model_name)
-        
-        # Build status information
-        context_percentage = max(0, 100 - (self.current_session_tokens * 100 // self.max_context_tokens))
-        context_status = f"({context_percentage}% context left)"
-        status_text = Text()
-        status_text.append(display_dir, style="blue")
-        status_text.append("  no sandbox (see /docs)", style="dim")
-        status_text.append(f"  {model_name}", style="green")
-        status_text.append(f"  {context_status}", style="dim")
-        self.console.print(status_text)
-        self.console.print()
+                model_name = self.config.model_providers[default_provider].get("model", model_name)
+
+        context_percentage = max(0, 100 - (self.current_session_tokens * 100 // max(1, self.max_context_tokens)))
+
+        if self.app and self.app.is_running:
+            self.app.queue("set_status", display_dir, model_name, context_percentage)
+        else:
+            self._fallback_print(
+                f"[blue]{display_dir}[/blue]  [dim]no sandbox (see /docs)[/dim]  "
+                f"[green]{model_name}[/green]  [dim]({context_percentage}% context left)[/dim]"
+            )
 
     def start_interactive_mode(self):
-        """Start interactive mode interface."""
         self.show_interactive_banner()
 
     def print_user_input_prompt(self):
-        """Display user input prompt - now handled by prompt_toolkit."""
-        pass  # prompt_toolkit handles prompt display
+        pass
 
     def update_token_usage(self, tokens_used: int):
-        """Update current session token usage."""
         self.current_session_tokens += tokens_used
-        
+        self._update_status_bar()
+
     def set_max_context_tokens(self, max_tokens: int):
-        """Set maximum context tokens for current model."""
         self.max_context_tokens = max_tokens
+        self._update_status_bar()
 

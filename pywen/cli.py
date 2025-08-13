@@ -90,7 +90,7 @@ async def main():
     
     # Create console and agent
     console = CLIConsole(config)
-    console.config = config
+    await console.start()
     
     agent = QwenAgent(config)
     agent.set_cli_console(console)
