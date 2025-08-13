@@ -284,7 +284,7 @@ class ConfigWizard:
         
         # 创建配置面板内容
         panel_content = "[bold blue]Pywen Configuration Required[/bold blue]\n\n"
-        panel_content += "Please enter your Pywen configuration. You can get an API key from [link=https://dashscope.console.aliyun.com/]https://dashscope.console.aliyun.com/[/link]\n\n"
+        panel_content += "Please enter your Pywen configuration. You can get an API key from [link=https://bailian.console.aliyun.com]https://bailian.console.aliyun.com/[/link]\n\n"
         
         # 显示配置字段
         for i, field in enumerate(fields):
