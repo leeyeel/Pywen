@@ -1,122 +1,173 @@
 """Memory tool for storing user preferences and facts."""
 
-import json
+import os
 from pathlib import Path
-from typing import Dict
 
 from .base import BaseTool, ToolResult
 
 
 class MemoryTool(BaseTool):
     """Tool for remembering user-specific facts and preferences."""
-    
-    def __init__(self):
+
+    def __init__(self, project_id: str = None):
         super().__init__(
             name="memory",
             display_name="Memory Tool",
-            description="Remember specific, user-related facts or preferences for future interactions",
+            description="Write and read memory files in markdown format for storing user-related facts or preferences",
             parameter_schema={
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["store", "retrieve", "list", "delete"],
-                        "description": "Action to perform: store, retrieve, list, or delete"
+                        "enum": ["write", "read", "list"],
+                        "description": "Action to perform: write (create/update memory file), read (read specific file), or list (list all memory files)"
                     },
-                    "key": {
+                    "file_path": {
                         "type": "string",
-                        "description": "Key to store/retrieve/delete the memory item"
+                        "description": "Path to the memory file (relative to memory directory, e.g. 'preferences.md', 'projects/project1.md')"
                     },
-                    "value": {
+                    "content": {
                         "type": "string",
-                        "description": "Value to store (required for 'store' action)"
+                        "description": "Content to write to the memory file (required for 'write' action)"
                     }
                 },
                 "required": ["action"]
             }
         )
-        
-        # Create memory directory in project folder
-        project_root = Path(".memory")
-        self.memory_dir = project_root
+
+        # Create memory directory structure similar to Kode
+        # Base directory: ~/.pywen/memory/
+        home_dir = Path.home()
+        base_memory_dir = home_dir / ".pywen" / "memory"
+
+        # Project-specific directory: ~/.pywen/memory/projects/{project_id}/
+        # If no project_id provided, use current working directory name or 'default'
+        if project_id is None:
+            project_id = self._get_project_id()
+
+        self.memory_dir = base_memory_dir / "projects" / project_id
         self.memory_dir.mkdir(parents=True, exist_ok=True)
-        self.memory_file = self.memory_dir / "PYWEN.json"
 
         # Debug: 打印存储路径
-        #print(f"[MemoryTool] Memory file path: {self.memory_file}")
-    
-    def _load_memory(self) -> Dict[str, str]:
-        """Load memory from file."""
-        if not self.memory_file.exists():
-            return {}
-        
+        print(f"[MemoryTool] Memory directory: {self.memory_dir}")
+        print(f"[MemoryTool] Project ID: {project_id}")
+
+    def _get_project_id(self) -> str:
+        """Get project ID from current working directory or environment."""
+        # Try to get from environment variable first
+        project_id = os.environ.get('PYWEN_PROJECT_ID')
+        if project_id:
+            return project_id
+
+        # Use current working directory name
+        cwd = Path.cwd()
+        project_name = cwd.name
+
+        # Sanitize project name for use as directory name
+        import re
+        project_name = re.sub(r'[^\w\-_.]', '_', project_name)
+
+        return project_name or 'default'
+
+    def _get_full_path(self, file_path: str) -> Path:
+        """Get full path for a memory file and ensure it's within memory directory."""
+        full_path = (self.memory_dir / file_path).resolve()
+        memory_dir_resolved = self.memory_dir.resolve()
+
+        # Security check: ensure the path is within memory directory
+        if not str(full_path).startswith(str(memory_dir_resolved)):
+            raise ValueError(f"Invalid file path: {file_path}")
+
+        return full_path
+
+    def _read_memory_file(self, file_path: str) -> str:
+        """Read content from a memory file."""
+        full_path = self._get_full_path(file_path)
+
+        if not full_path.exists():
+            raise FileNotFoundError(f"Memory file does not exist: {file_path}")
+
         try:
-            with open(self.memory_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    
-    def _save_memory(self, memory: Dict[str, str]) -> None:
-        """Save memory to file."""
-        try:
-            # Debug: 打印存储路径
-            print(f"[MemoryTool] Memory file path: {self.memory_file}")
-            with open(self.memory_file, 'w', encoding='utf-8') as f:
-                json.dump(memory, f, indent=2, ensure_ascii=False)
+            with open(full_path, 'r', encoding='utf-8') as f:
+                return f.read()
         except Exception as e:
-            raise Exception(f"Failed to save memory: {str(e)}")
+            raise Exception(f"Failed to read memory file: {str(e)}")
+
+    def _write_memory_file(self, file_path: str, content: str) -> None:
+        """Write content to a memory file."""
+        full_path = self._get_full_path(file_path)
+
+        # Create parent directories if they don't exist
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print(f"[MemoryTool] Written to: {full_path}")
+        except Exception as e:
+            raise Exception(f"Failed to write memory file: {str(e)}")
+
+    def _list_memory_files(self) -> str:
+        """List all memory files in the directory."""
+        if not self.memory_dir.exists():
+            return "No memory files found."
+
+        files = []
+        for file_path in self.memory_dir.rglob("*"):
+            if file_path.is_file():
+                relative_path = file_path.relative_to(self.memory_dir)
+                files.append(str(relative_path))
+
+        if not files:
+            return "No memory files found."
+
+        files.sort()
+        return "Memory files:\n" + "\n".join(f"- {f}" for f in files)
     
     async def execute(self, **kwargs) -> ToolResult:
         """Execute memory operation."""
         action = kwargs.get("action")
-        key = kwargs.get("key")
-        value = kwargs.get("value")
-        
+        file_path = kwargs.get("file_path")
+        content = kwargs.get("content")
+
         if not action:
             return ToolResult(call_id="", error="No action specified")
-        
+
         try:
-            memory = self._load_memory()
-            
-            if action == "store":
-                if not key:
-                    return ToolResult(call_id="", error="Key is required for store action")
-                if not value:
-                    return ToolResult(call_id="", error="Value is required for store action")
-                
-                memory[key] = value
-                self._save_memory(memory)
-                return ToolResult(call_id="", result=f"Stored memory: {key} = {value}")
-            
-            elif action == "retrieve":
-                if not key:
-                    return ToolResult(call_id="", error="Key is required for retrieve action")
-                
-                if key in memory:
-                    return ToolResult(call_id="", result=f"Retrieved memory: {key} = {memory[key]}")
-                else:
-                    return ToolResult(call_id="", result=f"No memory found for key: {key}")
-            
+            if action == "write":
+                if not file_path:
+                    return ToolResult(call_id="", error="file_path is required for write action")
+                if not content:
+                    return ToolResult(call_id="", error="content is required for write action")
+
+                # Ensure file has .md extension
+                if not file_path.endswith('.md'):
+                    file_path += '.md'
+
+                self._write_memory_file(file_path, content)
+                return ToolResult(call_id="", result=f"Successfully wrote memory file: {file_path}")
+
+            elif action == "read":
+                if not file_path:
+                    return ToolResult(call_id="", error="file_path is required for read action")
+
+                # Ensure file has .md extension
+                if not file_path.endswith('.md'):
+                    file_path += '.md'
+
+                content = self._read_memory_file(file_path)
+                return ToolResult(call_id="", result=f"Content of {file_path}:\n\n{content}")
+
             elif action == "list":
-                if not memory:
-                    return ToolResult(call_id="", result="No memories stored")
-                
-                memory_list = "\n".join([f"{k}: {v}" for k, v in memory.items()])
-                return ToolResult(call_id="", result=f"Stored memories:\n{memory_list}")
-            
-            elif action == "delete":
-                if not key:
-                    return ToolResult(call_id="", error="Key is required for delete action")
-                
-                if key in memory:
-                    del memory[key]
-                    self._save_memory(memory)
-                    return ToolResult(call_id="", result=f"Deleted memory: {key}")
-                else:
-                    return ToolResult(call_id="", result=f"No memory found for key: {key}")
-            
+                file_list = self._list_memory_files()
+                return ToolResult(call_id="", result=file_list)
+
             else:
-                return ToolResult(call_id="", error=f"Unknown action: {action}")
-                
+                return ToolResult(call_id="", error=f"Unknown action: {action}. Supported actions: write, read, list")
+
+        except FileNotFoundError as e:
+            return ToolResult(call_id="", error=str(e))
+        except ValueError as e:
+            return ToolResult(call_id="", error=str(e))
         except Exception as e:
             return ToolResult(call_id="", error=f"Error executing memory operation: {str(e)}")
