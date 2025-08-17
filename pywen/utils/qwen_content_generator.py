@@ -25,9 +25,12 @@ class QwenContentGenerator(ContentGenerator):
             raise ValueError("Qwen API key is required")
         
         # Initialize OpenAI client with Qwen's compatible endpoint
+        # Add timeout configuration to handle network issues
         self.client = openai.AsyncOpenAI(
             api_key=self.api_key,
-            base_url=self.base_url
+            base_url=self.base_url,
+            timeout=120.0,  # 2 minutes timeout
+            max_retries=3   # Retry up to 3 times
         )
     
     def _convert_messages_to_openai_format(self, messages: List[LLMMessage]) -> List[Dict[str, Any]]:
@@ -146,7 +149,15 @@ class QwenContentGenerator(ContentGenerator):
         try:
             response = await self.client.chat.completions.create(**request_params)
             return self._parse_openai_response(response)
-            
+
+        except openai.APITimeoutError as e:
+            raise Exception(f"Qwen API timeout error: Request timed out after {self.client.timeout}s. Please check your network connection and try again.")
+        except openai.APIConnectionError as e:
+            raise Exception(f"Qwen API connection error: Failed to connect to Qwen API. Please check your network connection.")
+        except openai.RateLimitError as e:
+            raise Exception(f"Qwen API rate limit error: {str(e)}. Please wait and try again.")
+        except openai.AuthenticationError as e:
+            raise Exception(f"Qwen API authentication error: Invalid API key. Please check your configuration.")
         except Exception as e:
             raise Exception(f"Qwen API error: {str(e)}")
     
@@ -290,6 +301,14 @@ class QwenContentGenerator(ContentGenerator):
                     usage=final_usage
                 )
 
+        except openai.APITimeoutError as e:
+            raise Exception(f"Qwen API streaming timeout: Request timed out after {self.client.timeout}s. Please check your network connection and try again.")
+        except openai.APIConnectionError as e:
+            raise Exception(f"Qwen API streaming connection error: Failed to connect to Qwen API. Please check your network connection.")
+        except openai.RateLimitError as e:
+            raise Exception(f"Qwen API streaming rate limit error: {str(e)}. Please wait and try again.")
+        except openai.AuthenticationError as e:
+            raise Exception(f"Qwen API streaming authentication error: Invalid API key. Please check your configuration.")
         except Exception as e:
             raise Exception(f"Qwen API streaming error: {str(e)}")
     
