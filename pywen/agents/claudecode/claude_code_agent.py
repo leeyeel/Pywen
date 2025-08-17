@@ -254,18 +254,13 @@ class ClaudeCodeAgent(BaseAgent):
                     }
                 }
 
-            # Execute tools and get results with streaming events
+            # Execute tools and get results (simplified)
             tool_results = []
-            async for tool_event in self._execute_tools_with_strategy_streaming(tool_calls, depth=depth, **kwargs):
-                if tool_event["type"] in ["tool_start", "tool_result", "tool_error"]:
-                    # 📝 TRAJECTORY: Record tool results
-                    if tool_event["type"] == "tool_result":
-                        # Just pass through the tool result event
-                        pass
-
-                    # Forward tool events to caller
-                    yield tool_event
-                elif tool_event["type"] == "tool_results":
+            async for tool_event in self._execute_tools(tool_calls, **kwargs):
+                # Forward all tool events to caller
+                yield tool_event
+                
+                if tool_event["type"] == "tool_results":
                     # Extract final results
                     tool_results = tool_event["results"]
 
@@ -480,35 +475,43 @@ class ClaudeCodeAgent(BaseAgent):
             return error_msg, []
 
 
-    async def _execute_tools_with_strategy_streaming(
+    async def _execute_tools(
         self,
         tool_calls: List[Dict[str, Any]],
-        depth: int = 0,
         **kwargs
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Execute tools with intelligent concurrency strategy (streaming version)
-        Based on original Claude Code implementation
+        Simplified tool execution with smart concurrency
         """
         if not tool_calls:
             yield {
                 "type": "tool_results",
-                "results": [],
-                
+                "results": []
             }
             return
 
-        # Simple concurrency check like original Claude Code
+        # Determine if tools can run concurrently
         can_run_concurrently = all(self._is_tool_readonly(tc["name"]) for tc in tool_calls)
 
         if can_run_concurrently and len(tool_calls) > 1:
-            # Execute read-only tools concurrently (like original)
-            async for event in self._execute_tools_concurrently_streaming(tool_calls, depth=depth, **kwargs):
-                yield event
+            # Execute read-only tools concurrently
+            yield {"type": "tool_execution", "strategy": "concurrent"}
+            tool_results = await self._execute_concurrent_tools(tool_calls, **kwargs)
         else:
             # Execute tools serially (safer for write operations)
-            async for event in self._execute_tools_serially_streaming(tool_calls, depth=depth, **kwargs):
-                yield event
+            yield {"type": "tool_execution", "strategy": "serial"}
+            tool_results = []
+            async for result in self._execute_serial_tools(tool_calls, **kwargs):
+                if result["type"] in ["tool_start", "tool_result", "tool_error"]:
+                    yield result
+                elif result["type"] == "tool_completed":
+                    tool_results.append(result["llm_message"])
+
+        # Yield final results
+        yield {
+            "type": "tool_results",
+            "results": tool_results
+        }
 
     async def _execute_tools_with_strategy(
         self,
@@ -541,7 +544,158 @@ class ClaudeCodeAgent(BaseAgent):
         }
         return tool_name in readonly_tools
 
-    async def _execute_tools_concurrently(
+    async def _execute_serial_tools(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        **kwargs
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute tools one by one (simplified)"""
+        
+        for tool_call in tool_calls:
+            try:
+                # Yield tool start event
+                yield {
+                    "type": "tool_start",
+                    "data": {
+                        "call_id": tool_call.get("id", "unknown"),
+                        "name": tool_call["name"],
+                        "arguments": tool_call.get("arguments", {})
+                    }
+                }
+
+                # Execute single tool directly
+                tool_result, llm_message = await self._execute_single_tool_simple(tool_call, **kwargs)
+
+                # Yield tool result for CLI display
+                yield {
+                    "type": "tool_result", 
+                    "data": {
+                        "call_id": tool_call.get("id", "unknown"),
+                        "name": tool_call["name"],
+                        "result": tool_result.result if tool_result.success and isinstance(tool_result.result, dict) else str(tool_result.result or tool_result.error),
+                        "success": tool_result.success
+                    }
+                }
+
+                # Yield completed tool for message history
+                yield {
+                    "type": "tool_completed",
+                    "llm_message": llm_message
+                }
+
+                # Check for abort signal
+                if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
+                    break
+
+            except Exception as e:
+                error_msg = f"Error executing tool '{tool_call['name']}': {str(e)}"
+                error_message = LLMMessage(
+                    role="tool",
+                    content=f"Error: {error_msg}",
+                    tool_call_id=tool_call.get("id", "unknown")
+                )
+
+                yield {
+                    "type": "tool_error",
+                    "data": {
+                        "call_id": tool_call.get("id", "unknown"),
+                        "name": tool_call["name"],
+                        "error": error_msg,
+                        "success": False
+                    }
+                }
+
+                yield {
+                    "type": "tool_completed", 
+                    "llm_message": error_message
+                }
+
+    async def _execute_single_tool_simple(
+        self,
+        tool_call: Dict[str, Any],
+        **kwargs
+    ) -> tuple:
+        """
+        Simplified single tool execution - returns both ToolResult and LLMMessage
+        """
+        try:
+            # Convert to ToolCall object
+            from pywen.utils.tool_basics import ToolCall
+            tool_call_obj = ToolCall(
+                call_id=tool_call.get("id", "unknown"),
+                name=tool_call["name"],
+                arguments=tool_call.get("arguments", {})
+            )
+
+            # Check for user confirmation if needed
+            if hasattr(self, 'cli_console') and self.cli_console:
+                tool = self.tool_registry.get_tool(tool_call["name"])
+                if tool:
+                    confirmation_details = await tool.get_confirmation_details(**tool_call.get("arguments", {}))
+                    if confirmation_details:
+                        confirmed = await self.cli_console.confirm_tool_call(tool_call_obj, tool)
+                        if not confirmed:
+                            # User cancelled
+                            cancelled_result = ToolResult(
+                                call_id=tool_call.get("id", "unknown"),
+                                content="",
+                                error="Tool execution was cancelled by user",
+                                success=False
+                            )
+                            cancelled_message = LLMMessage(
+                                role="tool",
+                                content="Tool execution was cancelled by user",
+                                tool_call_id=tool_call.get("id", "unknown")
+                            )
+                            return cancelled_result, cancelled_message
+
+            # Execute tool
+            results = await self.tool_executor.execute_tools([tool_call_obj], self.type)
+            tool_result = results[0]
+
+            # Create LLM message with clear success info
+            if tool_result.success:
+                if isinstance(tool_result.result, dict):
+                    operation = tool_result.result.get('operation', '')
+                    file_path = tool_result.result.get('file_path', '')
+                    
+                    if operation == 'edit_file':
+                        old_text = tool_result.result.get('old_text', '')
+                        new_text = tool_result.result.get('new_text', '')
+                        content = f"SUCCESS: File {file_path} edited successfully. Changed '{old_text}' to '{new_text}'. Task completed."
+                    elif operation == 'write_file':
+                        content = f"SUCCESS: File {file_path} written successfully. Task completed."
+                    else:
+                        content = tool_result.result.get('summary', str(tool_result.result))
+                else:
+                    content = str(tool_result.result) if tool_result.result is not None else "Operation completed successfully"
+            else:
+                content = f"Error: {tool_result.error}" if tool_result.error else "Tool execution failed"
+
+            llm_message = LLMMessage(
+                role="tool",
+                content=content,
+                tool_call_id=tool_call.get("id", "unknown")
+            )
+
+            return tool_result, llm_message
+
+        except Exception as e:
+            error_msg = f"Error executing tool '{tool_call['name']}': {str(e)}"
+            error_result = ToolResult(
+                call_id=tool_call.get("id", "unknown"),
+                content="",
+                error=error_msg,
+                success=False
+            )
+            error_message = LLMMessage(
+                role="tool",
+                content=f"Error: {error_msg}",
+                tool_call_id=tool_call.get("id", "unknown")
+            )
+            return error_result, error_message
+
+    async def _execute_concurrent_tools(
         self,
         tool_calls: List[Dict[str, Any]],
         **kwargs
@@ -599,23 +753,33 @@ class ClaudeCodeAgent(BaseAgent):
                     
                 }
 
+                # Execute tool directly to get ToolResult (not LLMMessage)
+                tool_result = await self._execute_tool_directly(tool_call, **kwargs)
+                
+                # Convert to LLMMessage for conversation history
                 result = await self._execute_single_tool(tool_call, **kwargs)
                 tool_results.append(result)
 
-                # Extract result content for CLI display (avoiding ToolResult object display)
-                result_content = result.content if hasattr(result, 'content') else str(result)
-
-                # Check if it's an error result
-                is_success = not (result_content.startswith("Error:") if result_content else False)
-
-                # 工具执行统计会在 tool_scheduler 中自动记录
+                # Prepare result data for CLI display using original ToolResult
+                if tool_result.success and isinstance(tool_result.result, dict):
+                    # For structured results (like file operations), pass the complete data
+                    result_data = tool_result.result
+                    is_success = True
+                else:
+                    # For simple results, extract content
+                    if tool_result.success:
+                        result_content = str(tool_result.result) if tool_result.result is not None else "Operation completed successfully"
+                    else:
+                        result_content = f"Error: {tool_result.error}" if tool_result.error else "Tool execution failed"
+                    is_success = tool_result.success
+                    result_data = result_content
 
                 yield {
                     "type": "tool_result",
                     "data": {
                         "call_id": tool_call.get("id", "unknown"),
                         "name": tool_call["name"],
-                        "result": result_content,
+                        "result": result_data,
                         "success": is_success
                     },
 
@@ -675,24 +839,40 @@ class ClaudeCodeAgent(BaseAgent):
                 
             }
 
-        # Create tasks for concurrent execution
+        # Create tasks for concurrent execution (both direct and message conversion)
         tasks = []
         for tool_call in tool_calls:
-            task = asyncio.create_task(
+            # Create both tasks: one for ToolResult, one for LLMMessage
+            direct_task = asyncio.create_task(
+                self._execute_tool_directly(tool_call, **kwargs)
+            )
+            message_task = asyncio.create_task(
                 self._execute_single_tool(tool_call, **kwargs)
             )
-            tasks.append((task, tool_call))
+            tasks.append((direct_task, message_task, tool_call))
 
         # Wait for all tasks to complete
         tool_results = []
-        for task, tool_call in tasks:
+        for direct_task, message_task, tool_call in tasks:
             try:
-                result = await task
+                # Get both results
+                tool_result = await direct_task
+                result = await message_task
                 tool_results.append(result)
 
-                # Extract result content for CLI display
-                result_content = result.content if hasattr(result, 'content') else str(result)
-                is_success = not (result_content.startswith("Error:") if result_content else False)
+                # Prepare result data for CLI display using original ToolResult
+                if tool_result.success and isinstance(tool_result.result, dict):
+                    # For structured results (like file operations), pass the complete data
+                    result_data = tool_result.result
+                    is_success = True
+                else:
+                    # For simple results, extract content
+                    if tool_result.success:
+                        result_content = str(tool_result.result) if tool_result.result is not None else "Operation completed successfully"
+                    else:
+                        result_content = f"Error: {tool_result.error}" if tool_result.error else "Tool execution failed"
+                    is_success = tool_result.success
+                    result_data = result_content
 
                 # Yield tool result event
                 yield {
@@ -700,7 +880,7 @@ class ClaudeCodeAgent(BaseAgent):
                     "data": {
                         "call_id": tool_call.get("id", "unknown"),
                         "name": tool_call["name"],
-                        "result": result_content,
+                        "result": result_data,
                         "success": is_success
                     },
                     
@@ -803,8 +983,19 @@ class ClaudeCodeAgent(BaseAgent):
             if result.success:
                 # Extract meaningful content from result
                 if isinstance(result.result, dict):
-                    # For structured results, use summary or convert to string
-                    content = result.result.get('summary', str(result.result))
+                    # For structured results, create clear summary for LLM
+                    summary = result.result.get('summary', '')
+                    operation = result.result.get('operation', '')
+                    file_path = result.result.get('file_path', '')
+                    
+                    if operation == 'edit_file':
+                        old_text = result.result.get('old_text', '')
+                        new_text = result.result.get('new_text', '')
+                        content = f"SUCCESS: File {file_path} has been successfully edited.\nChanged '{old_text}' to '{new_text}'.\nThe modification has been completed successfully."
+                    elif operation == 'write_file':
+                        content = f"SUCCESS: File {file_path} has been successfully written.\nThe file creation/update operation completed successfully."
+                    else:
+                        content = summary or str(result.result)
                 else:
                     # For simple results, use as-is
                     content = str(result.result) if result.result is not None else "Operation completed successfully"
@@ -825,6 +1016,38 @@ class ClaudeCodeAgent(BaseAgent):
                 role="tool",
                 content=f"Error: {error_msg}",
                 tool_call_id=tool_call.get("id", "unknown")
+            )
+
+    async def _execute_tool_directly(
+        self,
+        tool_call: Dict[str, Any],
+        **kwargs
+    ) -> 'ToolResult':
+        """
+        Execute a single tool and return the raw ToolResult (not converted to LLMMessage)
+        Used for CLI display purposes to access structured data
+        """
+        try:
+            # Convert dict to ToolCall object
+            from pywen.utils.tool_basics import ToolCall
+            tool_call_obj = ToolCall(
+                call_id=tool_call.get("id", "unknown"),
+                name=tool_call["name"],
+                arguments=tool_call.get("arguments", {})
+            )
+
+            # Use tool executor to get raw ToolResult
+            results = await self.tool_executor.execute_tools([tool_call_obj], self.type)
+            return results[0]
+
+        except Exception as e:
+            # Return error ToolResult
+            from pywen.utils.tool_basics import ToolResult
+            return ToolResult(
+                call_id=tool_call.get("id", "unknown"),
+                content="",
+                error=f"Error executing tool '{tool_call['name']}': {str(e)}",
+                success=False
             )
 
 

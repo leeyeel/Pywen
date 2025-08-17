@@ -58,22 +58,12 @@ class NonInteractiveToolExecutor:
             # 执行工具
             result = await tool.execute(**tool_call.arguments)
 
-            # Record tool call in session stats
-            session_stats.record_tool_call(
-                tool_name=tool_call.name,
-                success=result.success,
-                agent_name=agent_name
-            )
+            # Tool call statistics are recorded in tool_scheduler
 
             return result
         
         except Exception as e:
-            # Record failed tool call in session stats
-            session_stats.record_tool_call(
-                tool_name=tool_call.name,
-                success=False,
-                agent_name=agent_name
-            )
+            # Failed tool call statistics are recorded in tool_scheduler
 
             return ToolResult(
                 call_id=tool_call.call_id,

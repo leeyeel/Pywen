@@ -1,6 +1,6 @@
 """CLI Console for displaying agent progress."""
 
-from dataclasses import dataclass
+# from dataclasses import dataclass  # Not used currently
 from typing import Optional, Any, List
 
 from rich.console import Console, Group
@@ -434,10 +434,10 @@ class CLIConsole:
                 self.print("")
 
             elif event_type == "llm_stream_start":
-                print("🤖 ", end="", flush=True)
+                self.console.print("🤖 ", end="", markup=False)
 
             elif event_type == "llm_chunk":
-                print(data["content"], end="", flush=True)
+                self.console.print(data["content"], end="", markup=False)
 
             elif event_type == "tool_result":
                 self.display_tool_result(data)
@@ -485,85 +485,362 @@ class CLIConsole:
             elif event_type == "fetch":
                 self.print(f"{data['content']}")
             elif event_type == "summary_start":
-                print("\n📝Summary:", end="", flush=True)
+                self.console.print("\n📝Summary:", end="", markup=False)
             elif event_type == "summary_chunk":
-                print(data["content"], end="", flush=True)
+                self.console.print(data["content"], end="", markup=False)
             elif event_type == "tool_call":
                 self.print("")
                 self.handle_tool_call_event(data)
             elif event_type == "tool_result":
                 self.display_tool_result(data)
             elif event_type == "final_answer_start":
-                print("\n📄final answer:", end="", flush=True)
+                self.console.print("\n📄final answer:", end="", markup=False)
             elif event_type == "final_answer_chunk":
-                print(data["content"], end="", flush=True)
+                self.console.print(data["content"], end="", markup=False)
             elif event_type == "error":
                 self.print(f"❌ Error: {data['error']}", "red")
 
         return None
 
     def display_tool_result(self, data: dict):
-        """Display tool execution result."""
+        """Display tool execution result with enhanced formatting."""
+        tool_name = data.get('name', 'Tool')
+        
         if data["success"]:
-            tool_name = data.get('name', 'Tool')
             result = data.get('result', '')
-
-            # Enhanced result display with highlighted content for file operations
-            if isinstance(result, dict) and result.get('operation') in ['write_file', 'edit_file']:
-                panel = create_enhanced_tool_result_display(result, tool_name)
-            else:
-                # Simple result display for other tools
-                panel = Panel(
-                    Text(str(result)),
-                    title=f"✓ {tool_name}",
-                    title_align="left",
-                    border_style="green",
-                    padding=(0, 1)
-                )
-
-            self.console.print(panel)
+            panel = self._create_success_result_panel(tool_name, result)
         else:
-            # Error case with red border
-            tool_name = data.get('name', 'Tool')
             error = data.get('error', 'Unknown error')
+            panel = self._create_error_result_panel(tool_name, error)
+        
+        self.console.print(panel)
 
-            panel = Panel(
-                str(error),
-                title=f"✗ {tool_name}",
-                title_align="left",
-                border_style="red",
-                padding=(0, 1)
-            )
-            self.console.print(panel)
+    def _create_success_result_panel(self, tool_name: str, result) -> Panel:
+        """Create a success result panel with tool-specific formatting."""
+        # Enhanced result display with highlighted content for file operations
+        if isinstance(result, dict) and result.get('operation') in ['write_file', 'edit_file']:
+            return create_enhanced_tool_result_display(result, tool_name)
+        
+        # Handle file edit tools (edit, edit_file) with structured data
+        if tool_name in ["edit", "edit_file"] and isinstance(result, dict):
+            return self._create_file_edit_result_panel(result)
+        
+        # Handle file write tools with structured data
+        if tool_name == "write_file" and isinstance(result, dict):
+            return self._create_file_write_result_panel(result)
+        
+        # Special handling for different tool types
+        if tool_name == "bash":
+            return self._create_bash_result_panel(result)
+        elif tool_name in ["read_file", "read_many_files"]:
+            return self._create_file_read_result_panel(tool_name, result)
+        elif tool_name in ["ls", "glob"]:
+            return self._create_list_result_panel(tool_name, result)
+        elif tool_name in ["grep"]:
+            return self._create_search_result_panel(tool_name, result)
+        else:
+            return self._create_generic_result_panel(tool_name, result)
+
+    def _create_bash_result_panel(self, result) -> Panel:
+        """Create formatted panel for bash command results."""
+        result_str = str(result)
+        
+        # Use syntax highlighting for bash output
+        from rich.syntax import Syntax
+        if len(result_str) > 100:
+            # For longer output, use syntax highlighting
+            syntax = Syntax(result_str, "bash", theme="monokai", line_numbers=False)
+            content = syntax
+        else:
+            # For short output, use simple text
+            content = Text(result_str, style="green")
+        
+        return Panel(
+            content,
+            title="✓ bash",
+            title_align="left",
+            border_style="green",
+            padding=(0, 1)
+        )
+
+    def _create_file_read_result_panel(self, tool_name: str, result) -> Panel:
+        """Create formatted panel for file read results with line numbers."""
+        result_str = str(result)
+        
+        # Always add line numbers for file content
+        lines = result_str.splitlines()
+        
+        # Try to detect file type and apply syntax highlighting
+        from rich.syntax import Syntax
+        try:
+            # Simple heuristic to detect code and language
+            if any(keyword in result_str.lower() for keyword in ['def ', 'class ', 'import ']):
+                language = "python"
+            elif any(keyword in result_str.lower() for keyword in ['function', 'var ', 'const ', 'let ']):
+                language = "javascript"
+            elif any(keyword in result_str.lower() for keyword in ['#include', 'int main', 'printf']):
+                language = "c"
+            elif result_str.strip().startswith('<!DOCTYPE') or '<html' in result_str.lower():
+                language = "html"
+            elif result_str.strip().startswith('{') or result_str.strip().startswith('['):
+                language = "json"
+            else:
+                language = "text"
+            
+            # Use syntax highlighting with line numbers if content is long enough
+            if len(lines) > 3 and language != "text":
+                syntax = Syntax(result_str, language, theme="monokai", line_numbers=True, word_wrap=True)
+                content = syntax
+            else:
+                # Manual line numbering for short content or text files
+                content_with_lines = []
+                for i, line in enumerate(lines, 1):
+                    content_with_lines.append(f"{i:3d} │ {line}")
+                content = Text('\n'.join(content_with_lines))
+        except:
+            # Fallback: simple line numbering
+            content_with_lines = []
+            for i, line in enumerate(lines, 1):
+                content_with_lines.append(f"{i:3d} │ {line}")
+            content = Text('\n'.join(content_with_lines))
+        
+        return Panel(
+            content,
+            title=f"✓ {tool_name}",
+            title_align="left",
+            border_style="blue",
+            padding=(0, 1)
+        )
+
+    def _create_list_result_panel(self, tool_name: str, result) -> Panel:
+        """Create formatted panel for list results (ls, glob)."""
+        result_str = str(result)
+        
+        # Format as a list if it contains multiple items
+        if '\n' in result_str:
+            lines = result_str.split('\n')
+            formatted_lines = []
+            for line in lines[:20]:  # Limit to first 20 items
+                if line.strip():
+                    formatted_lines.append(f"📄 {line.strip()}")
+            
+            if len(lines) > 20:
+                formatted_lines.append(f"... and {len(lines) - 20} more items")
+            
+            content = Text('\n'.join(formatted_lines))
+        else:
+            content = Text(result_str)
+        
+        return Panel(
+            content,
+            title=f"✓ {tool_name}",
+            title_align="left",
+            border_style="cyan",
+            padding=(0, 1)
+        )
+
+    def _create_search_result_panel(self, tool_name: str, result) -> Panel:
+        """Create formatted panel for search results (grep)."""
+        result_str = str(result)
+        
+        # Highlight search results
+        lines = result_str.split('\n')
+        formatted_lines = []
+        for line in lines[:15]:  # Limit to first 15 results
+            if line.strip():
+                formatted_lines.append(f"🔍 {line.strip()}")
+        
+        if len(lines) > 15:
+            formatted_lines.append(f"... and {len(lines) - 15} more matches")
+        
+        content = Text('\n'.join(formatted_lines), style="yellow")
+        
+        return Panel(
+            content,
+            title=f"✓ {tool_name}",
+            title_align="left",
+            border_style="yellow",
+            padding=(0, 1)
+        )
+
+    def _create_generic_result_panel(self, tool_name: str, result) -> Panel:
+        """Create generic formatted panel for other tools."""
+        result_str = str(result) if result else "Operation completed successfully"
+        
+        # Truncate very long results
+        if len(result_str) > 500:
+            display_result = result_str[:500] + "\n... (truncated)"
+        else:
+            display_result = result_str
+        
+        return Panel(
+            Text(display_result),
+            title=f"✓ {tool_name}",
+            title_align="left",
+            border_style="green",
+            padding=(0, 1)
+        )
+
+    def _create_error_result_panel(self, tool_name: str, error) -> Panel:
+        """Create formatted panel for error results."""
+        error_str = str(error)
+        
+        # Add helpful context for common errors
+        if "permission denied" in error_str.lower():
+            error_str += "\n💡 Try running with appropriate permissions"
+        elif "file not found" in error_str.lower():
+            error_str += "\n💡 Check if the file path is correct"
+        elif "command not found" in error_str.lower():
+            error_str += "\n💡 Check if the command is installed and in PATH"
+        
+        return Panel(
+            Text(error_str, style="red"),
+            title=f"✗ {tool_name}",
+            title_align="left",
+            border_style="red",
+            padding=(0, 1)
+        )
 
     def handle_tool_call_event(self, data: dict):
-        """Handle tool call event display."""
+        """Handle tool call event display with enhanced formatting."""
         tool_call = data.get('tool_call', None)
         tool_name = tool_call.name
         arguments = tool_call.arguments
+        
+        # Create enhanced tool call display based on tool type
+        content = self._format_tool_call_content(tool_name, arguments)
+        preview = self._get_tool_execution_preview(tool_name, arguments)
+        
+        # Combine content and preview
+        display_content = content
+        if preview:
+            display_content += f"\n{preview}"
+        
+        panel = Panel(
+            display_content,
+            title=f"🔧 {tool_name}",
+            title_align="left",
+            border_style="yellow",
+            padding=(0, 1)
+        )
+        self.console.print(panel)
 
-        # Special handling for bash tool to show specific command
+    def _format_tool_call_content(self, tool_name: str, arguments: dict) -> Text:
+        """Format tool call content based on tool type."""
         if tool_name == "bash" and "command" in arguments:
-            command = arguments["command"]
-
-            # Create framed bash command display
-            panel = Panel(
-                f"[cyan]{command}[/cyan]",
-                title=f"🔧 {tool_name}",
-                title_align="left",
-                border_style="yellow",
-                padding=(0, 1)
-            )
-            self.console.print(panel)
+            return Text(arguments["command"], style="cyan")
+        elif tool_name == "write_file" and "path" in arguments:
+            path = arguments["path"]
+            content_preview = arguments.get("content", "")[:50]
+            if len(content_preview) >= 50:
+                content_preview += "..."
+            return Text(f"Path: {path}\nContent: {content_preview}", style="green")
+        elif tool_name == "read_file" and "path" in arguments:
+            return Text(f"Path: {arguments['path']}", style="blue")
+        elif tool_name == "edit_file" and all(key in arguments for key in ["path", "old_text", "new_text"]):
+            path = arguments["path"]
+            old_preview = arguments["old_text"][:30] + "..." if len(arguments["old_text"]) > 30 else arguments["old_text"]
+            new_preview = arguments["new_text"][:30] + "..." if len(arguments["new_text"]) > 30 else arguments["new_text"]
+            return Text(f"Path: {path}\nReplace: {old_preview}\nWith: {new_preview}", style="yellow")
         else:
-            # Normal display for other tools
-            args_str = str(arguments)
-            panel = Panel(
-                args_str,
-                title=f"🔧 {tool_name}",
+            # Fallback for other tools - show arguments in a cleaner format
+            args_text = ""
+            for key, value in arguments.items():
+                if isinstance(value, str) and len(value) > 50:
+                    value_display = value[:50] + "..."
+                else:
+                    value_display = str(value)
+                args_text += f"{key}: {value_display}\n"
+            return Text(args_text.rstrip(), style="dim")
+
+    def _get_tool_execution_preview(self, tool_name: str, arguments: dict) -> str:
+        """Get execution preview message for tool."""
+        if tool_name == "bash":
+            return "➤ Will execute command"
+        elif tool_name == "write_file":
+            return "➤ Will write to file"
+        elif tool_name == "read_file":
+            return "➤ Will read file content"
+        elif tool_name == "edit_file":
+            return "➤ Will modify file"
+        elif tool_name in ["ls", "glob"]:
+            return "➤ Will list files/directories"
+        elif tool_name == "grep":
+            return "➤ Will search for pattern"
+        elif tool_name in ["web_fetch", "web_search"]:
+            return "➤ Will fetch web content"
+        else:
+            return "➤ Executing..."
+
+    def _create_file_edit_result_panel(self, result: dict) -> Panel:
+        """Create formatted panel for file edit results with complete content and line numbers."""
+        file_path = result.get('file_path', 'unknown')
+        new_content = result.get('new_content', '')
+        old_content = result.get('old_content', '')
+        old_text = result.get('old_text', '')
+        new_text = result.get('new_text', '')
+        
+        # Use enhanced display from highlighted_content
+        from pywen.ui.highlighted_content import HighlightedContentDisplay
+        
+        try:
+            return HighlightedContentDisplay.create_edit_result_display(
+                old_content, new_content, old_text, new_text, file_path
+            )
+        except Exception:
+            # Fallback to simple display
+            lines = new_content.splitlines()
+            content_with_lines = []
+            for i, line in enumerate(lines, 1):
+                content_with_lines.append(f"{i:3d} │ {line}")
+            
+            display_content = '\n'.join(content_with_lines)
+            
+            return Panel(
+                Text(display_content, style="green"),
+                title=f"✓ edit_file: {file_path}",
                 title_align="left",
-                border_style="yellow",
+                border_style="green",
                 padding=(0, 1)
             )
-            self.console.print(panel)
+
+    def _create_file_write_result_panel(self, result: dict) -> Panel:
+        """Create formatted panel for file write results with complete content and line numbers."""
+        file_path = result.get('file_path', 'unknown')
+        content = result.get('content', '')
+        old_content = result.get('old_content', '')
+        is_new_file = result.get('is_new_file', False)
+        lines_count = result.get('lines_count', 0)
+        chars_count = result.get('chars_count', 0)
+        
+        # Use enhanced display from highlighted_content
+        from pywen.ui.highlighted_content import HighlightedContentDisplay
+        
+        try:
+            return HighlightedContentDisplay.create_write_file_result_display(
+                content, file_path, is_new_file, old_content
+            )
+        except Exception:
+            # Fallback to simple display with line numbers
+            lines = content.splitlines()
+            content_with_lines = []
+            for i, line in enumerate(lines, 1):
+                content_with_lines.append(f"{i:3d} │ {line}")
+            
+            display_content = '\n'.join(content_with_lines)
+            
+            # Add file info header
+            info_header = f"{'📄 Created' if is_new_file else '📝 Updated'}: {file_path}\n"
+            info_header += f"📊 {lines_count} lines, {chars_count} characters\n"
+            info_header += "─" * 50 + "\n"
+            
+            display_content = info_header + display_content
+            
+            return Panel(
+                Text(display_content, style="green"),
+                title=f"✓ write_file: {file_path}",
+                title_align="left",
+                border_style="green",
+                padding=(0, 1)
+            )
 

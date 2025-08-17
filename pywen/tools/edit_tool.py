@@ -45,9 +45,19 @@ class EditTool(BaseTool):
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # Check if old_str exists
+            # Use more flexible matching - check if old_str exists exactly or with common variations
             if old_str not in content:
-                return f"❌ Text to replace not found in {path}"
+                # Try with different line endings
+                content_normalized = content.replace('\r\n', '\n').replace('\r', '\n')
+                old_str_normalized = old_str.replace('\r\n', '\n').replace('\r', '\n')
+                
+                if old_str_normalized not in content_normalized:
+                    # Show a more helpful error with context
+                    lines = content.split('\n')
+                    for i, line in enumerate(lines, 1):
+                        if any(word in line for word in old_str.split() if len(word) > 2):
+                            return f"📝 Edit File: {path}\n💡 Similar text found on line {i}: '{line.strip()}'\n🔍 Searching for: '{old_str}'"
+                    return f"📝 Edit File: {path}\n⚠️ Text to replace not found: '{old_str}'\n📄 Current file has {len(lines)} lines"
 
             # Generate actual diff preview
             # Create the new content after replacement
@@ -101,9 +111,18 @@ class EditTool(BaseTool):
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             
-            # Check if old_str exists
+            # Check if old_str exists with flexible matching
             if old_str not in content:
-                return ToolResult(call_id="", error=f"Text to replace not found in file: {old_str}")
+                # Try with different line endings
+                content_normalized = content.replace('\r\n', '\n').replace('\r', '\n')
+                old_str_normalized = old_str.replace('\r\n', '\n').replace('\r', '\n')
+                
+                if old_str_normalized not in content_normalized:
+                    return ToolResult(call_id="", error=f"Text to replace not found in file: '{old_str}'")
+                else:
+                    # Use normalized versions for replacement
+                    content = content_normalized
+                    old_str = old_str_normalized
             
             # Replace text
             new_content = content.replace(old_str, new_str)
@@ -122,7 +141,7 @@ class EditTool(BaseTool):
                     "new_content": new_content,
                     "old_text": old_str,
                     "new_text": new_str,
-                    "summary": f"Successfully edited {path}: replaced \n{old_str} \nlines with \n{new_str} \nlines"
+                    "summary": f"✅ Successfully edited {path}\n📝 Changed: '{old_str}' → '{new_str}'\n🎯 Task completed - file modification successful"
                 }
             )
         

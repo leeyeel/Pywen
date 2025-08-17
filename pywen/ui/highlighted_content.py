@@ -114,43 +114,67 @@ class HighlightedContentDisplay:
         new_text: str,
         file_path: str
     ) -> Panel:
-        """Create a display for edit results showing the new content with precise +/- indicators."""
+        """Create a display for edit results showing both deleted (-) and added (+) lines."""
 
-        # Find which lines were changed, added, or removed
+        # Create a unified diff view showing both old and new content
         old_lines = old_content.splitlines()
         new_lines = new_content.splitlines()
 
-        # Use difflib to find the exact changes
-        differ = difflib.SequenceMatcher(None, old_lines, new_lines)
+        # Use difflib to generate a proper unified diff
+        diff_lines = list(difflib.unified_diff(
+            old_lines, new_lines,
+            fromfile=f"a/{file_path}", tofile=f"b/{file_path}",
+            lineterm="", n=3
+        ))
 
-        added_lines = []
-        changed_lines = []
+        # Convert unified diff to our display format
+        content_text = Text()
+        line_num = 0
+        old_line_num = 0
+        new_line_num = 0
 
-        for tag, i1, i2, j1, j2 in differ.get_opcodes():
-            if tag == 'replace':
-                # Check if it's a simple replacement (same number of lines) or mixed
-                if (i2 - i1) == (j2 - j1):
-                    # Same number of lines - mark as changed
-                    for line_num in range(j1 + 1, j2 + 1):
-                        changed_lines.append(line_num)
-                else:
-                    # Different number of lines - some are added, some are changed
-                    min_lines = min(i2 - i1, j2 - j1)
-                    # First part is changed
-                    for line_num in range(j1 + 1, j1 + min_lines + 1):
-                        changed_lines.append(line_num)
-                    # Rest is added
-                    for line_num in range(j1 + min_lines + 1, j2 + 1):
-                        added_lines.append(line_num)
-            elif tag == 'insert':
-                # Lines were added
-                for line_num in range(j1 + 1, j2 + 1):
-                    added_lines.append(line_num)
+        for line in diff_lines:
+            if line.startswith('@@'):
+                # Parse hunk header to get line numbers
+                import re
+                match = re.match(r'@@ -(\d+),?\d* \+(\d+),?\d* @@', line)
+                if match:
+                    old_line_num = int(match.group(1)) - 1
+                    new_line_num = int(match.group(2)) - 1
+                # Skip the @@ line in display
+                continue
+            elif line.startswith('---') or line.startswith('+++'):
+                # Skip file headers
+                continue
+            elif line.startswith('-'):
+                # Deleted line
+                old_line_num += 1
+                content_text.append(f"{old_line_num:3d} ", style="red")
+                content_text.append("- ", style="bold red")
+                content_text.append(line[1:], style="red")
+                content_text.append("\n")
+            elif line.startswith('+'):
+                # Added line
+                new_line_num += 1
+                content_text.append(f"{new_line_num:3d} ", style="green")
+                content_text.append("+ ", style="bold green")
+                content_text.append(line[1:], style="green")
+                content_text.append("\n")
+            else:
+                # Context line (unchanged)
+                old_line_num += 1
+                new_line_num += 1
+                content_text.append(f"{new_line_num:3d} ", style="dim")
+                content_text.append("  ", style="dim")
+                content_text.append(line[1:] if line.startswith(' ') else line, style="dim")
+                content_text.append("\n")
 
-        return HighlightedContentDisplay.create_highlighted_file_content(
-            new_content, file_path,
-            changed_lines=changed_lines,
-            added_lines=added_lines
+        return Panel(
+            content_text,
+            title=f"📝 {file_path} (edited)",
+            title_align="left",
+            border_style="yellow",
+            padding=(0, 1)
         )
     
     @staticmethod
