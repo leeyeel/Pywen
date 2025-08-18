@@ -30,6 +30,9 @@ class ClaudeCodeAgent(BaseAgent):
         self.context_manager = ClaudeCodeContextManager(self.project_path)
         self.context = {}
 
+        # Initialize conversation history for session continuity
+        self.conversation_history: List[LLMMessage] = []
+        self.max_history_messages = getattr(config, 'max_history_messages', 20)  # Keep last 20 messages
 
         # Ensure trajectories directory exists
         trajectories_dir = os.path.join(self.project_path, "trajectories")
@@ -93,6 +96,46 @@ class ClaudeCodeAgent(BaseAgent):
             # Fallback to minimal context
             self.context = {'project_path': self.project_path}
 
+    def _manage_conversation_history(self):
+        """
+        Manage conversation history size to prevent context overflow
+        Keep the most recent messages within the limit
+        """
+        if len(self.conversation_history) > self.max_history_messages:
+            # Keep the most recent messages, but preserve user-assistant pairs
+            messages_to_remove = len(self.conversation_history) - self.max_history_messages
+
+            # Remove from the beginning, but try to keep complete exchanges
+            removed_count = 0
+            while removed_count < messages_to_remove and len(self.conversation_history) > 5:
+                # Always keep at least 5 messages for context
+                self.conversation_history.pop(0)
+                removed_count += 1
+
+            if self.cli_console and removed_count > 0:
+                self.cli_console.print(f"Conversation history trimmed: removed {removed_count} old messages", "dim")
+
+    def clear_conversation_history(self):
+        """
+        Clear the conversation history (useful for starting fresh)
+        """
+        self.conversation_history.clear()
+        if self.cli_console:
+            self.cli_console.print("Conversation history cleared", "green")
+
+    def get_conversation_summary(self) -> str:
+        """
+        Get a summary of the current conversation history
+        """
+        if not self.conversation_history:
+            return "No conversation history"
+
+        user_messages = len([msg for msg in self.conversation_history if msg.role == "user"])
+        assistant_messages = len([msg for msg in self.conversation_history if msg.role == "assistant"])
+        tool_messages = len([msg for msg in self.conversation_history if msg.role == "tool"])
+
+        return f"Conversation: {user_messages} user, {assistant_messages} assistant, {tool_messages} tool messages"
+
     async def run(self, query: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Main execution loop for Claude Code Agent
@@ -130,11 +173,15 @@ class ClaudeCodeAgent(BaseAgent):
             # Build system prompt with context
             system_prompt = self.prompts.get_system_prompt(self.context)
 
-            # Initialize conversation with system prompt and user query
-            messages = [
-                LLMMessage(role="system", content=system_prompt),
-                LLMMessage(role="user", content=query)
-            ]
+            # Add new user message to conversation history
+            user_message = LLMMessage(role="user", content=query)
+            self.conversation_history.append(user_message)
+
+            # Manage conversation history size
+            self._manage_conversation_history()
+
+            # Initialize conversation with system prompt and full history
+            messages = [LLMMessage(role="system", content=system_prompt)] + self.conversation_history.copy()
 
             # Start recursive query loop with depth control
             async for event in self._query_recursive(messages, system_prompt, depth=0, **kwargs):
@@ -206,6 +253,9 @@ class ClaudeCodeAgent(BaseAgent):
 
             # 📝 TRAJECTORY: Record LLM interaction
             if assistant_message:
+                # Add assistant message to conversation history
+                self.conversation_history.append(assistant_message)
+
                 # Create LLMResponse object for trajectory recording with usage info
                 llm_response = LLMResponse(
                     content=assistant_message.content or "",
@@ -270,12 +320,18 @@ class ClaudeCodeAgent(BaseAgent):
                 }
                 return
 
-            # 🔄 RECURSIVE CALL: Continue with updated message history
+            # Add tool results to conversation history
+            for tool_result in tool_results:
+                self.conversation_history.append(tool_result)
+
+            # Manage conversation history size after adding tool results
+            self._manage_conversation_history()
+
+            # 🔄 RECURSIVE CALL: Use the updated conversation history
+            # Rebuild messages from system prompt + current conversation history
             updated_messages = [
-                *messages,
-                assistant_message,
-                *tool_results
-            ]
+                LLMMessage(role="system", content=system_prompt)
+            ] + self.conversation_history.copy()
 
             # 🔄 RECURSIVE CALL: Continue with updated message history and incremented depth
             async for event in self._query_recursive(updated_messages, system_prompt, depth=depth+1, **kwargs):
@@ -675,11 +731,18 @@ class ClaudeCodeAgent(BaseAgent):
                 "Command execution",
                 "Project understanding",
                 "Sub-agent delegation",
-                "Context-aware responses"
+                "Context-aware responses",
+                "Conversation history memory"
             ],
             "tools": [tool.name for tool in self.tools],
             "supports_streaming": True,
-            "supports_sub_agents": True
+            "supports_sub_agents": True,
+            "conversation_history": {
+                "enabled": True,
+                "max_messages": self.max_history_messages,
+                "current_messages": len(self.conversation_history),
+                "summary": self.get_conversation_summary()
+            }
         }
     
     def set_project_path(self, path: str):

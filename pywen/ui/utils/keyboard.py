@@ -92,7 +92,7 @@ def create_key_bindings(
     def _(event):
         """Toggle auto-accepting edits."""
         console = console_getter()
-        console.print("[yellow]Auto-accepting edits toggled (not implemented yet)[/yellow]")
+        console.print("Auto-accepting edits toggled (not implemented yet)","yellow")
     
     # ESC - 取消当前操作
     @bindings.add('escape')
@@ -104,9 +104,9 @@ def create_key_bindings(
         buffer = event.app.current_buffer
         if buffer.text:
             buffer.reset()
-            console.print("[yellow]Input cleared[/yellow]")
+            console.print("Input cleared","yellow")
         elif cancel_event and not cancel_event.is_set():
-            console.print("[yellow]Cancelling current operation...[/yellow]")
+            console.print("Cancelling current operation...","yellow")
             cancel_event.set()
             # 如果有当前任务，也取消它
             if current_task_getter:
@@ -132,7 +132,7 @@ def create_key_bindings(
         
         if has_running_task:
             # 如果有正在运行的任务，第一次按 Ctrl+C 取消任务
-            console.print("\n[yellow]Cancelling current operation... (Press Ctrl+C again to force quit)[/yellow]")
+            console.print("\nCancelling current operation... (Press Ctrl+C again to force quit)","yellow")
             if cancel_event and not cancel_event.is_set():
                 cancel_event.set()
             if current_task:
@@ -155,7 +155,7 @@ def create_key_bindings(
             ctrl_c_count += 1
             
             if ctrl_c_count == 1:
-                console.print("[yellow]Press Ctrl+C again to quit[/yellow]")
+                console.print("Press Ctrl+C again to quit","yellow")
                 
                 def reset_count():
                     nonlocal ctrl_c_count
@@ -167,7 +167,7 @@ def create_key_bindings(
                 ctrl_c_timer.start()
                 
             elif ctrl_c_count >= 2:
-                console.print("[red]Force quitting...[/red]")
+                console.print("Force quitting...","red")
                 event.app.exit()
     
     # Alt+Left - Jump word left
