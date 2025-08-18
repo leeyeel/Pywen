@@ -21,21 +21,23 @@ if sys.platform != 'win32':
 class ConfigWizard:
     def __init__(self, existing_config_file=None):
         self.console = Console()
-        self.config_file = "pywen_config.json"
-        self.env_file = ".env"
+        # Import here to avoid circular imports
+        from pywen.config.loader import get_default_config_path, get_default_env_path
+        self.config_file = get_default_config_path()
+        self.env_file = get_default_env_path()
         self.existing_config_file = existing_config_file
         self._load_env_vars()
     
     def _load_env_vars(self):
         """加载环境变量"""
-        # 尝试从多个位置加载.env文件
+        # 尝试从多个位置加载.env文件，优先使用 ~/.pywen/.env
         env_paths = [
-            ".env",  # 当前目录
-            Path.home() / ".env",  # 用户主目录
-            ".pywen/.env",  # pywen目录
-            Path.home() / ".pywen" / ".env"  # 用户主目录的pywen目录
+            Path.home() / ".pywen" / ".env",  # 用户主目录的pywen目录 (优先)
+            ".env",  # 当前目录 (向后兼容)
+            Path.home() / ".env",  # 用户主目录 (向后兼容)
+            ".pywen/.env",  # 当前目录的pywen目录 (向后兼容)
         ]
-        
+
         if DOTENV_AVAILABLE:
             for env_path in env_paths:
                 if Path(env_path).exists():
@@ -141,8 +143,8 @@ class ConfigWizard:
                 
                 return {
                     "api_key": provider_config.get("api_key", ""),
-                    "base_url": provider_config.get("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-                    "model": provider_config.get("model", "qwen3-coder-plus"),
+                    "base_url": provider_config.get("base_url", "https://api-inference.modelscope.cn/v1"),
+                    "model": provider_config.get("model", "Qwen/Qwen3-Coder-480B-A35B-Instruct"),
                     "max_tokens": str(provider_config.get("max_tokens", 4096)),
                     "temperature": str(provider_config.get("temperature", 0.5)),
                     "max_steps": str(config_data.get("max_steps", 20)),
@@ -154,8 +156,8 @@ class ConfigWizard:
         # 返回默认配置
         return {
             "api_key": self._get_env_value("api_key", ""),
-            "base_url": self._get_env_value("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-            "model": self._get_env_value("model", "qwen3-coder-plus"),
+            "base_url": self._get_env_value("base_url", "https://api-inference.modelscope.cn/v1"),
+            "model": self._get_env_value("model", "Qwen/Qwen3-Coder-480B-A35B-Instruct"),
             "max_tokens": self._get_env_value("max_tokens", "4096"),
             "temperature": self._get_env_value("temperature", "0.5"),
             "max_steps": self._get_env_value("max_steps", "20"),
@@ -171,8 +173,8 @@ class ConfigWizard:
         else:
             config = {
                 "api_key": self._get_env_value("api_key", ""),
-                "base_url": self._get_env_value("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-                "model": self._get_env_value("model", "qwen3-coder-plus"),
+                "base_url": self._get_env_value("base_url", "https://api-inference.modelscope.cn/v1"),
+                "model": self._get_env_value("model", "Qwen/Qwen3-Coder-480B-A35B-Instruct"),
                 "max_tokens": self._get_env_value("max_tokens", "4096"),
                 "temperature": self._get_env_value("temperature", "0.5"),
                 "max_steps": self._get_env_value("max_steps", "20"),
@@ -365,14 +367,17 @@ class ConfigWizard:
                 }
             }
         }
-        
+
+        # 确保目录存在
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
+
         # 保存到 pywen_config.json
         with open(self.config_file, 'w', encoding='utf-8') as f:
             json.dump(config_data, f, indent=2, ensure_ascii=False)
-        
+
         # 保存到 .env (备用) - 避免重复添加
         self._update_env_file(pywen_config)
-        
+
         self.console.print(f"\n[green]✅ Configuration saved to {self.config_file}[/green]")
         self.console.print(f"[green]✅ API Key saved to {self.env_file}[/green]")
 
@@ -382,31 +387,34 @@ class ConfigWizard:
         env_vars = {
             "QWEN_API_KEY": pywen_config['api_key']
         }
-        
+
         # 只有当值存在时才添加其他API密钥
         if pywen_config.get("serper_api_key"):
             env_vars["SERPER_API_KEY"] = pywen_config['serper_api_key']
-        
+
         if pywen_config.get("jina_api_key"):
             env_vars["JINA_API_KEY"] = pywen_config['jina_api_key']
-        
+
+        # 确保目录存在
+        self.env_file.parent.mkdir(parents=True, exist_ok=True)
+
         # 读取现有的.env文件内容
         existing_lines = []
-        if os.path.exists(self.env_file):
+        if self.env_file.exists():
             with open(self.env_file, 'r', encoding='utf-8') as f:
                 existing_lines = f.readlines()
-        
+
         # 处理现有行，更新已存在的变量
         updated_lines = []
         processed_keys = set()
-        
+
         for line in existing_lines:
             stripped_line = line.strip()
             # 跳过空行和注释行
             if not stripped_line or stripped_line.startswith('#'):
                 updated_lines.append(line)
                 continue
-            
+
             # 解析键值对
             if '=' in stripped_line:
                 key = stripped_line.split('=', 1)[0]
@@ -415,15 +423,15 @@ class ConfigWizard:
                     updated_lines.append(f"{key}={env_vars[key]}\n")
                     processed_keys.add(key)
                     continue
-            
+
             # 保留其他行
             updated_lines.append(line)
-        
+
         # 添加新的环境变量（在文件末尾）
         for key, value in env_vars.items():
             if key not in processed_keys:
                 updated_lines.append(f"\n{key}={value}\n")
-        
+
         # 写回文件
         with open(self.env_file, 'w', encoding='utf-8') as f:
             f.writelines(updated_lines)

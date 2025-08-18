@@ -35,11 +35,11 @@ class ClaudeCodeAgent(BaseAgent):
         self.max_history_messages = getattr(config, 'max_history_messages', 20)  # Keep last 20 messages
 
         # Ensure trajectories directory exists
-        trajectories_dir = os.path.join(self.project_path, "trajectories")
-        os.makedirs(trajectories_dir, exist_ok=True)
+        from pywen.config.loader import get_trajectories_dir
+        trajectories_dir = get_trajectories_dir()
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        trajectory_path = os.path.join(trajectories_dir, f"claude_code_trajectory_{timestamp}.json")
+        trajectory_path = trajectories_dir / f"claude_code_trajectory_{timestamp}.json"
         self.trajectory_recorder = TrajectoryRecorder(trajectory_path)
 
         # Setup Claude Code specific tools after base tools

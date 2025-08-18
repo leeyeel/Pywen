@@ -9,28 +9,65 @@ from .config import Config, ModelConfig, ModelProvider
 
 from .config import ApprovalMode
 
-def load_config_from_file(config_path: str = "pywen_config.json") -> Config:
+
+def get_pywen_config_dir() -> Path:
+    """Get the Pywen configuration directory in user's home."""
+    config_dir = Path.home() / ".pywen"
+    config_dir.mkdir(exist_ok=True)
+    return config_dir
+
+
+def get_default_config_path() -> Path:
+    """Get the default configuration file path."""
+    return get_pywen_config_dir() / "pywen_config.json"
+
+
+def get_default_env_path() -> Path:
+    """Get the default .env file path."""
+    return get_pywen_config_dir() / ".env"
+
+
+def get_trajectories_dir() -> Path:
+    """Get the trajectories directory path."""
+    trajectories_dir = get_pywen_config_dir() / "trajectories"
+    trajectories_dir.mkdir(exist_ok=True)
+    return trajectories_dir
+
+
+def get_logs_dir() -> Path:
+    """Get the logs directory path."""
+    logs_dir = get_pywen_config_dir() / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    return logs_dir
+
+def load_config_from_file(config_path: str = None) -> Config:
     """Load configuration from JSON file."""
-    
-    # Try to find config file
-    config_file = Path(config_path)
-    
-    # If not found in current directory, try parent directories
+
+    # If no path specified, use default path in ~/.pywen/
+    if config_path is None:
+        config_file = get_default_config_path()
+    else:
+        config_file = Path(config_path)
+
+    # If config file doesn't exist at specified/default location, try to find it
     if not config_file.exists():
-        current_dir = Path.cwd()
-        for parent in [current_dir] + list(current_dir.parents):
-            potential_config = parent / config_path
-            if potential_config.exists():
-                config_file = potential_config
-                break
-    
-    if not config_file.exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
-    
+        found_config = find_config_file()
+        if found_config:
+            config_file = found_config
+        else:
+            # If still not found, check if we should use the default path
+            if config_path is None:
+                # Create default config if it doesn't exist in ~/.pywen/
+                config_file = get_default_config_path()
+                if not config_file.exists():
+                    raise FileNotFoundError(f"Configuration file not found. Please run with --create-config to create one at: {config_file}")
+            else:
+                raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
     # Load JSON data
     with open(config_file, 'r', encoding='utf-8') as f:
         config_data = json.load(f)
-    
+
     return parse_config_data(config_data)
 
 
@@ -96,22 +133,42 @@ def parse_config_data(config_data: Dict[str, Any]) -> Config:
 
 
 def find_config_file(filename: str = "pywen_config.json") -> Optional[Path]:
-    """Find configuration file in current or parent directories."""
-    
+    """Find configuration file in preferred locations."""
+
+    # Priority order for finding config files:
+    # 1. ~/.pywen/ (preferred location)
+    # 2. Current directory
+    # 3. Parent directories (for backward compatibility)
+
+    search_paths = [
+        get_pywen_config_dir() / filename,  # ~/.pywen/pywen_config.json
+        Path.cwd() / filename,              # ./pywen_config.json
+    ]
+
+    # Add parent directories for backward compatibility
     current_dir = Path.cwd()
-    
-    # Check current directory and all parent directories
-    for directory in [current_dir] + list(current_dir.parents):
-        config_path = directory / filename
+    for parent in current_dir.parents:
+        search_paths.append(parent / filename)
+
+    for config_path in search_paths:
         if config_path.exists():
             return config_path
-    
+
     return None
 
 
-def create_default_config(output_path: str = "pywen_config.json") -> None:
+def create_default_config(output_path: str = None) -> None:
     """Create a default configuration file."""
-    
+
+    # If no output path specified, use default location in ~/.pywen/
+    if output_path is None:
+        output_path = get_default_config_path()
+    else:
+        output_path = Path(output_path)
+
+    # Ensure the directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     default_config = {
         "default_provider": "qwen",
         "max_steps": 20,
@@ -123,8 +180,8 @@ def create_default_config(output_path: str = "pywen_config.json") -> None:
         "model_providers": {
             "qwen": {
                 "api_key": "your-qwen-api-key-here",
-                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                "model": "qwen-coder-plus",
+                "base_url": "https://api-inference.modelscope.cn/v1",
+                "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
                 "max_tokens": 4096,
                 "temperature": 0.1,
                 "top_p": 1,
@@ -134,10 +191,10 @@ def create_default_config(output_path: str = "pywen_config.json") -> None:
             }
         }
     }
-    
+
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(default_config, f, indent=2, ensure_ascii=False)
-    
+
     print(f"Default configuration created at: {output_path}")
     print("Please edit the API key and other settings as needed.")
 

@@ -36,7 +36,7 @@ async def main():
     """Main CLI entry point."""
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Pywen Python Agent")
-    parser.add_argument("--config", type=str, default="pywen_config.json", help="Config file path")
+    parser.add_argument("--config", type=str, default=None, help="Config file path (default: ~/.pywen/pywen_config.json)")
     parser.add_argument("--interactive", action="store_true", help="Interactive mode")
     parser.add_argument("--model", type=str, help="Override model name")
     parser.add_argument("--temperature", type=float, help="Override temperature")
@@ -54,36 +54,42 @@ async def main():
     if args.create_config:
         create_default_config(args.config)
         return
-    
+
+    # Import here to avoid circular imports
+    from pywen.config.loader import get_default_config_path
+
+    # Determine config path
+    config_path = args.config if args.config else get_default_config_path()
+
     # Check if config exists and is valid
-    if not os.path.exists(args.config):
+    if not os.path.exists(config_path):
         from pywen.ui.config_wizard import ConfigWizard
         wizard = ConfigWizard()
         wizard.run()
-        
+
         # After wizard completes, check if config was created
-        if not os.path.exists(args.config):
+        if not os.path.exists(config_path):
             console = Console()
             console.print("Configuration was not created. Exiting.", color="red")
             sys.exit(1)
     
     # Load configuration
     try:
-        config = load_config_with_cli_overrides(args.config, args)
+        config = load_config_with_cli_overrides(config_path, args)
         config.session_id = session_id
     except Exception as e:
         console = Console()
         console.print(f"Error loading configuration: {e}", color="red")
         console.print("Configuration may be invalid. Starting configuration wizard...", color="yellow")
-        
+
         # Import and run config wizard
         from pywen.ui.config_wizard import ConfigWizard
         wizard = ConfigWizard()
         wizard.run()
-        
+
         # Try loading config again
         try:
-            config = load_config_with_cli_overrides(args.config, args)
+            config = load_config_with_cli_overrides(config_path, args)
             config.session_id = session_id
         except Exception as e2:
             console.print(f"Still unable to load configuration: {e2}", color="red")

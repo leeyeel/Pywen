@@ -66,8 +66,8 @@ Respond in JSON format:
     def _setup_logger(self):
         """Setup logger for task continuation decisions."""
         # Create logs directory if it doesn't exist
-        log_dir = Path("logs")
-        log_dir.mkdir(exist_ok=True)
+        from pywen.config.loader import get_logs_dir
+        log_dir = get_logs_dir()
         
         # Setup logger
         self.logger = logging.getLogger("task_continuation")

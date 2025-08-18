@@ -19,7 +19,7 @@ class QwenContentGenerator(ContentGenerator):
     def __init__(self, config: Config):
         super().__init__(config)
         self.api_key = config.api_key
-        self.base_url = config.model_params.base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        self.base_url = config.model_params.base_url or "https://api-inference.modelscope.cn/v1"
         
         if not self.api_key:
             raise ValueError("Qwen API key is required")

@@ -41,7 +41,7 @@ class Config:
     enable_logging: bool = True
     log_level: str = "INFO"
     save_trajectories: bool = False
-    trajectories_dir: str = "trajectories"
+    trajectories_dir: str = None  # Will be set to ~/.pywen/trajectories by default
 
     # 新的权限管理系统
     permission_level: PermissionLevel = PermissionLevel.LOCKED
@@ -113,7 +113,7 @@ class Config:
             enable_logging=data.get('enable_logging', True),
             log_level=data.get('log_level', "INFO"),
             save_trajectories=data.get('save_trajectories', False),
-            trajectories_dir=data.get('trajectories_dir', "trajectories"),
+            trajectories_dir=data.get('trajectories_dir', None),
 
             # 新的权限系统
             permission_level=PermissionLevel(data.get('permission_level', 'locked')),

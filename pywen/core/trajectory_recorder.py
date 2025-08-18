@@ -16,8 +16,9 @@ class TrajectoryRecorder:
     def __init__(self, trajectory_path: Optional[str] = None):
         """Initialize trajectory recorder."""
         if trajectory_path is None:
+            from pywen.config.loader import get_trajectories_dir
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            trajectory_path = f"trajectories/trajectory_{timestamp}.json"
+            trajectory_path = get_trajectories_dir() / f"trajectory_{timestamp}.json"
 
         self.trajectory_path: Path = Path(trajectory_path)
         self.trajectory_data: Dict[str, Any] = {
