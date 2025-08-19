@@ -16,6 +16,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from pywen.config.config import ApprovalMode
 from pywen.config.loader import create_default_config, load_config_with_cli_overrides
 from pywen.agents.qwen.qwen_agent import QwenAgent
+from pywen.agents.claudecode.claude_code_agent import ClaudeCodeAgent   
 from pywen.ui.cli_console import CLIConsole
 from pywen.ui.command_processor import CommandProcessor
 from pywen.ui.utils.keyboard import create_key_bindings
@@ -98,10 +99,11 @@ async def main():
     # Create console and agent
     console = CLIConsole(config)
     console.config = config
-    
-    agent = QwenAgent(config)
+
+
+    agent = ClaudeCodeAgent(config)
     agent.set_cli_console(console)
-    
+
     # Display current mode
     mode_status = "🚀 YOLO" if config.get_approval_mode() == ApprovalMode.YOLO else "🔒 CONFIRM"
     console.print(f"Mode: {mode_status} (Ctrl+Y to toggle)")

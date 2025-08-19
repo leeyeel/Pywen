@@ -65,6 +65,9 @@ class QwenAgent(BaseAgent):
         #self.system_prompt = self._build_system_prompt()    
         self.system_prompt = self.get_core_system_prompt()
 
+        self.iteration_counter = 0
+        self.memory_monitor = memory_monitor
+
 
     #Need: Different Agent need to rewrite
     def get_enabled_tools(self) -> List[str]:
@@ -668,7 +671,12 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
         while turn.iterations < self.max_iterations:
             turn.iterations += 1
             yield {"type": "iteration_start", "data": {"iteration": turn.iterations}}
-            
+
+            #
+            compression  = await self.memory_monitor.run_monitored(self.iteration_counter, self.conversation_history)
+            if compression is not None:
+                self.conversation_history = compression
+
             messages = self._prepare_messages_for_iteration()
             available_tools = self.tool_registry.list_tools()
             
