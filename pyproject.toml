@@ -35,6 +35,8 @@ dependencies = [
     "textual>=5.0.1",
     "prompt-toolkit>=3.0.51",
     "aiohttp>=3.12.13",
+    "transformers>=4.55.2",
+    "loguru>=0.7.3",
 ]
 
 [project.scripts]

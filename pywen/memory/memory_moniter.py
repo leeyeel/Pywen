@@ -1,12 +1,15 @@
 from __future__ import annotations
 import re
 import os
+from pathlib import Path
 from openai import AsyncOpenAI
 from .prompt import compression_prompt, keyword_continuity_score_prompt, first_downgrade_prompt, second_downgrade_prompt
 from dataclasses import dataclass
 from pywen.utils.llm_basics import LLMMessage
 from typing import Dict, Any
 from rich import print
+from transformers import AutoTokenizer
+from .file_restorer import IntelligentFileRestorer
 
 
 @dataclass
@@ -29,6 +32,8 @@ class MemoryMonitor:
         self.max_tokens = threshold.max_tokens
         self.rules = threshold.rules
         self.model = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model, cache_dir=r"C:\Users\13872\.cache\huggingface\hub", local_files_only=True)
+        self.file_restorer = IntelligentFileRestorer()
 
 
     async def call_llm(self, prompt) -> str:
@@ -50,10 +55,10 @@ class MemoryMonitor:
             print(f"[bold red]Error calling LLM for memory compression: {e}[/]")
 
 
-    async def run_monitored(self, iteration_counter, conversation_history):
-        print(f"[bold magenta]Monitoring[/] on iteration [underline cyan]{iteration_counter}[/] :rocket:")
+    async def run_monitored(self, turn, conversation_history):
+        print(f"\n[bold magenta]Monitoring[/] on turn [underline cyan]{turn}[/] :rocket:")
 
-        if iteration_counter % self.check_interval == 0:
+        if turn % self.check_interval == 0:
             alert = self.maybe_compress(conversation_history)
             self.check_interval = alert["check_interval"]
         else:
@@ -69,12 +74,18 @@ class MemoryMonitor:
                 return conversation_summary
             else:
                 print("[bold green]⚠️ Memory compression fail, downgrade strategy will be executed.![/]")
-                conversation_summary = self.downgrade_compression(summary, original)
-                return conversation_summary
+                summary = await self.downgrade_compression(summary, original)
+                if summary is not None:
+                    conversation_summary = [LLMMessage(role="user", content=summary)]
+                    return conversation_summary
+                else:
+                    print("[yellow]⚠️ All downgrade attempts failed, using 30% latest messages strategy...[/]")
+                    summary = self.retain_latest_messages(conversation_history)
+                    conversation_summary = [LLMMessage(role="user", content=summary)]
+                    return conversation_summary
+            
         elif alert is not None and alert["level"] != "compress":
             print(alert["suggestion"])
-        else:
-            return None
 
 
     def maybe_compress(self, conversation_history) -> Dict[str, Any] | None:
@@ -89,16 +100,19 @@ class MemoryMonitor:
         elif ratio >= 0.60:
             return self.warning("moderate", ratio)
         else:
-            return None
+            return self.warning("", ratio)
 
 
     def count_tokens(self, messages: list[LLMMessage]) -> int:  # 不太准确
         if not messages:
             return 0
+        
+        content = ""
+        for message in messages:
+            content += message.content.strip()
             
-        for message in reversed(messages):
-            if message.role == "assistant" and not message.tool_calls:
-                return message.usage["total_tokens"]
+        tokens = self.tokenizer.encode(content)
+        return len(tokens)
 
 
     def pick_interval(self, ratio: float) -> int:
@@ -112,13 +126,13 @@ class MemoryMonitor:
 
         match ratio:
             case r if r >= 0.92:
-                suggestion = f"[bold red]Memory usage {r*100:.0f}% – threshold reached! [/][red]Executing compression![/]"
+                suggestion = f"[bold red]Memory usage – threshold reached! [/][red]Executing compression![/]"
             case r if r >= 0.80:
-                suggestion = f"[orange1]Memory usage {r*100:.0f}% – high, checking every {check_interval} turn(s).[/] [yellow]You can restart a new conversation![/]"
+                suggestion = f"[orange1]Memory usage – high, checking every {check_interval} turn(s).[/] [yellow]You can restart a new conversation![/]"
             case r if r >= 0.60:
-                suggestion = f"[bright_green]Memory usage {r*100:.0f}% – moderate, checking every {check_interval} turn(s).[/]"
+                suggestion = f"[bright_green]Memory usage – moderate, checking every {check_interval} turn(s).[/]"
             case _:
-                suggestion = f"[dim bright_blue]Memory usage {r*100:.0f}% – low, checking every {check_interval} turn(s).[/]"
+                suggestion = f"[dim bright_blue]Memory usage – low, checking every {check_interval} turn(s).[/]"
                 
         return {
             "level": level,
@@ -137,7 +151,10 @@ class MemoryMonitor:
         
 
     def ratio_score(self, summary: str, original: str) -> float:
-        return len(summary) / len(original)
+        summary_tokens = self.tokenizer.encode(summary)
+        original_tokens = self.tokenizer.encode(original)
+
+        return len(summary_tokens) / len(original_tokens)
 
 
     def section_score(self, summary: str) -> float:
@@ -202,7 +219,7 @@ class MemoryMonitor:
         }
 
     
-    async def downgrade_compression(self, summary: str, original: str, conversation_history: list[LLMMessage]) -> list[LLMMessage]:
+    async def downgrade_compression(self, summary: str, original: str) -> list[LLMMessage]:
         attempts = [
             dict(
                 label="First attempt", 
@@ -226,15 +243,88 @@ class MemoryMonitor:
 
             if quality["fidelity"] >= attempt["threshold"]:
                 print(f"[green]✅ {attempt['label']} successful, fidelity: {quality['fidelity']}%[/]")
-                return [LLMMessage(role="user", content=downgrade_summary)]
+                return downgrade_summary
             else:
                 print(f"[red]❌ {attempt['label']} fail.[/]")
+                return None
         
-        return conversation_history[-10:]
+
+    def retain_latest_messages(self, conversation_history: list[LLMMessage]) -> list[LLMMessage]:
+        if not conversation_history:
+            return None
+
+        total_tokens = 0
+        message_tokens = []
         
-    
+        for message in conversation_history:
+            content = message.content.strip()
+            tokens = self.tokenizer.encode(content)
+            token_count = len(tokens)
+            message_tokens.append((message, token_count))
+            total_tokens += token_count
+        
+        retain_tokens = max(1, int(total_tokens * 0.3))
+        
+        retained_messages = []
+        accumulated_tokens = 0
+        
+        for message, token_count in reversed(message_tokens):
+            if accumulated_tokens + token_count <= retain_tokens:
+                retained_messages.insert(0, message)
+                accumulated_tokens += token_count
+            else:
+                if not retained_messages:
+                    retained_messages.insert(0, message)
+                break
+        
+        first_user_index = None
+        for i, msg in enumerate(retained_messages):
+            if msg.role == "user":
+                first_user_index = i
+                break
+        
+        if first_user_index is not None and first_user_index > 0:
+            adjusted_messages = retained_messages[first_user_index:]
+        else:
+            adjusted_messages = retained_messages
+        
+        actual_retained_tokens = 0
+        for msg in adjusted_messages:
+            content = msg.content.strip()
+            tokens = self.tokenizer.encode(content)
+            actual_retained_tokens += len(tokens)
+        
+        print(f"[green]✅ Retained {actual_retained_tokens} out of {total_tokens} tokens "
+              f"({actual_retained_tokens/total_tokens:.1%}), {len(adjusted_messages)} messages")
+        
+        summary = "\n".join(f"{message.role}: {message.content}" for message in adjusted_messages)
+        return summary
+        
+
     def file_recover(self):
-        pass        
+        directory = Path.cwd()
+        metadatas = self.file_restorer.get_directory_metadata(directory)
+        ranked_files = []
+        for md in metadatas:
+            md_copy = md.copy()
+            score = self.file_restorer.calculate_importance_score(md_copy)
+            md_copy["score"] = score
+            ranked_files.append(md_copy)
+        selected = self.file_restorer.select_optimal_file_set(ranked_files)
+        # Sort selected files by score descending
+        sorted_selected = sorted(selected["files"], key=lambda f: f["score"], reverse=True)
+        # Read contents
+        dir_path = Path(directory).resolve()
+        contents = []
+        for file in sorted_selected:
+            full_path = dir_path / file["path"]
+            try:
+                content = full_path.read_text(encoding="utf-8")
+                contents.append(f"File: {file['path']}\nScore: {file['score']}\nContent:\n{content}\n\n")
+            except Exception as e:
+                contents.append(f"File: {file['path']}\nError reading: {str(e)}\n\n")
+        return "".join(contents)
+
 
         
 

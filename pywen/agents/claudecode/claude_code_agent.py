@@ -14,6 +14,10 @@ from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
 from pywen.core.session_stats import session_stats
 
+# Import memory moniter and file restorer
+from memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
+from memory.file_restorer import IntelligentFileRestorer
+
 
 
 class ClaudeCodeAgent(BaseAgent):
@@ -32,7 +36,7 @@ class ClaudeCodeAgent(BaseAgent):
 
         # Initialize conversation history for session continuity
         self.conversation_history: List[LLMMessage] = []
-        self.max_history_messages = getattr(config, 'max_history_messages', 20)  # Keep last 20 messages
+        # self.max_history_messages = getattr(config, 'max_history_messages', 20)  # Keep last 20 messages
 
         # Ensure trajectories directory exists
         from pywen.config.loader import get_trajectories_dir
@@ -51,6 +55,11 @@ class ClaudeCodeAgent(BaseAgent):
 
         # Register this agent with session stats
         session_stats.set_current_agent(self.type)
+
+        # Initialize memory moniter and file restorer
+        self.current_turn = 0
+        self.memory_moniter = MemoryMonitor(AdaptiveThreshold(check_interval=3, max_tokens=200000, rules=((0.92, 1), (0.80, 1), (0.60, 2), (0.00, 3))))
+        self.file_restorer = IntelligentFileRestorer()
 
     def _setup_claude_code_tools(self):
         """Setup Claude Code specific tools and configure them."""
@@ -96,24 +105,24 @@ class ClaudeCodeAgent(BaseAgent):
             # Fallback to minimal context
             self.context = {'project_path': self.project_path}
 
-    def _manage_conversation_history(self):
-        """
-        Manage conversation history size to prevent context overflow
-        Keep the most recent messages within the limit
-        """
-        if len(self.conversation_history) > self.max_history_messages:
-            # Keep the most recent messages, but preserve user-assistant pairs
-            messages_to_remove = len(self.conversation_history) - self.max_history_messages
+    # def _manage_conversation_history(self):
+    #     """
+    #     Manage conversation history size to prevent context overflow
+    #     Keep the most recent messages within the limit
+    #     """
+    #     if len(self.conversation_history) > self.max_history_messages:
+    #         # Keep the most recent messages, but preserve user-assistant pairs
+    #         messages_to_remove = len(self.conversation_history) - self.max_history_messages
 
-            # Remove from the beginning, but try to keep complete exchanges
-            removed_count = 0
-            while removed_count < messages_to_remove and len(self.conversation_history) > 5:
-                # Always keep at least 5 messages for context
-                self.conversation_history.pop(0)
-                removed_count += 1
+    #         # Remove from the beginning, but try to keep complete exchanges
+    #         removed_count = 0
+    #         while removed_count < messages_to_remove and len(self.conversation_history) > 5:
+    #             # Always keep at least 5 messages for context
+    #             self.conversation_history.pop(0)
+    #             removed_count += 1
 
-            if self.cli_console and removed_count > 0:
-                self.cli_console.print(f"Conversation history trimmed: removed {removed_count} old messages", "dim")
+    #         if self.cli_console and removed_count > 0:
+    #             self.cli_console.print(f"Conversation history trimmed: removed {removed_count} old messages", "dim")
 
     def clear_conversation_history(self):
         """
@@ -178,13 +187,16 @@ class ClaudeCodeAgent(BaseAgent):
             self.conversation_history.append(user_message)
 
             # Manage conversation history size
-            self._manage_conversation_history()
+            # self._manage_conversation_history()
 
             # Initialize conversation with system prompt and full history
             messages = [LLMMessage(role="system", content=system_prompt)] + self.conversation_history.copy()
 
+            # Record the cunrrent turn
+            self.current_turn += 1
+
             # Start recursive query loop with depth control
-            async for event in self._query_recursive(messages, system_prompt, depth=0, **kwargs):
+            async for event in self._query_recursive(messages, system_prompt, is_root=True, depth=0, **kwargs):
                 yield event
 
             # # End trajectory recording
@@ -202,6 +214,7 @@ class ClaudeCodeAgent(BaseAgent):
         self,
         messages: List[LLMMessage],
         system_prompt: str,
+        is_root: bool,
         depth: int = 0,
         **kwargs
     ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -283,12 +296,20 @@ class ClaudeCodeAgent(BaseAgent):
 
             # TOP CONDITION: No tool calls means we're done
             if not tool_calls:
+
+                # Run memory moniter after Task completed
+                if is_root:
+                    comression = await self.memory_moniter.run_monitored(self.current_turn, self.conversation_history)
+                    if comression is not None:
+                        self.conversation_history = comression
+
                 # Yield task completion event
                 yield {
                     "type": "task_complete",
                     "content": assistant_message.content if assistant_message else "",
                     
                 }
+
                 return
 
             # Yield tool call events for each tool
@@ -325,7 +346,9 @@ class ClaudeCodeAgent(BaseAgent):
                 self.conversation_history.append(tool_result)
 
             # Manage conversation history size after adding tool results
-            self._manage_conversation_history()
+            # self._manage_conversation_history()
+
+            
 
             # 🔄 RECURSIVE CALL: Use the updated conversation history
             # Rebuild messages from system prompt + current conversation history
@@ -334,7 +357,14 @@ class ClaudeCodeAgent(BaseAgent):
             ] + self.conversation_history.copy()
 
             # 🔄 RECURSIVE CALL: Continue with updated message history and incremented depth
-            async for event in self._query_recursive(updated_messages, system_prompt, depth=depth+1, **kwargs):
+            async for event in self._query_recursive(updated_messages, system_prompt, is_root=False, depth=depth+1, **kwargs):
+
+                # Run memory moniter after Task completed
+                if event.get("type") == "task_complete" and is_root:
+                    comression = await self.memory_moniter.run_monitored(self.current_turn, self.conversation_history)
+                    if comression is not None:
+                        self.conversation_history = comression
+
                 yield event
 
         except Exception as e:
@@ -739,7 +769,7 @@ class ClaudeCodeAgent(BaseAgent):
             "supports_sub_agents": True,
             "conversation_history": {
                 "enabled": True,
-                "max_messages": self.max_history_messages,
+                # "max_messages": self.max_history_messages,
                 "current_messages": len(self.conversation_history),
                 "summary": self.get_conversation_summary()
             }
