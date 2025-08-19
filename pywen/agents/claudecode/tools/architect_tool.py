@@ -60,8 +60,8 @@ class ArchitectTool(BaseTool):
         try:
             if not self._agent_registry:
                 return ToolResult(
-                    success=False,
-                    content="Agent registry not available. Cannot launch architect.",
+                    call_id="architect_tool",
+                    error="Agent registry not available. Cannot launch architect.",
                     metadata={"error": "no_agent_registry"}
                 )
             
@@ -71,8 +71,8 @@ class ArchitectTool(BaseTool):
             current_agent = self._agent_registry.get_current_agent()
             if not current_agent or current_agent.type != "ClaudeCodeAgent":
                 return ToolResult(
-                    success=False,
-                    content="Architect tool can only be used with Claude Code Agent",
+                    call_id="architect_tool",
+                    error="Architect tool can only be used with Claude Code Agent",
                     metadata={"error": "invalid_agent_type"}
                 )
             
@@ -82,11 +82,14 @@ class ArchitectTool(BaseTool):
             # Prepare the content with context if provided
             content = f"<context>{context}</context>\n\n{prompt}" if context else prompt
             
-            # Execute architect analysis
-            result_parts = []
+            # Execute architect analysis with progress tracking
+            result_parts = ["🏗️ **Architect Analysis**\n\n"]
+            result_parts.append("|_ Initializing architect agent...\n")
             tool_use_count = 0
-            
+
             try:
+                result_parts.append("|_ Starting analysis...\n\n")
+
                 # Run the architect with the given prompt
                 async for event in architect_agent._query_recursive(
                     messages=[
@@ -98,6 +101,9 @@ class ArchitectTool(BaseTool):
                 ):
                     if event["type"] == "content":
                         result_parts.append(event["content"])
+                    elif event["type"] == "tool_call_start":
+                        tool_name = event.get("data", {}).get("name", "unknown")
+                        result_parts.append(f"|_ Using {tool_name} tool...\n")
                     elif event["type"] == "tool_call":
                         tool_use_count += 1
                     elif event["type"] in ["final", "error"]:
@@ -105,18 +111,21 @@ class ArchitectTool(BaseTool):
                             result_parts.append(event["content"])
                         break
                 
+                # Add completion indicator
+                result_parts.append(f"\n|_ Analysis complete ({tool_use_count} tools used)\n")
+
                 # Combine results
                 final_result = "".join(result_parts).strip()
                 if not final_result:
-                    final_result = "Architect analysis completed but returned no output."
-                
+                    final_result = "🏗️ **Architect Analysis**\n\n|_ Analysis completed but returned no output."
+
                 # Add execution summary
                 duration = time.time() - start_time
-                summary = f"\n\n---\nArchitect analysis summary: {tool_use_count} tool uses, {duration:.1f}s"
+                summary = f"\n\n---\n**Summary:** {tool_use_count} tool uses, {duration:.1f}s"
                 
                 return ToolResult(
-                    success=True,
-                    content=final_result + summary,
+                    call_id="architect_tool",
+                    result=final_result + summary,
                     metadata={
                         "tool_use_count": tool_use_count,
                         "duration": duration,
@@ -127,16 +136,16 @@ class ArchitectTool(BaseTool):
             except Exception as e:
                 logger.error(f"Architect execution failed: {e}")
                 return ToolResult(
-                    success=False,
-                    content=f"Architect execution failed: {str(e)}",
+                    call_id="architect_tool",
+                    error=f"Architect execution failed: {str(e)}",
                     metadata={"error": "architect_execution_failed"}
                 )
                 
         except Exception as e:
             logger.error(f"Architect tool execution failed: {e}")
             return ToolResult(
-                success=False,
-                content=f"Architect tool failed: {str(e)}",
+                call_id="architect_tool",
+                error=f"Architect tool failed: {str(e)}",
                 metadata={"error": "architect_tool_failed"}
             )
     

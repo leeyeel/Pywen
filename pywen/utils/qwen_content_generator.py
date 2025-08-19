@@ -80,7 +80,57 @@ class QwenContentGenerator(ContentGenerator):
             openai_tools.append(openai_tool)
         
         return openai_tools
-    
+
+    def _safe_json_parse(self, json_str: str) -> dict:
+        """Safely parse JSON string, handling both standard JSON and Python dict formats."""
+        if not json_str or not json_str.strip():
+            return {}
+
+        try:
+            # First try standard JSON parsing
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            try:
+                # Try to use ast.literal_eval for Python dict format (more reliable)
+                import ast
+                return ast.literal_eval(json_str)
+            except (ValueError, SyntaxError):
+                try:
+                    # If that fails, try to fix common issues and parse again
+                    fixed_str = self._fix_json_format(json_str)
+                    return json.loads(fixed_str)
+                except json.JSONDecodeError:
+                    # If all else fails, try one more time with ast
+                    try:
+                        return ast.literal_eval(fixed_str)
+                    except (ValueError, SyntaxError):
+                        # Log the error and return empty dict
+                        print(f"Warning: Could not parse JSON/dict: {json_str[:200]}...")
+                        return {}
+
+    def _fix_json_format(self, json_str: str) -> str:
+        """Attempt to fix common JSON formatting issues."""
+        import re
+
+        # Remove any leading/trailing whitespace
+        fixed = json_str.strip()
+
+        # Handle cases where the string might be wrapped in extra quotes
+        if fixed.startswith('"{') and fixed.endswith('}"'):
+            fixed = fixed[1:-1]
+
+        # Try to fix simple single quote to double quote conversion
+        # But be careful about quotes inside string values
+        try:
+            # Use regex to replace single quotes that are likely JSON delimiters
+            # This is a simple heuristic and may not work for all cases
+            fixed = re.sub(r"'(\w+)':", r'"\1":', fixed)  # Replace 'key': with "key":
+            fixed = re.sub(r": '([^']*)'", r': "\1"', fixed)  # Replace : 'value' with : "value"
+        except Exception:
+            pass
+
+        return fixed
+
     def _parse_openai_response(self, response) -> LLMResponse:
         """Parse OpenAI-compatible response to LLMResponse."""
         choice = response.choices[0]
@@ -96,7 +146,7 @@ class QwenContentGenerator(ContentGenerator):
                 tc = ToolCall(
                     call_id=tool_call.id,
                     name=tool_call.function.name,
-                    arguments=json.loads(tool_call.function.arguments)
+                    arguments=self._safe_json_parse(tool_call.function.arguments)
                 )
                 tool_calls.append(tc)
         
@@ -266,10 +316,10 @@ class QwenContentGenerator(ContentGenerator):
                     try:
                         # 尝试解析完整的JSON参数
                         if buf["args_str"].strip():
-                            args = json.loads(buf["args_str"])
+                            args = self._safe_json_parse(buf["args_str"])
                         else:
                             args = {}
-                    except json.JSONDecodeError as e:
+                    except Exception as e:
                         print(f"JSON parse error for tool {buf['name']}: {e}")
                         print(f"Raw arguments: {buf['args_str']}")
                         args = {}
