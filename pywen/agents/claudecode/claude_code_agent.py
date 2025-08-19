@@ -4,7 +4,7 @@ Claude Code Agent - Python implementation of the Claude Code assistant
 import os
 from typing import Dict, List, Optional, AsyncGenerator, Any
 import datetime
-
+from rich import print
 from pywen.agents.base_agent import BaseAgent
 from pywen.tools.base import BaseTool
 from pywen.utils.llm_basics import LLMMessage, LLMResponse
@@ -151,6 +151,9 @@ class ClaudeCodeAgent(BaseAgent):
         Entry point that sets up initial context and calls the recursive query function
         """
         try:
+            # Record the cunrrent turn
+            self.current_turn += 1
+
             # Set this agent as current in the registry for tool access
             from pywen.core.agent_registry import set_current_agent
             set_current_agent(self)
@@ -192,9 +195,6 @@ class ClaudeCodeAgent(BaseAgent):
             # Initialize conversation with system prompt and full history
             messages = [LLMMessage(role="system", content=system_prompt)] + self.conversation_history.copy()
 
-            # Record the cunrrent turn
-            self.current_turn += 1
-
             # Start recursive query loop with depth control
             async for event in self._query_recursive(messages, system_prompt, is_root=True, depth=0, **kwargs):
                 yield event
@@ -214,7 +214,6 @@ class ClaudeCodeAgent(BaseAgent):
         self,
         messages: List[LLMMessage],
         system_prompt: str,
-        is_root: bool,
         depth: int = 0,
         **kwargs
     ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -298,10 +297,10 @@ class ClaudeCodeAgent(BaseAgent):
             if not tool_calls:
 
                 # Run memory moniter after Task completed
-                if is_root:
-                    comression = await self.memory_moniter.run_monitored(self.current_turn, self.conversation_history)
-                    if comression is not None:
-                        self.conversation_history = comression
+                current_usage = final_response.usage.total_tokens
+                comression = await self.memory_moniter.run_monitored(self.current_turn, self.conversation_history, current_usage)
+                if comression is not None:
+                    self.conversation_history = comression
 
                 # Yield task completion event
                 yield {
@@ -343,6 +342,7 @@ class ClaudeCodeAgent(BaseAgent):
 
             # Add tool results to conversation history
             for tool_result in tool_results:
+                print(f"{tool_result.role}: {tool_result.content}")
                 self.conversation_history.append(tool_result)
 
             # Manage conversation history size after adding tool results
@@ -357,14 +357,7 @@ class ClaudeCodeAgent(BaseAgent):
             ] + self.conversation_history.copy()
 
             # 🔄 RECURSIVE CALL: Continue with updated message history and incremented depth
-            async for event in self._query_recursive(updated_messages, system_prompt, is_root=False, depth=depth+1, **kwargs):
-
-                # Run memory moniter after Task completed
-                if event.get("type") == "task_complete" and is_root:
-                    comression = await self.memory_moniter.run_monitored(self.current_turn, self.conversation_history)
-                    if comression is not None:
-                        self.conversation_history = comression
-
+            async for event in self._query_recursive(updated_messages, system_prompt, depth=depth+1, **kwargs):
                 yield event
 
         except Exception as e:

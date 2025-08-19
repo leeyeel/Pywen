@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pywen.utils.llm_basics import LLMMessage
 from typing import Dict, Any
 from rich import print
-from transformers import AutoTokenizer
 from .file_restorer import IntelligentFileRestorer
 
 
@@ -32,7 +31,6 @@ class MemoryMonitor:
         self.max_tokens = threshold.max_tokens
         self.rules = threshold.rules
         self.model = "Qwen/Qwen3-235B-A22B-Instruct-2507"
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model, cache_dir=r"C:\Users\13872\.cache\huggingface\hub", local_files_only=True)
         self.file_restorer = IntelligentFileRestorer()
 
 
@@ -49,17 +47,17 @@ class MemoryMonitor:
                 top_p=0.7,
                 temperature=0
             )
-            return response.choices[0].message.content
+            return response
 
         except Exception as e:
             print(f"[bold red]Error calling LLM for memory compression: {e}[/]")
 
 
-    async def run_monitored(self, turn, conversation_history):
+    async def run_monitored(self, turn, conversation_history, usage):
         print(f"\n[bold magenta]Monitoring[/] on turn [underline cyan]{turn}[/] :rocket:")
 
         if turn % self.check_interval == 0:
-            alert = self.maybe_compress(conversation_history)
+            alert = self.maybe_compress(usage)
             self.check_interval = alert["check_interval"]
         else:
             return None
@@ -67,7 +65,7 @@ class MemoryMonitor:
         if alert is not None and alert["level"] == "compress":
             print(alert["suggestion"])
             summary, original = await self.do_compress(conversation_history)
-            quality = await self.quality_validation(summary, original)
+            quality = await self.quality_validation(summary, original, usage)
             if quality["valid"]:
                 print("[bold green]🚀 Memory compression success![/]")
                 conversation_summary = [LLMMessage(role="user", content=summary)]
@@ -88,8 +86,7 @@ class MemoryMonitor:
             print(alert["suggestion"])
 
 
-    def maybe_compress(self, conversation_history) -> Dict[str, Any] | None:
-        token_usage = self.count_tokens(conversation_history)
+    def maybe_compress(self, token_usage) -> Dict[str, Any] | None:
         ratio = token_usage / self.max_tokens
         print(f"Token usage: [bold cyan]{token_usage}[/], ratio: [bold magenta]{ratio:.2%}[/]")
 
@@ -101,18 +98,6 @@ class MemoryMonitor:
             return self.warning("moderate", ratio)
         else:
             return self.warning("", ratio)
-
-
-    def count_tokens(self, messages: list[LLMMessage]) -> int:  # 不太准确
-        if not messages:
-            return 0
-        
-        content = ""
-        for message in messages:
-            content += message.content.strip()
-            
-        tokens = self.tokenizer.encode(content)
-        return len(tokens)
 
 
     def pick_interval(self, ratio: float) -> int:
@@ -144,17 +129,13 @@ class MemoryMonitor:
     async def do_compress(self, conversation_history: list[LLMMessage]) -> tuple[str, str]:
         original = "\n".join(f"{message.role}: {message.content}" for message in conversation_history)
         prompt = compression_prompt.format(original)
-        response = await self.call_llm(prompt)
-        summary = response.strip()
+        summary = await self.call_llm(prompt)
 
         return summary, original
         
 
-    def ratio_score(self, summary: str, original: str) -> float:
-        summary_tokens = self.tokenizer.encode(summary)
-        original_tokens = self.tokenizer.encode(original)
-
-        return len(summary_tokens) / len(original_tokens)
+    def ratio_score(self, summary: str, usage: int) -> float:
+        return len(summary) / len(usage)
 
 
     def section_score(self, summary: str) -> float:
@@ -176,7 +157,8 @@ class MemoryMonitor:
 
     async def keyword_continuity_score(self, summary: str, original: str):
         prompt = keyword_continuity_score_prompt.format(summary, original)
-        response = await self.call_llm(prompt).strip()
+        response = await self.call_llm(prompt)
+        response = response.choices[0].message.content.strip()
 
         if not response.startswith("Result:"):
             raise ValueError("Missing 'Result:' prefix")
@@ -188,10 +170,12 @@ class MemoryMonitor:
         return float(parts[0]), float(parts[1]) 
 
     
-    async def quality_validation(self, summary: str, original: str) -> Dict[str, Any]:
-        ratio_score = self.ratio_score(summary, original)
-        section_ratio = self.section_score(summary)
-        keyword_ratio, continuity_ratio = await self.keyword_continuity_score(summary, original)
+    async def quality_validation(self, summary: str, original: str, usage: int) -> Dict[str, Any]:
+        summary_tokens = summary.usage.output_tokens
+        summary_content = summary.choices[0].message.content
+        ratio_score = self.ratio_score(summary_tokens, usage)
+        section_ratio = self.section_score(summary_content)
+        keyword_ratio, continuity_ratio = await self.keyword_continuity_score(summary_content, original)
 
         fidelity = int(
             section_ratio * 100 * 0.3 +
@@ -220,6 +204,7 @@ class MemoryMonitor:
 
     
     async def downgrade_compression(self, summary: str, original: str) -> list[LLMMessage]:
+        summary_content = summary.choices[0].message.content
         attempts = [
             dict(
                 label="First attempt", 
@@ -237,7 +222,7 @@ class MemoryMonitor:
 
         for attempt in attempts:
             print(f"[cyan]{attempt['emoji']} {attempt['label']}: recompress the conversation history...[/]")
-            prompt = attempt["prompt"].format(summary, original)
+            prompt = attempt["prompt"].format(summary_content, original)
             downgrade_summary = (await self.call_llm(prompt)).strip()
             quality = await self.quality_validation(downgrade_summary, original)
 
@@ -251,54 +236,79 @@ class MemoryMonitor:
 
     def retain_latest_messages(self, conversation_history: list[LLMMessage]) -> list[LLMMessage]:
         if not conversation_history:
-            return None
+            return ""
 
-        total_tokens = 0
-        message_tokens = []
-        
-        for message in conversation_history:
-            content = message.content.strip()
-            tokens = self.tokenizer.encode(content)
-            token_count = len(tokens)
-            message_tokens.append((message, token_count))
-            total_tokens += token_count
-        
-        retain_tokens = max(1, int(total_tokens * 0.3))
-        
-        retained_messages = []
-        accumulated_tokens = 0
-        
-        for message, token_count in reversed(message_tokens):
-            if accumulated_tokens + token_count <= retain_tokens:
-                retained_messages.insert(0, message)
-                accumulated_tokens += token_count
+        total = len(conversation_history)
+        keep = max(1, int(total * 0.3))
+        candidates = conversation_history[-keep:]
+
+        first_user_idx = next((i for i, m in enumerate(candidates) if m.role == "user"), None)
+
+        if first_user_idx is None:
+        # 向前补到最近的 user
+            for i in range(total - keep - 1, -1, -1):
+                if conversation_history[i].role == "user":
+                    retained = conversation_history[i:]
+                    break
             else:
-                if not retained_messages:
-                    retained_messages.insert(0, message)
-                break
-        
-        first_user_index = None
-        for i, msg in enumerate(retained_messages):
-            if msg.role == "user":
-                first_user_index = i
-                break
-        
-        if first_user_index is not None and first_user_index > 0:
-            adjusted_messages = retained_messages[first_user_index:]
+                retained = conversation_history[-1:]  # 兜底最后一条
         else:
-            adjusted_messages = retained_messages
+            retained = candidates[first_user_idx:]
+
+        # 拼接成文本
+        return "\n".join(f"{msg.role}: {msg.content}" for msg in retained)
+
+
+
+        # if not conversation_history:
+        #     return None
+
+        # total_tokens = 0
+        # message_tokens = []
         
-        actual_retained_tokens = 0
-        for msg in adjusted_messages:
-            content = msg.content.strip()
-            tokens = self.tokenizer.encode(content)
-            actual_retained_tokens += len(tokens)
+        # for message in conversation_history:
+        #     content = message.content.strip()
+        #     tokens = self.tokenizer.encode(content)
+        #     token_count = len(tokens)
+        #     message_tokens.append((message, token_count))
+        #     total_tokens += token_count
         
-        print(f"[green]✅ Retained {actual_retained_tokens} out of {total_tokens} tokens "
-              f"({actual_retained_tokens/total_tokens:.1%}), {len(adjusted_messages)} messages")
+        # retain_tokens = max(1, int(total_tokens * 0.3))
         
-        summary = "\n".join(f"{message.role}: {message.content}" for message in adjusted_messages)
-        return summary
+        # retained_messages = []
+        # accumulated_tokens = 0
+        
+        # for message, token_count in reversed(message_tokens):
+        #     if accumulated_tokens + token_count <= retain_tokens:
+        #         retained_messages.insert(0, message)
+        #         accumulated_tokens += token_count
+        #     else:
+        #         if not retained_messages:
+        #             retained_messages.insert(0, message)
+        #         break
+        
+        # first_user_index = None
+        # for i, msg in enumerate(retained_messages):
+        #     if msg.role == "user":
+        #         first_user_index = i
+        #         break
+        
+        # if first_user_index is not None and first_user_index > 0:
+        #     adjusted_messages = retained_messages[first_user_index:]
+        # else:
+        #     adjusted_messages = retained_messages
+        
+        # actual_retained_tokens = 0
+        # for msg in adjusted_messages:
+        #     content = msg.content.strip()
+        #     tokens = self.tokenizer.encode(content)
+        #     actual_retained_tokens += len(tokens)
+        
+        # print(f"[green]✅ Retained {actual_retained_tokens} out of {total_tokens} tokens "
+        #       f"({actual_retained_tokens/total_tokens:.1%}), {len(adjusted_messages)} messages")
+        
+        # summary = "\n".join(f"{message.role}: {message.content}" for message in adjusted_messages)
+        # return summary
         
 
     def file_recover(self):
