@@ -16,6 +16,7 @@ from pathlib import Path
 import uuid
 from pywen.utils.token_limits import TokenLimits, ModelProvider
 from pywen.core.session_stats import session_stats
+from memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
 
 class EventType(Enum):
     """Types of events during agent execution."""
@@ -65,8 +66,9 @@ class QwenAgent(BaseAgent):
         #self.system_prompt = self._build_system_prompt()    
         self.system_prompt = self.get_core_system_prompt()
 
+        # Initialize memory monitor
         self.iteration_counter = 0
-        self.memory_monitor = memory_monitor
+        self.memory_monitor = MemoryMonitor(AdaptiveThreshold(check_interval=3, max_tokens=200000, rules=((0.92, 1), (0.80, 1), (0.60, 2), (0.00, 3))))
 
 
     #Need: Different Agent need to rewrite
@@ -128,6 +130,9 @@ class QwenAgent(BaseAgent):
         
         # Execute task with continuation logic in streaming mode
         current_message = user_message
+
+        # Initialize iteration counter
+        self.iteration_counter += 1
         
         while self.current_task_turns < self.max_task_turns:
             self.current_task_turns += 1
@@ -672,11 +677,6 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
             turn.iterations += 1
             yield {"type": "iteration_start", "data": {"iteration": turn.iterations}}
 
-            #
-            compression  = await self.memory_monitor.run_monitored(self.iteration_counter, self.conversation_history)
-            if compression is not None:
-                self.conversation_history = compression
-
             messages = self._prepare_messages_for_iteration()
             available_tools = self.tool_registry.list_tools()
             
@@ -740,6 +740,11 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                         turn.complete(TurnStatus.COMPLETED)
                         yield {"type": "turn_complete", "data": {"status": "completed"}}
                         break
+                
+                # Run Memory Moniter
+                compression  = await self.memory_monitor.run_monitored(self.iteration_counter, self.conversation_history, final_response.usage.total_tokens)
+                if compression is not None:
+                    self.conversation_history = compression
                         
             except Exception as e:
                 yield {"type": "error", "data": {"error": str(e)}}
