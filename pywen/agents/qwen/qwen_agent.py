@@ -1,5 +1,10 @@
 """Qwen Agent implementation with streaming logic."""
 
+import os
+import subprocess
+import uuid
+
+from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any, AsyncGenerator
@@ -10,12 +15,9 @@ from pywen.agents.qwen.turn import Turn, TurnStatus
 from pywen.utils.llm_basics import LLMMessage
 from pywen.agents.qwen.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse
 from pywen.agents.qwen.loop_detection_service import AgentLoopDetectionService
-import os
-import subprocess
-from pathlib import Path
-import uuid
 from pywen.utils.token_limits import TokenLimits, ModelProvider
 from pywen.core.session_stats import session_stats
+from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
 
 class EventType(Enum):
     """Types of events during agent execution."""
@@ -64,6 +66,9 @@ class QwenAgent(BaseAgent):
         # Build system prompt
         #self.system_prompt = self._build_system_prompt()    
         self.system_prompt = self.get_core_system_prompt()
+
+        self._mcp_mgr = MCPServerManager()
+        self._mcp_ready = False
 
 
     #Need: Different Agent need to rewrite
@@ -665,6 +670,7 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
     async def _process_turn_streaming(self, turn: Turn) -> AsyncGenerator[Dict[str, Any], None]:
         """Streaming turn with proper response recording."""
         
+        await self._ensure_mcp_synced()
         while turn.iterations < self.max_iterations:
             turn.iterations += 1
             yield {"type": "iteration_start", "data": {"iteration": turn.iterations}}
@@ -889,3 +895,24 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
         messages.append(LLMMessage(role="system", content=self.system_prompt))
         messages.extend(self.conversation_history)
         return messages
+
+    async def _ensure_mcp_synced(self):
+        if self._mcp_ready:
+            return
+        # 1) 连接 playwright MCP
+        await self._mcp_mgr.add_stdio_server("playwright", "npx", ["@playwright/mcp@latest", "--isolated"])
+
+        # 2) 只同步浏览器相关
+        def only_browser(name: str) -> bool:
+            return name.startswith("browser_") or "navigate" in name
+
+        # 3) 同步成“本地工具”）
+        await sync_mcp_server_tools_into_registry(
+            server_name="playwright",
+            manager=self._mcp_mgr,
+            tool_registry=self.tool_registry,
+            include=only_browser,
+            save_images_dir="./outputs"
+        )
+        self._mcp_ready = True
+
