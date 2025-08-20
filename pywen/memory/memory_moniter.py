@@ -13,7 +13,7 @@ from rich import print
 class AdaptiveThreshold:
 
     check_interval: int = 3
-    max_tokens: int = 10000
+    max_tokens: int = 20000
     rules: tuple[tuple[float, int], ...] = (
         (0.92, 1),
         (0.80, 1),   # ≥80 % 每 1 轮
