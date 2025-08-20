@@ -24,7 +24,6 @@ class CLIConsole:
         self.config: Config | None = config
         self.current_task: str = ""
         self.agent_execution: Any = None
-        self.execution_log: List[Text] = []
         
         # Token tracking
         self.current_session_tokens = 0
@@ -35,13 +34,6 @@ class CLIConsole:
         self.displayed_responses: set = set()
         self.displayed_tool_calls: set = set()
         self.displayed_tool_results: set = set()
-
-    def log_execution(self, message: Text):
-        """Log execution message - keep logs but avoid duplicate display."""
-        self.execution_log.append(message)
-        # Keep only recent 20 records
-        if len(self.execution_log) > 20:
-            self.execution_log = self.execution_log[-20:]
 
     async def start(self):
         """Start the console monitoring - simplified version."""
@@ -54,66 +46,6 @@ class CLIConsole:
         if bold:
             text.stylize("bold")
         self.console.print(text)
-        # Also log to execution log
-        self.log_execution(text)
-
-    def print_llm_response(self, content: str):
-        """Print LLM response - incremental display."""
-        if content.strip():
-            # Use content hash to avoid duplicate display
-            content_hash = hash(content)
-            if content_hash not in self.displayed_responses:
-                self.displayed_responses.add(content_hash)
-                text = Text("🤖 Assistant: ", style="blue")
-                text.append(content)
-                # Print content directly without Panel object
-                self.console.print(text)
-                self.log_execution(text)
-
-    def print_tool_call(self, tool_name: str, arguments: dict):
-        """Print tool call information - incremental display."""
-        call_id = f"{tool_name}_{hash(str(arguments))}"
-        if call_id not in self.displayed_tool_calls:
-            self.displayed_tool_calls.add(call_id)
-            
-            # Special handling for bash tool to show specific command
-            if tool_name == "bash" and "command" in arguments:
-                command = arguments["command"]
-                text = Text("🔧 Executing bash command: ", style="cyan")
-                text.append(str(command))
-            else:
-                args_str = str(arguments)
-                text = Text(f"🔧 Calling tool: {tool_name} with args: ", style="cyan")
-                text.append(args_str)
-            self.console.print(text)
-            self.log_execution(text)
-
-    def print_tool_result(self, tool_name: str, result: Any, success: bool = True):
-        """Print tool result - incremental display."""
-        result_id = f"{tool_name}_{hash(str(result))}"
-        if result_id not in self.displayed_tool_results:
-            self.displayed_tool_results.add(result_id)
-            
-            if success:
-                result_str = str(result) if result else "Success"
-                text = Text("✅ ", style="green")
-                text.append(f"{tool_name} completed: ", style="bold green")
-                text.append(result_str)
-            else:
-                error_str = str(result) if result else "Unknown error"
-                text = Text("❌ ", style="red")
-                text.append(f"{tool_name} failed: ", style="bold red")
-                text.append(error_str)
-            self.console.print(text)
-            self.log_execution(text)
-
-    def print_iteration_start(self, iteration: int):
-        """Print iteration start - display only once."""
-        if iteration not in self.displayed_iterations:
-            self.displayed_iterations.add(iteration)
-            text = Text(f"🔄 Starting iteration {iteration}", style="bold cyan")
-            self.console.print(text)
-            self.log_execution(Text(f"🔄 Iteration {iteration} started", style="cyan"))
 
     async def confirm_tool_call(self, tool_call, tool=None) -> bool:
         """Ask user to confirm tool execution."""
@@ -205,56 +137,6 @@ class CLIConsole:
                 self.console.print(text)
                 return False
 
-    def print_task_progress(self) -> None:
-        """Print current task progress - display summary information only."""
-        # No longer using Live display to avoid repeating all content
-        # Only show execution summary at the end
-        if self.agent_execution is not None and hasattr(self.agent_execution, 'status'):
-            if self.agent_execution.status.value in ['success', 'failure', 'max_iterations', 'completed', 'error']:
-                # Only show summary when task is completed
-                summary_panel = self.create_execution_summary(self.agent_execution)
-                self.console.print(summary_panel)
-
-    def create_execution_summary(self, execution) -> Panel:
-        """Display a summary of the agent execution."""
-        # Create summary table
-        table = Table(title="📊 Execution Summary", width=60)
-        table.add_column("Metric", style="cyan", width=20)
-        table.add_column("Value", style="green", width=40)
-
-        if hasattr(execution, 'status'):
-            status_value = execution.status.value.title()
-            status_color = "green" if execution.status.value == "success" else "red"
-            status_text = Text(status_value, style=status_color)
-            table.add_row("Status", status_text)
-        
-        if hasattr(execution, 'iterations'):
-            table.add_row("Iterations", str(execution.iterations))
-        
-        if hasattr(execution, 'total_tokens'):
-            table.add_row("Total Tokens", str(execution.total_tokens))
-        
-        # Show tool calls count
-        if hasattr(execution, 'tool_calls'):
-            table.add_row("Tool Calls", str(len(execution.tool_calls)))
-
-        # Display final messages if available
-        content = ""
-        if hasattr(execution, 'get_assistant_messages'):
-            messages = execution.get_assistant_messages()
-            if messages:
-                content = "\n".join(messages[-2:])  # Show last 2 messages
-        
-        if content:
-            content_panel = Panel(
-                content[:400] + "..." if len(content) > 400 else content,
-                title="💬 Recent Messages",
-                border_style="green",
-                width=80
-            )
-            return Group(content_panel, table)
-        else:
-            return Group(table)
 
     def reset_display_tracking(self):
         """Reset display tracking state."""

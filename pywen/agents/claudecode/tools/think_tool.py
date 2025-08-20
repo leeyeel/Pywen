@@ -22,7 +22,7 @@ class ThinkTool(BaseTool):
         super().__init__(
             name="think",
             display_name="Think",
-            description="Record your thoughts and reasoning process. Use this to log your thinking, analysis, or decision-making process.",
+            description="Share your thoughts and reasoning process with the user. Use this to show your thinking, analysis, or decision-making process transparently.",
             parameter_schema={
                 "type": "object",
                 "properties": {
@@ -62,9 +62,12 @@ class ThinkTool(BaseTool):
             # Log for debugging/monitoring
             logger.info(f"Thought logged: {len(thought)} characters")
             
+            # Format the thought for display
+            formatted_thought = f"💭 **思考过程:**\n\n{thought}\n\n---\n*思考时间: {timestamp}*"
+
             return ToolResult(
-                success=True,
-                content="Your thought has been logged.",
+                call_id="think",
+                result=formatted_thought,
                 metadata={
                     "thought_length": len(thought),
                     "timestamp": timestamp,
@@ -75,8 +78,8 @@ class ThinkTool(BaseTool):
         except Exception as e:
             logger.error(f"Think tool execution failed: {e}")
             return ToolResult(
-                success=False,
-                content=f"Failed to log thought: {str(e)}",
+                call_id="think",
+                error=f"Failed to log thought: {str(e)}",
                 metadata={"error": "think_tool_failed"}
             )
     

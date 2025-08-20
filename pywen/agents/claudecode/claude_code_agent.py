@@ -15,8 +15,8 @@ from .context_manager import ClaudeCodeContextManager
 from pywen.core.session_stats import session_stats
 
 # Import memory moniter and file restorer
-from memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
-from memory.file_restorer import IntelligentFileRestorer
+from pywen.memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
+from pywen.memory.file_restorer import IntelligentFileRestorer
 
 
 
@@ -51,7 +51,7 @@ class ClaudeCodeAgent(BaseAgent):
 
         self.tools = self.tool_registry.list_tools()
 
-        self._update_context()
+        #self._update_context()
 
         # Register this agent with session stats
         session_stats.set_current_agent(self.type)
@@ -67,10 +67,10 @@ class ClaudeCodeAgent(BaseAgent):
         from pywen.core.agent_registry import get_agent_registry
         agent_registry = get_agent_registry()
 
-        # Configure agent_tool and architect_tool with agent registry
-        agent_tool = self.tool_registry.get_tool('agent_tool')
-        if agent_tool and hasattr(agent_tool, 'set_agent_registry'):
-            agent_tool.set_agent_registry(agent_registry)
+        # Configure task_tool and architect_tool with agent registry
+        task_tool = self.tool_registry.get_tool('task_tool')
+        if task_tool and hasattr(task_tool, 'set_agent_registry'):
+            task_tool.set_agent_registry(agent_registry)
 
         architect_tool = self.tool_registry.get_tool('architect_tool')
         if architect_tool and hasattr(architect_tool, 'set_agent_registry'):
@@ -80,7 +80,7 @@ class ClaudeCodeAgent(BaseAgent):
         """Return list of enabled tool names for Claude Code Agent."""
         return [
             'read_file', 'write_file', 'edit_file', 'read_many_files',
-            'ls', 'grep', 'glob', 'bash', 'web_fetch', 'web_search','agent_tool','architect_tool'
+            'ls', 'grep', 'glob', 'bash', 'web_fetch', 'web_search','task_tool','architect_tool','think','todo_write'
         ]
 
     def _build_system_prompt(self) -> str:
@@ -104,25 +104,6 @@ class ClaudeCodeAgent(BaseAgent):
                 self.cli_console.print(f"Failed to build context: {e}", "yellow")
             # Fallback to minimal context
             self.context = {'project_path': self.project_path}
-
-    # def _manage_conversation_history(self):
-    #     """
-    #     Manage conversation history size to prevent context overflow
-    #     Keep the most recent messages within the limit
-    #     """
-    #     if len(self.conversation_history) > self.max_history_messages:
-    #         # Keep the most recent messages, but preserve user-assistant pairs
-    #         messages_to_remove = len(self.conversation_history) - self.max_history_messages
-
-    #         # Remove from the beginning, but try to keep complete exchanges
-    #         removed_count = 0
-    #         while removed_count < messages_to_remove and len(self.conversation_history) > 5:
-    #             # Always keep at least 5 messages for context
-    #             self.conversation_history.pop(0)
-    #             removed_count += 1
-
-    #         if self.cli_console and removed_count > 0:
-    #             self.cli_console.print(f"Conversation history trimmed: removed {removed_count} old messages", "dim")
 
     def clear_conversation_history(self):
         """
@@ -169,14 +150,6 @@ class ClaudeCodeAgent(BaseAgent):
             # Record task start in session stats
             session_stats.record_task_start(self.type)
 
-            # Yield trajectory saved event
-            yield {
-                "type": "trajectory_saved",
-                "data": {
-                    "path": self.trajectory_recorder.trajectory_path,
-                    "is_task_start": True
-                }
-            }
 
             yield {"type": "user_message", "data": {"message": query}}
             # Update context before each run
@@ -342,12 +315,7 @@ class ClaudeCodeAgent(BaseAgent):
 
             # Add tool results to conversation history
             for tool_result in tool_results:
-                print(f"{tool_result.role}: {tool_result.content}")
                 self.conversation_history.append(tool_result)
-
-            # Manage conversation history size after adding tool results
-            # self._manage_conversation_history()
-
             
 
             # 🔄 RECURSIVE CALL: Use the updated conversation history

@@ -40,6 +40,13 @@ def get_logs_dir() -> Path:
     logs_dir.mkdir(exist_ok=True)
     return logs_dir
 
+
+def get_todos_dir() -> Path:
+    """Get the todos directory path."""
+    todos_dir = get_pywen_config_dir() / "todos"
+    todos_dir.mkdir(exist_ok=True)
+    return todos_dir
+
 def load_config_from_file(config_path: str = None) -> Config:
     """Load configuration from JSON file."""
 
