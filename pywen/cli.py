@@ -101,7 +101,7 @@ async def main():
     console.config = config
 
 
-    agent = ClaudeCodeAgent(config)
+    agent = QwenAgent(config)
     agent.set_cli_console(console)
 
     # Display current mode
