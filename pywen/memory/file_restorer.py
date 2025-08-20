@@ -140,24 +140,37 @@ class IntelligentFileRestorer:
         }
 
  
-    def get_directory_metadata(self, directory: str) -> List[Dict[str, Any]]:
-        metadata = []
-        dir_path = Path(directory).resolve()
-        for file_path in dir_path.rglob("*"):
-            if file_path.is_file():
-                try:
-                    stat = file_path.stat()
-                    md = {
-                        "path": str(file_path.relative_to(dir_path)),
-                        "lastAccessTime": stat.st_atime * 1000,  # in milliseconds
-                        "readCount": 0,  # Default, as no tracking
-                        "writeCount": 0,
-                        "editCount": 0,
-                        "operationsInLastHour": 0,
-                        "lastOperation": "unknown",
-                        "estimatedTokens": stat.st_size // 4  # Rough estimate
-                    }
-                    metadata.append(md)
-                except OSError:
-                    continue
-        return metadata
+    def file_recover(self, file_counter) -> str:
+        if not file_counter:
+            print("⚠️ 暂无文件记录，无法恢复。")
+            return None
+
+        # 1. 计算每条记录的 importance score
+        ranked_files = []
+        for meta in file_counter.values():
+            meta_copy = meta.copy()              # 防止打分函数内部修改
+            meta_copy["score"] = self.calculate_importance_score(meta_copy)
+            ranked_files.append(meta_copy)
+
+        # 2. 按分数+约束选最优文件集
+        selected = self.select_optimal_file_set(ranked_files)
+
+        # 3. 按分数倒序读取内容
+        contents = []
+        base_path = Path.cwd().resolve()
+        for file_info in sorted(selected["files"], key=lambda f: f["score"], reverse=True):
+            full_path = base_path / file_info["path"]
+            try:
+                text = full_path.read_text(encoding="utf-8")
+                contents.append(
+                    f"File: {file_info['path']}\n"
+                    f"Score: {file_info['score']}\n"
+                    f"Content:\n{text}\n\n"
+                )
+            except Exception as e:
+                contents.append(
+                    f"File: {file_info['path']}\n"
+                    f"Error reading: {e}\n\n"
+                )
+
+        return "".join(contents)

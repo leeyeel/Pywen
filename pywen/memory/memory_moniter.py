@@ -1,21 +1,19 @@
 from __future__ import annotations
 import re
 import os
-from pathlib import Path
 from openai import AsyncOpenAI
 from .prompt import compression_prompt, keyword_continuity_score_prompt, first_downgrade_prompt, second_downgrade_prompt
 from dataclasses import dataclass
 from pywen.utils.llm_basics import LLMMessage
 from typing import Dict, Any
 from rich import print
-from .file_restorer import IntelligentFileRestorer
 
 
 @dataclass
 class AdaptiveThreshold:
 
     check_interval: int = 3
-    max_tokens: int = 200000
+    max_tokens: int = 10000
     rules: tuple[tuple[float, int], ...] = (
         (0.92, 1),
         (0.80, 1),   # ≥80 % 每 1 轮
@@ -31,7 +29,6 @@ class MemoryMonitor:
         self.max_tokens = threshold.max_tokens
         self.rules = threshold.rules
         self.model = "Qwen/Qwen3-235B-A22B-Instruct-2507"
-        self.file_restorer = IntelligentFileRestorer()
 
 
     async def call_llm(self, prompt) -> str:
@@ -68,19 +65,18 @@ class MemoryMonitor:
             quality = await self.quality_validation(summary, original, usage)
             if quality["valid"]:
                 print("[bold green]🚀 Memory compression success![/]")
-                conversation_summary = [LLMMessage(role="user", content=summary)]
-                return conversation_summary
+                summary_content = summary.choices[0].message.content
+                return summary_content
             else:
                 print("[bold green]⚠️ Memory compression fail, downgrade strategy will be executed.![/]")
                 summary = await self.downgrade_compression(summary, original)
                 if summary is not None:
-                    conversation_summary = [LLMMessage(role="user", content=summary)]
-                    return conversation_summary
+                    summary_content = summary.choices[0].message.content
+                    return summary_content
                 else:
                     print("[yellow]⚠️ All downgrade attempts failed, using 30% latest messages strategy...[/]")
-                    summary = self.retain_latest_messages(conversation_history)
-                    conversation_summary = [LLMMessage(role="user", content=summary)]
-                    return conversation_summary
+                    summary_content = self.retain_latest_messages(conversation_history)
+                    return summary_content
             
         elif alert is not None and alert["level"] != "compress":
             print(alert["suggestion"])
@@ -134,8 +130,8 @@ class MemoryMonitor:
         return summary, original
         
 
-    def ratio_score(self, summary: str, usage: int) -> float:
-        return len(summary) / len(usage)
+    def ratio_score(self, summary_tokens: int, usage: int) -> float:
+        return summary_tokens / usage
 
 
     def section_score(self, summary: str) -> float:
@@ -171,7 +167,7 @@ class MemoryMonitor:
 
     
     async def quality_validation(self, summary: str, original: str, usage: int) -> Dict[str, Any]:
-        summary_tokens = summary.usage.output_tokens
+        summary_tokens = summary.usage.completion_tokens
         summary_content = summary.choices[0].message.content
         ratio_score = self.ratio_score(summary_tokens, usage)
         section_ratio = self.section_score(summary_content)
@@ -223,7 +219,7 @@ class MemoryMonitor:
         for attempt in attempts:
             print(f"[cyan]{attempt['emoji']} {attempt['label']}: recompress the conversation history...[/]")
             prompt = attempt["prompt"].format(summary_content, original)
-            downgrade_summary = (await self.call_llm(prompt)).strip()
+            downgrade_summary = await self.call_llm(prompt)
             quality = await self.quality_validation(downgrade_summary, original)
 
             if quality["fidelity"] >= attempt["threshold"]:
@@ -310,30 +306,6 @@ class MemoryMonitor:
         # summary = "\n".join(f"{message.role}: {message.content}" for message in adjusted_messages)
         # return summary
         
-
-    def file_recover(self):
-        directory = Path.cwd()
-        metadatas = self.file_restorer.get_directory_metadata(directory)
-        ranked_files = []
-        for md in metadatas:
-            md_copy = md.copy()
-            score = self.file_restorer.calculate_importance_score(md_copy)
-            md_copy["score"] = score
-            ranked_files.append(md_copy)
-        selected = self.file_restorer.select_optimal_file_set(ranked_files)
-        # Sort selected files by score descending
-        sorted_selected = sorted(selected["files"], key=lambda f: f["score"], reverse=True)
-        # Read contents
-        dir_path = Path(directory).resolve()
-        contents = []
-        for file in sorted_selected:
-            full_path = dir_path / file["path"]
-            try:
-                content = full_path.read_text(encoding="utf-8")
-                contents.append(f"File: {file['path']}\nScore: {file['score']}\nContent:\n{content}\n\n")
-            except Exception as e:
-                contents.append(f"File: {file['path']}\nError reading: {str(e)}\n\n")
-        return "".join(contents)
 
 
         

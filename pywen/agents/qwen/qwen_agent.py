@@ -1,5 +1,5 @@
 """Qwen Agent implementation with streaming logic."""
-
+import time
 import os
 import subprocess
 import uuid
@@ -17,7 +17,10 @@ from pywen.agents.qwen.task_continuation_checker import TaskContinuationChecker,
 from pywen.agents.qwen.loop_detection_service import AgentLoopDetectionService
 from pywen.utils.token_limits import TokenLimits, ModelProvider
 from pywen.core.session_stats import session_stats
+from memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
+from memory.file_restorer import IntelligentFileRestorer
 from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
+
 
 class EventType(Enum):
     """Types of events during agent execution."""
@@ -67,6 +70,13 @@ class QwenAgent(BaseAgent):
         #self.system_prompt = self._build_system_prompt()    
         self.system_prompt = self.get_core_system_prompt()
 
+        # Initialize memory monitor and file restorer
+        self.iteration_counter = 0
+        self.file_metrics = dict()
+        self.memory_monitor = MemoryMonitor(AdaptiveThreshold(check_interval=3, max_tokens=5000, rules=((0.92, 1), (0.80, 1), (0.60, 2), (0.00, 3))))
+        self.file_restorer = IntelligentFileRestorer()
+
+        # Initialize MCP server manager
         self._mcp_mgr = MCPServerManager()
         self._mcp_ready = False
 
@@ -130,6 +140,9 @@ class QwenAgent(BaseAgent):
         
         # Execute task with continuation logic in streaming mode
         current_message = user_message
+
+        # Add iteration counter
+        self.iteration_counter += 1
         
         while self.current_task_turns < self.max_task_turns:
             self.current_task_turns += 1
@@ -674,7 +687,8 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
         while turn.iterations < self.max_iterations:
             turn.iterations += 1
             yield {"type": "iteration_start", "data": {"iteration": turn.iterations}}
-            
+
+             
             messages = self._prepare_messages_for_iteration()
             available_tools = self.tool_registry.list_tools()
             
@@ -709,6 +723,8 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 
                 # 2. 流结束后处理
                 if final_response:
+                    print("final_response", final_response) #
+
                     turn.add_assistant_response(final_response)
                     self.cli_console.update_token_usage(final_response.usage.input_tokens)
                     #print(final_response)
@@ -721,7 +737,7 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                         tools=available_tools,
                         agent_name=self.type
                     )
-                    
+
                     # 添加到对话历史
                     self.conversation_history.append(LLMMessage(
                         role="assistant",
@@ -731,19 +747,113 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                     
                     # 3. 批量处理所有工具调用
                     if collected_tool_calls:
+                        print("collected_tool_calls", collected_tool_calls) #
+
                         async for tool_event in self._process_tool_calls_streaming(turn, collected_tool_calls):
+                            if tool_event["type"] == "tool_result":
+                                tool_name = tool_event["data"].get("name")
+                                info = tool_event["data"].get("result")
+                                success = tool_event["data"].get("success", False)
+
+                                # 仅在成功且工具为文件型操作时进行指标更新
+                                if success and tool_name in {"read_file", "write_file", "edit"}:
+                                    try:
+                                        # 1) 优先从结果中拿到 file_path；否则从调用参数中回退到 path
+                                        arguments = tool_event["data"].get("arguments", {}) or {}
+                                        file_path_str = None
+                                        if isinstance(info, dict) and "file_path" in info:
+                                            file_path_str = info.get("file_path")
+                                        elif isinstance(arguments, dict):
+                                            file_path_str = arguments.get("path")
+
+                                        if not file_path_str:
+                                            # 无法确定文件路径，跳过指标更新
+                                            raise ValueError("missing file path from tool result/arguments")
+
+                                        file_path = Path(file_path_str).resolve()
+
+                                        # 2) 安全获取 key：优先相对项目根；越界则退回绝对路径
+                                        try:
+                                            key = str(file_path.relative_to(Path.cwd()))
+                                        except Exception:
+                                            key = str(file_path)
+
+                                        # 3) 建档案（尽量从 stat 补充；失败则使用兜底值）
+                                        if key not in self.file_metrics:
+                                            try:
+                                                st = file_path.stat()
+                                                last_access_ms = int(st.st_atime * 1000)
+                                                est_tokens = st.st_size // 4
+                                            except Exception:
+                                                last_access_ms = int(time.time() * 1000)
+                                                est_tokens = 0
+                                            self.file_metrics[key] = {
+                                                "path": key,
+                                                "lastAccessTime": last_access_ms,
+                                                "readCount": 0,
+                                                "writeCount": 0,
+                                                "editCount": 0,
+                                                "operationsInLastHour": 0,
+                                                "lastOperation": "unknown",
+                                                "estimatedTokens": est_tokens
+                                            }
+
+                                        # 4) 更新计数
+                                        now = int(time.time() * 1000)
+                                        meta = self.file_metrics[key]
+                                        if tool_name == "read_file":
+                                            meta["readCount"] += 1
+                                            meta["lastOperation"] = "read"
+                                        elif tool_name == "write_file":
+                                            meta["writeCount"] += 1
+                                            meta["lastOperation"] = "write"
+                                        elif tool_name == "edit":
+                                            meta["editCount"] += 1
+                                            meta["writeCount"] += 1  # 语义上也是写
+                                            meta["lastOperation"] = "edit"
+                                        meta["lastAccessTime"] = now
+                                    except Exception as _:
+                                        # 指标更新失败不应阻断工具消息链路
+                                        pass
+
                             yield tool_event
                         continue
                     else:
                         turn.complete(TurnStatus.COMPLETED)
                         yield {"type": "turn_complete", "data": {"status": "completed"}}
                         break
+                
+
                         
             except Exception as e:
                 yield {"type": "error", "data": {"error": str(e)}}
                 turn.error(str(e))
                 raise e
-        
+
+
+        print("Before compression", self.conversation_history)
+        # Run Memory Moniter and file restorer
+        total_tokens = 0
+        if final_response and hasattr(final_response, "usage") and final_response.usage:
+            total_tokens = final_response.usage.total_tokens
+
+        compression = await self.memory_monitor.run_monitored(
+            self.iteration_counter,
+            self.conversation_history,
+            total_tokens
+        )
+
+        if compression is not None:
+            file_content = self.file_restorer.file_recover(self.file_metrics)
+            if file_content is not None:
+                summary = compression + "\nHere is the potentially important file content:\n" + file_content
+                self.conversation_history = [LLMMessage(role="user", content=summary)]
+                print("After compression", self.conversation_history)
+            else:
+                summary = compression
+                self.conversation_history = [LLMMessage(role="user", content=summary)]
+                print("After compression", self.conversation_history)
+                                    
         # Check if we hit max iterations
         if turn.iterations >= self.max_iterations and turn.status == TurnStatus.ACTIVE:
             turn.complete(TurnStatus.MAX_ITERATIONS)
@@ -794,13 +904,14 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 results = await self.tool_executor.execute_tools([tool_call], self.type)
                 result = results[0]
 
-                # 立即发送工具结果
+                # 立即发送工具结果（补充 arguments 以便后续路径解析回退）
                 yield {"type": "tool_result", "data": {
                     "call_id": tool_call.call_id,
                     "name": tool_call.name,
                     "result": result.result,
                     "success": result.success,
-                    "error": result.error
+                    "error": result.error,
+                    "arguments": tool_call.arguments
                 }}
 
                 turn.add_tool_result(result)
@@ -892,7 +1003,13 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
     def _prepare_messages_for_iteration(self) -> List[LLMMessage]:
         """Prepare messages for current iteration."""
         messages = []
-        messages.append(LLMMessage(role="system", content=self.system_prompt))
+        cwd_prompte_template = """
+        Please note that the user launched Pywen under the path {}. 
+        All subsequent file-creation, file-writing, file-reading, and similar operations should be performed within this directory.
+        """
+        cwd_prompt = cwd_prompte_template.format(Path.cwd())
+        system_prompt = self.system_prompt + "\n" + cwd_prompt
+        messages.append(LLMMessage(role="system", content=system_prompt))
         messages.extend(self.conversation_history)
         return messages
 
@@ -900,7 +1017,7 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
         if self._mcp_ready:
             return
         # 1) 连接 playwright MCP
-        await self._mcp_mgr.add_stdio_server("playwright", "npx", ["@playwright/mcp@latest", "--isolated"])
+        await self._mcp_mgr.add_stdio_server("playwright", "npx.cmd", ["@playwright/mcp@latest", "--isolated"])
 
         # 2) 只同步浏览器相关
         def only_browser(name: str) -> bool:
@@ -915,4 +1032,5 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
             save_images_dir="./outputs"
         )
         self._mcp_ready = True
+
 
