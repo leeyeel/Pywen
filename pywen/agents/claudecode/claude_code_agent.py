@@ -4,7 +4,6 @@ Claude Code Agent - Python implementation of the Claude Code assistant
 import os
 from typing import Dict, List, Optional, AsyncGenerator, Any
 import datetime
-from rich import print
 from pywen.agents.base_agent import BaseAgent
 from pywen.tools.base import BaseTool
 from pywen.utils.llm_basics import LLMMessage, LLMResponse
@@ -18,6 +17,8 @@ from pywen.core.session_stats import session_stats
 from pywen.memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
 from pywen.memory.file_restorer import IntelligentFileRestorer
 
+from pywen.agents.claudecode.tools.tool_adapter import ToolAdapterFactory
+from pywen.config.loader import get_trajectories_dir
 
 
 class ClaudeCodeAgent(BaseAgent):
@@ -39,7 +40,6 @@ class ClaudeCodeAgent(BaseAgent):
         # self.max_history_messages = getattr(config, 'max_history_messages', 20)  # Keep last 20 messages
 
         # Ensure trajectories directory exists
-        from pywen.config.loader import get_trajectories_dir
         trajectories_dir = get_trajectories_dir()
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -47,9 +47,10 @@ class ClaudeCodeAgent(BaseAgent):
         self.trajectory_recorder = TrajectoryRecorder(trajectory_path)
 
         # Setup Claude Code specific tools after base tools
-        self._setup_claude_code_tools()
+        #self._setup_claude_code_tools()
 
-        self.tools = self.tool_registry.list_tools()
+        # Apply Claude Code adapters to provide appropriate descriptions for LLM
+        self._apply_claude_code_adapters()
 
         #self._update_context()
 
@@ -60,6 +61,9 @@ class ClaudeCodeAgent(BaseAgent):
         self.current_turn = 0
         self.memory_moniter = MemoryMonitor(AdaptiveThreshold(check_interval=3, max_tokens=200000, rules=((0.92, 1), (0.80, 1), (0.60, 2), (0.00, 3))))
         self.file_restorer = IntelligentFileRestorer()
+
+        # Track quota check status
+        self.quota_checked = False
 
     def _setup_claude_code_tools(self):
         """Setup Claude Code specific tools and configure them."""
@@ -75,6 +79,26 @@ class ClaudeCodeAgent(BaseAgent):
         architect_tool = self.tool_registry.get_tool('architect_tool')
         if architect_tool and hasattr(architect_tool, 'set_agent_registry'):
             architect_tool.set_agent_registry(agent_registry)
+
+    def _apply_claude_code_adapters(self):
+        """Apply Claude Code specific tool adapters to provide appropriate descriptions for LLM."""
+
+        # Get current tools from registry
+        current_tools = self.tool_registry.list_tools()
+
+        # Apply adapters to tools that have Claude Code specific descriptions
+        adapted_tools = []
+        for tool in current_tools:
+            try:
+                # Try to create an adapter for this tool
+                adapter = ToolAdapterFactory.create_adapter(tool)
+                adapted_tools.append(adapter)
+            except ValueError:
+                # No Claude Code description defined, use original tool
+                adapted_tools.append(tool)
+
+        # Replace tools with adapted versions
+        self.tools = adapted_tools
 
     def get_enabled_tools(self) -> List[str]:
         """Return list of enabled tool names for Claude Code Agent."""
@@ -128,11 +152,13 @@ class ClaudeCodeAgent(BaseAgent):
 
     async def run(self, query: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Main execution loop for Claude Code Agent
-        Entry point that sets up initial context and calls the recursive query function
+        Main execution loop for Claude Code Agent following official flow:
+        1. Quota check (if first run)
+        2. Topic detection
+        3. Core Agent flow with official prompt structure
         """
         try:
-            # Record the cunrrent turn
+            # Record the current turn
             self.current_turn += 1
 
             # Set this agent as current in the registry for tool access
@@ -150,43 +176,233 @@ class ClaudeCodeAgent(BaseAgent):
             # Record task start in session stats
             session_stats.record_task_start(self.type)
 
-
             yield {"type": "user_message", "data": {"message": query}}
+
+            # 1. Quota check (only on first run)
+            if not self.quota_checked:
+                quota_ok = await self._check_quota()
+                self.quota_checked = True
+                if not quota_ok:
+                    yield {
+                        "type": "error",
+                        "data": {"error": "API quota check failed"}
+                    }
+
+            # 2. Topic detection for each user input
+            topic_info = await self._detect_new_topic(query)
+            if topic_info and topic_info.get('isNewTopic'):
+                yield {
+                    "type": "new_topic_detected",
+                    "data": {
+                        "title": topic_info.get('title'),
+                        "isNewTopic": topic_info.get('isNewTopic')
+                    }
+                }
+
             # Update context before each run
             self._update_context()
 
-            # Build system prompt with context
-            system_prompt = self.prompts.get_system_prompt(self.context)
-
+            # 3. Core Agent flow with official prompt structure
             # Add new user message to conversation history
             user_message = LLMMessage(role="user", content=query)
             self.conversation_history.append(user_message)
 
-            # Manage conversation history size
-            # self._manage_conversation_history()
-
-            # Initialize conversation with system prompt and full history
-            messages = [LLMMessage(role="system", content=system_prompt)] + self.conversation_history.copy()
+            # Build official message sequence
+            messages = await self._build_official_messages(query)
 
             # Start recursive query loop with depth control
-            async for event in self._query_recursive(messages, system_prompt, is_root=True, depth=0, **kwargs):
+            async for event in self._query_recursive(messages, None, depth=0, **kwargs):
                 yield event
-
-            # # End trajectory recording
-            # self.trajectory_recorder.end_recording(success=True, final_result="Task completed")
 
         except Exception as e:
             yield {
                 "type": "error",
-                "data":{
-                "error": f"Agent error: {str(e)}"
+                "data": {
+                    "error": f"Agent error: {str(e)}"
                 },
             }
+
+    async def _check_quota(self) -> bool:
+        """
+        Check API quota by sending a lightweight query
+        Following official Claude Code quota check flow
+        """
+        try:
+            # Send simple quota check message
+            quota_messages = [LLMMessage(role="user", content="quota")]
+
+            response_result = await self.llm_client.generate_response(
+                messages=quota_messages,
+                tools=None,  # No tools for quota check
+                stream=False  # Use non-streaming for quota check
+            )
+
+            # Handle non-streaming response
+            if isinstance(response_result, LLMResponse):
+                # Non-streaming response
+                final_response = response_result
+                content = response_result.content or ""
+            else:
+                # Streaming response (fallback)
+                content = ""
+                final_response = None
+                async for response in response_result:
+                    final_response = response
+                    if response.content:
+                        content += response.content
+
+            # Record quota check interaction in trajectory
+            if final_response:
+                quota_llm_response = LLMResponse(
+                    content=content,
+                    model=self.config.model_config.model,
+                    finish_reason="stop",
+                    usage=final_response.usage if hasattr(final_response, 'usage') else None,
+                    tool_calls=[]
+                )
+
+                self.trajectory_recorder.record_llm_interaction(
+                    messages=quota_messages,
+                    response=quota_llm_response,
+                    provider=self.config.model_config.provider.value,
+                    model=self.config.model_config.model,
+                    tools=None,
+                    current_task="quota_check",
+                    agent_name="ClaudeCodeAgent"
+                )
+
+            return bool(content)  # Return True if we got any content
+        except Exception as e:
+            if self.cli_console:
+                self.cli_console.print(f"Quota check failed: {e}", "yellow")
+            return False
+
+    async def _detect_new_topic(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """
+        Detect if user input represents a new topic
+        Following official Claude Code topic detection flow
+        """
+        try:
+            # Build topic detection messages
+            topic_messages = [
+                LLMMessage(role="system", content=self.prompts.get_check_new_topic_prompt()),
+                LLMMessage(role="user", content=user_input)
+            ]
+
+            response_result = await self.llm_client.generate_response(
+                messages=topic_messages,
+                tools=None,  # No tools for topic detection
+                stream=False  # Use non-streaming for topic detection
+            )
+
+            # Handle non-streaming response
+            if isinstance(response_result, LLMResponse):
+                # Non-streaming response
+                final_response = response_result
+                content = response_result.content or ""
+            else:
+                # Streaming response (fallback)
+                content = ""
+                final_response = None
+                async for response in response_result:
+                    final_response = response
+                    if response.content:
+                        content += response.content
+
+            # Record topic detection interaction in trajectory
+            if final_response:
+                topic_llm_response = LLMResponse(
+                    content=content,
+                    model=self.config.model_config.model,
+                    finish_reason="stop",
+                    usage=final_response.usage if hasattr(final_response, 'usage') else None,
+                    tool_calls=[]
+                )
+
+                self.trajectory_recorder.record_llm_interaction(
+                    messages=topic_messages,
+                    response=topic_llm_response,
+                    provider=self.config.model_config.provider.value,
+                    model=self.config.model_config.model,
+                    tools=None,
+                    current_task="topic_detection",
+                    agent_name="ClaudeCodeAgent"
+                )
+
+            # Parse JSON response
+            if content:
+                try:
+                    import json
+                    topic_info = json.loads(content.strip())
+                    return topic_info
+                except json.JSONDecodeError:
+                    return None
+            return None
+        except Exception as e:
+            if self.cli_console:
+                self.cli_console.print(f"Topic detection failed: {e}", "yellow")
+            return None
+
+    async def _build_official_messages(self, user_query: str) -> List[LLMMessage]:
+        """
+        Build official Claude Code message sequence:
+        1. system-identity
+        2. system-workflow
+        3. system-reminder-start
+        4. conversation history
+        5. current user message
+        6. system-reminder-end
+
+        Args:
+            user_query: The current user query (used for reference)
+        """
+        messages = []
+
+        # 1. System Identity
+        messages.append(LLMMessage(
+            role="system",
+            content=self.prompts.get_system_identity()
+        ))
+
+        # 2. System Workflow with environment info
+        workflow_content = self.prompts.get_system_workflow()
+        # Add environment info using prompts method
+        env_info = self.prompts.get_env_info(self.project_path)
+        workflow_with_env = f"{workflow_content}\n\n{env_info}"
+
+        messages.append(LLMMessage(
+            role="system",
+            content=workflow_with_env
+        ))
+
+        # 3. System Reminder Start
+        messages.append(LLMMessage(
+            role="system",
+            content=self.prompts.get_system_reminder_start()
+        ))
+
+        # 4. Add conversation history (excluding the current user message)
+        for msg in self.conversation_history[:-1]:  # Exclude the last message we just added
+            messages.append(msg)
+
+        # 5. Current user message (already in conversation_history)
+        if self.conversation_history:
+            messages.append(self.conversation_history[-1])
+
+        # 6. System Reminder End
+        messages.append(LLMMessage(
+            role="system",
+            content=self.prompts.get_system_reminder_end()
+        ))
+
+        return messages
+
+
 
     async def _query_recursive(
         self,
         messages: List[LLMMessage],
-        system_prompt: str,
+        system_prompt: Optional[str],
         depth: int = 0,
         **kwargs
     ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -195,15 +411,12 @@ class ClaudeCodeAgent(BaseAgent):
         This function calls itself recursively when tool calls are present
 
         Args:
-            messages: Conversation history
-            system_prompt: System prompt
+            messages: Conversation history (already includes official prompt structure)
+            system_prompt: System prompt (can be None for official structure)
             depth: Current recursion depth (for max_iterations control)
             **kwargs: Additional arguments
         """
         try:
-            # TRAJECTORY: Record recursion start
-
-
             # 🔢 DEPTH CONTROL: Check max iterations
             if depth >= self.max_iterations:
                 yield {
@@ -316,13 +529,28 @@ class ClaudeCodeAgent(BaseAgent):
             # Add tool results to conversation history
             for tool_result in tool_results:
                 self.conversation_history.append(tool_result)
-            
 
-            # 🔄 RECURSIVE CALL: Use the updated conversation history
-            # Rebuild messages from system prompt + current conversation history
-            updated_messages = [
-                LLMMessage(role="system", content=system_prompt)
-            ] + self.conversation_history.copy()
+
+            # 🔄 RECURSIVE CALL: Rebuild official message structure with updated conversation history
+            if system_prompt:
+                # Legacy mode: use system_prompt
+                updated_messages = [
+                    LLMMessage(role="system", content=system_prompt)
+                ] + self.conversation_history.copy()
+            else:
+                # Official mode: rebuild official message structure
+                # Get the last user message from conversation history
+                last_user_msg = None
+                for msg in reversed(self.conversation_history):
+                    if msg.role == "user":
+                        last_user_msg = msg.content
+                        break
+
+                if last_user_msg:
+                    updated_messages = await self._build_official_messages(last_user_msg)
+                else:
+                    # Fallback: use current messages
+                    updated_messages = messages
 
             # 🔄 RECURSIVE CALL: Continue with updated message history and incremented depth
             async for event in self._query_recursive(updated_messages, system_prompt, depth=depth+1, **kwargs):

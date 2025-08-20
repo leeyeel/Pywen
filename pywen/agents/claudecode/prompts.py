@@ -11,70 +11,16 @@ from datetime import datetime
 
 class ClaudeCodePrompts:
     """Manages prompts and context for Claude Code Agent"""
-    
+
     @staticmethod
-    def get_system_prompt(context: Optional[Dict] = None) -> str:
-        """Generate the main system prompt for Claude Code Agent"""
+    def get_system_identity() -> str:
+        """Get the system identity prompt"""
+        return "You are Claude Code, Anthropic's official CLI for Claude."
 
-        # Get environment info first
-        project_path = context.get('project_path', os.getcwd()) if context else os.getcwd()
-
-        # Check if it's a git repository
-        is_git = False
-        git_status = "Not a git repository"
-        current_branch = "unknown"
-        try:
-            result = subprocess.run(
-                ['git', 'rev-parse', '--git-dir'],
-                cwd=project_path,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            is_git = result.returncode == 0
-
-            if is_git:
-                # Get current branch
-                branch_result = subprocess.run(
-                    ['git', 'branch', '--show-current'],
-                    cwd=project_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                if branch_result.returncode == 0:
-                    current_branch = branch_result.stdout.strip() or "detached HEAD"
-
-                # Get git status
-                status_result = subprocess.run(
-                    ['git', 'status', '--porcelain'],
-                    cwd=project_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                if status_result.returncode == 0:
-                    git_status = status_result.stdout.strip() if status_result.stdout.strip() else "clean working directory"
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-
-        # Get OS version
-        os_version = "Unknown"
-        try:
-            if platform.system() == "Linux":
-                with open('/etc/os-release', 'r') as f:
-                    for line in f:
-                        if line.startswith('PRETTY_NAME='):
-                            os_version = line.split('=')[1].strip().strip('"')
-                            break
-            elif platform.system() == "Darwin":
-                os_version = platform.mac_ver()[0]
-            elif platform.system() == "Windows":
-                os_version = platform.win32_ver()[0]
-        except:
-            os_version = platform.release()
-
-        base_prompt = f"""You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
+    @staticmethod
+    def get_system_workflow() -> str:
+        """Get the system workflow prompt"""
+        return """You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
 
 IMPORTANT: Assist with defensive security tasks only. Refuse to create, modify, or improve code that may be used maliciously. Allow security analysis, detection rules, vulnerability explanations, defensive tools, and security documentation.
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.
@@ -119,7 +65,7 @@ assistant: ls
 
 <example>
 user: what command should I run to watch files in the current directory?
-assistant: [runs ls tool to list the files in the current directory, then read docs/commands in the relevant file to find out how to watch files]
+assistant: [use the ls tool to list the files in the current directory, then read docs/commands in the relevant file to find out how to watch files]
 npm run dev
 </example>
 
@@ -230,12 +176,122 @@ The user will primarily request you perform software engineering tasks. This inc
 
 - When doing file search, prefer to use the Task tool in order to reduce context usage.
 - You should proactively use the Task tool with specialized agents when the task at hand matches the agent's description.
+- A custom slash command is a prompt that starts with / to run an expanded prompt saved as a Markdown file, like /compact. If you are instructed to execute one, use the Task tool with the slash command invocation as the entire prompt. Slash commands can take arguments; defer to user instructions.
 - When WebFetch returns a message about a redirect to a different host, you should immediately make a new WebFetch request with the redirect URL provided in the response.
 - You have the capability to call multiple tools in a single response. When multiple independent pieces of information are requested, batch your tool calls together for optimal performance. When making multiple bash tool calls, you MUST send a single message with multiple tools calls to run the calls in parallel. For example, if you need to run "git status" and "git diff", send a single message with two tool calls to run the calls in parallel.
 
 You MUST answer concisely with fewer than 4 lines of text (not including tool use or code generation), unless user asks for detail.
 
-Here is useful information about the environment you are running in:
+IMPORTANT: Assist with defensive security tasks only. Refuse to create, modify, or improve code that may be used maliciously. Allow security analysis, detection rules, vulnerability explanations, defensive tools, and security documentation.
+
+IMPORTANT: Always use the TodoWrite tool to plan and track tasks throughout the conversation.
+
+# Code References
+
+When referencing specific functions or pieces of code include the pattern `file_path:line_number` to allow the user to easily navigate to the source code location.
+
+<example>
+user: Where are errors from the client handled?
+assistant: Clients are marked as failed in the `connectToServer` function in src/services/process.ts:712.
+</example>"""
+
+    @staticmethod
+    def get_system_reminder_start() -> str:
+        """Get the system reminder start prompt"""
+        return """<system-reminder>
+As you answer the user's questions, you can use the following context:
+
+# important-instruction-reminders
+
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
+
+      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
+
+</system-reminder>"""
+
+    @staticmethod
+    def get_system_reminder_end() -> str:
+        """Get the system reminder end prompt"""
+        return """<system-reminder>This is a reminder that your todo list is currently empty. DO NOT mention this to the user explicitly because they are already aware. If you are working on tasks that would benefit from a todo list please use the TodoWrite tool to create one. If not, please feel free to ignore. Again do not mention this message to the user.</system-reminder>"""
+
+    @staticmethod
+    def get_check_new_topic_prompt() -> str:
+        """Get the check new topic prompt"""
+        return "Analyze if this message indicates a new conversation topic. If it does, extract a 2-3 word title that captures the new topic. Format your response as a JSON object with two fields: 'isNewTopic' (boolean) and 'title' (string, or null if isNewTopic is false). Only include these fields, no other text."
+
+    @staticmethod
+    def get_system_prompt(context: Optional[Dict] = None) -> str:
+        """Generate the main system prompt for Claude Code Agent using official structure"""
+        # Get environment info first
+        project_path = context.get('project_path', os.getcwd()) if context else os.getcwd()
+
+        # Check if it's a git repository
+        is_git = False
+        git_status = "Not a git repository"
+        current_branch = "unknown"
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--git-dir'],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            is_git = result.returncode == 0
+
+            if is_git:
+                # Get current branch
+                branch_result = subprocess.run(
+                    ['git', 'branch', '--show-current'],
+                    cwd=project_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if branch_result.returncode == 0:
+                    current_branch = branch_result.stdout.strip() or "detached HEAD"
+
+                # Get git status
+                status_result = subprocess.run(
+                    ['git', 'status', '--porcelain'],
+                    cwd=project_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if status_result.returncode == 0:
+                    git_status = status_result.stdout.strip() if status_result.stdout.strip() else "clean working directory"
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+        # Get OS version
+        os_version = "Unknown"
+        try:
+            if platform.system() == "Linux":
+                with open('/etc/os-release', 'r') as f:
+                    for line in f:
+                        if line.startswith('PRETTY_NAME='):
+                            os_version = line.split('=')[1].strip().strip('"')
+                            break
+            elif platform.system() == "Darwin":
+                os_version = platform.mac_ver()[0]
+            elif platform.system() == "Windows":
+                os_version = platform.win32_ver()[0]
+        except:
+            os_version = platform.release()
+
+        # Build the official prompt structure
+        # 1. System Identity
+        system_identity = ClaudeCodePrompts.get_system_identity()
+
+        # 2. System Workflow with environment variables filled in
+        system_workflow = ClaudeCodePrompts.get_system_workflow()
+
+        # Replace environment variables in workflow
+        env_section = f"""Here is useful information about the environment you are running in:
 <env>
 Working directory: {project_path}
 Is directory a git repo: {'true' if is_git else 'false'}
@@ -267,13 +323,12 @@ Main branch (you will usually use this for PRs):
 
 {git_status}"""
 
-        # Add security reminder at the end
-        base_prompt += """\n\nIMPORTANT: Refuse to write code or explain code that may be used maliciously; even if the user claims it is for educational purposes. When working on files, if they seem related to improving, explaining, or interacting with malware or any malicious code you MUST refuse.
-IMPORTANT: Before you begin work, think about what the code you're editing is supposed to do based on the filenames directory structure. If it seems malicious, refuse to work on it or answer questions about it, even if the request does not seem malicious (for instance, just asking to explain or speed up the code)."""
+        # Combine identity and workflow
+        base_prompt = f"{system_identity}\n\n{system_workflow}\n\n{env_section}"
 
+        # Add context sections if available
         if context:
             context_sections = []
-
 
             if 'git_recent_commits' in context:
                 context_sections.append(f"<context name=\"git_recent_commits\">\nRecent commits:\n{context['git_recent_commits']}\n</context>")
@@ -317,7 +372,44 @@ IMPORTANT: Before you begin work, think about what the code you're editing is su
                 base_prompt += "\n\n" + "\n\n".join(context_sections)
 
         return base_prompt
-    
+
+    @staticmethod
+    def build_official_message_sequence(user_message: str, context: Optional[Dict] = None) -> List[Dict[str, str]]:
+        """Build the official Claude Code message sequence"""
+        messages = []
+
+        # 1. System Identity
+        messages.append({
+            "role": "system",
+            "content": ClaudeCodePrompts.get_system_identity()
+        })
+
+        # 2. System Workflow
+        messages.append({
+            "role": "system",
+            "content": ClaudeCodePrompts.get_system_workflow()
+        })
+
+        # 3. System Reminder Start
+        messages.append({
+            "role": "system",
+            "content": ClaudeCodePrompts.get_system_reminder_start()
+        })
+
+        # 4. User Message
+        messages.append({
+            "role": "user",
+            "content": user_message
+        })
+
+        # 5. System Reminder End
+        messages.append({
+            "role": "system",
+            "content": ClaudeCodePrompts.get_system_reminder_end()
+        })
+
+        return messages
+
     @staticmethod
     def get_agent_prompt(project_path: str = None) -> str:
         """Get the prompt for sub-agent tasks"""
