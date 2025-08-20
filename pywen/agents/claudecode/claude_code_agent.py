@@ -51,7 +51,7 @@ class ClaudeCodeAgent(BaseAgent):
 
         self.tools = self.tool_registry.list_tools()
 
-        self._update_context()
+        #self._update_context()
 
         # Register this agent with session stats
         session_stats.set_current_agent(self.type)
@@ -105,25 +105,6 @@ class ClaudeCodeAgent(BaseAgent):
             # Fallback to minimal context
             self.context = {'project_path': self.project_path}
 
-    # def _manage_conversation_history(self):
-    #     """
-    #     Manage conversation history size to prevent context overflow
-    #     Keep the most recent messages within the limit
-    #     """
-    #     if len(self.conversation_history) > self.max_history_messages:
-    #         # Keep the most recent messages, but preserve user-assistant pairs
-    #         messages_to_remove = len(self.conversation_history) - self.max_history_messages
-
-    #         # Remove from the beginning, but try to keep complete exchanges
-    #         removed_count = 0
-    #         while removed_count < messages_to_remove and len(self.conversation_history) > 5:
-    #             # Always keep at least 5 messages for context
-    #             self.conversation_history.pop(0)
-    #             removed_count += 1
-
-    #         if self.cli_console and removed_count > 0:
-    #             self.cli_console.print(f"Conversation history trimmed: removed {removed_count} old messages", "dim")
-
     def clear_conversation_history(self):
         """
         Clear the conversation history (useful for starting fresh)
@@ -169,14 +150,6 @@ class ClaudeCodeAgent(BaseAgent):
             # Record task start in session stats
             session_stats.record_task_start(self.type)
 
-            # Yield trajectory saved event
-            yield {
-                "type": "trajectory_saved",
-                "data": {
-                    "path": self.trajectory_recorder.trajectory_path,
-                    "is_task_start": True
-                }
-            }
 
             yield {"type": "user_message", "data": {"message": query}}
             # Update context before each run
@@ -342,12 +315,7 @@ class ClaudeCodeAgent(BaseAgent):
 
             # Add tool results to conversation history
             for tool_result in tool_results:
-                print(f"{tool_result.role}: {tool_result.content}")
                 self.conversation_history.append(tool_result)
-
-            # Manage conversation history size after adding tool results
-            # self._manage_conversation_history()
-
             
 
             # 🔄 RECURSIVE CALL: Use the updated conversation history
