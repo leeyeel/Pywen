@@ -117,6 +117,10 @@ Usage notes:
                 result_parts.append("|_ Starting task execution...\n\n")
 
                 # Run the sub-agent with the given prompt
+                final_content = ""
+                task_completed = False
+                error_occurred = False
+
                 async for event in sub_agent._query_recursive(
                     messages=[
                         LLMMessage(role="system", content=system_prompt),
@@ -125,25 +129,65 @@ Usage notes:
                     system_prompt=system_prompt,
                     max_iterations=10  # Increased for complex tasks
                 ):
-                    if event["type"] == "content":
-                        result_parts.append(event["content"])
-                    elif event["type"] == "tool_call_start":
+                    event_type = event.get("type", "")
+
+                    if event_type == "content":
+                        content = event.get("content", "")
+                        if content.strip():  # Only add non-empty content
+                            result_parts.append(content)
+                            final_content += content  # Accumulate final content
+                    elif event_type == "tool_call_start":
                         tool_name = event.get("data", {}).get("name", "unknown")
                         result_parts.append(f"|_ Using {tool_name} tool...\n")
-                    elif event["type"] == "tool_call":
-                        tool_use_count += 1
-                    elif event["type"] in ["final", "error"]:
+                        tool_use_count += 1  # Count tools when they start
+                    elif event_type == "tool_call_end":
+                        # Optionally log tool completion
+                        tool_name = event.get("data", {}).get("name", "unknown")
+                        result_parts.append(f"|_ Completed {tool_name}\n")
+                    elif event_type in ["final", "task_complete"]:
+                        # Capture final content from these events
                         if event.get("content"):
-                            result_parts.append(event["content"])
+                            final_event_content = event["content"]
+                            result_parts.append(final_event_content)
+                            final_content += final_event_content
+                        task_completed = True
                         break
-                
-                # Add completion indicator
-                result_parts.append(f"\n|_ Task `{task_id}` complete ({tool_use_count} tools used)\n")
+                    elif event_type == "error":
+                        # Handle error events
+                        error_content = event.get("content", "Task encountered an error")
+                        result_parts.append(f"|_ Error: {error_content}\n")
+                        error_occurred = True
+                        break
+
+                # Add appropriate completion message
+                if error_occurred:
+                    result_parts.append(f"\n|_ Task `{task_id}` failed with error ({tool_use_count} tools used)\n")
+                elif not task_completed:
+                    result_parts.append(f"\n|_ Task `{task_id}` completed - max iterations reached ({tool_use_count} tools used)\n")
+                else:
+                    result_parts.append(f"\n|_ Task `{task_id}` completed successfully ({tool_use_count} tools used)\n")
+
+                # If we didn't get meaningful content, add a summary based on tool usage
+                if not final_content.strip() and tool_use_count > 0:
+                    summary_content = f"|_ Note: Task executed {tool_use_count} tool operations but returned no text output\n"
+                    result_parts.append(summary_content)
 
                 # Combine results
                 final_result = "".join(result_parts).strip()
-                if not final_result:
-                    final_result = f"🎯 **Task Execution** `{task_id}`\n\n|_ Task completed but returned no output."
+
+                # Ensure we have meaningful output
+                if not final_result or len(final_result) < 50:  # Very short output
+                    base_info = f"🎯 **Task Execution** `{task_id}`\n\n|_ Task: {description}\n"
+                    if tool_use_count > 0:
+                        base_info += f"|_ Executed {tool_use_count} tool operations\n"
+                        base_info += "|_ Task completed successfully\n"
+                    else:
+                        base_info += "|_ Task completed but no tools were used\n"
+
+                    if final_content.strip():
+                        base_info += f"\n**Output:**\n{final_content.strip()}\n"
+
+                    final_result = base_info
 
                 # Add execution summary
                 duration = time.time() - start_time

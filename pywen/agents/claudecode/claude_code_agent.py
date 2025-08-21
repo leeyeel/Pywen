@@ -47,7 +47,7 @@ class ClaudeCodeAgent(BaseAgent):
         self.trajectory_recorder = TrajectoryRecorder(trajectory_path)
 
         # Setup Claude Code specific tools after base tools
-        #self._setup_claude_code_tools()
+        self._setup_claude_code_tools()
 
         # Apply Claude Code adapters to provide appropriate descriptions for LLM
         self._apply_claude_code_adapters()
