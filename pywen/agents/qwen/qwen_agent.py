@@ -1,6 +1,5 @@
 """Qwen Agent implementation with streaming logic."""
 import os
-import platform
 import subprocess
 import uuid
 
@@ -19,7 +18,6 @@ from pywen.utils.token_limits import TokenLimits, ModelProvider
 from pywen.core.session_stats import session_stats
 from pywen.memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
 from pywen.memory.file_restorer import IntelligentFileRestorer
-from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
 
 
 class EventType(Enum):
@@ -76,10 +74,6 @@ class QwenAgent(BaseAgent):
         self.memory_monitor = MemoryMonitor(AdaptiveThreshold())
         self.file_restorer = IntelligentFileRestorer()
 
-        # Initialize MCP server manager
-        self._mcp_mgr = MCPServerManager()
-        self._mcp_ready = False
-
 
     #Need: Different Agent need to rewrite
     def get_enabled_tools(self) -> List[str]:
@@ -111,6 +105,7 @@ class QwenAgent(BaseAgent):
     #Need: Different Agent need to rewrite
     async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run agent with streaming output and task continuation."""
+        await self.setup_tools()
         model_name = self.llm_client.utils_config.model_params.model
         # Get token limit from TokenLimits class
         max_tokens = TokenLimits.get_limit(ModelProvider.QWEN, model_name)
@@ -683,7 +678,6 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
     async def _process_turn_streaming(self, turn: Turn) -> AsyncGenerator[Dict[str, Any], None]:
         """Streaming turn with proper response recording."""
         
-        await self._ensure_mcp_synced()
         while turn.iterations < self.max_iterations:
             turn.iterations += 1
             yield {"type": "iteration_start", "data": {"iteration": turn.iterations}}
@@ -1012,34 +1006,5 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
         messages.append(LLMMessage(role="system", content=system_prompt))
         messages.extend(self.conversation_history)
         return messages
-
-    async def _ensure_mcp_synced(self):
-        if self._mcp_ready:
-            return
-
-        # 1) 根据操作系统决定 npx 可执行文件名
-        npx = "npx.cmd" if platform.system().lower() == "windows" else "npx"
-
-        # 2) 连接 playwright MCP
-        await self._mcp_mgr.add_stdio_server(
-            "playwright",
-            npx,
-            ["@playwright/mcp@latest", "--isolated"]
-        )
-
-        # 3) 只同步浏览器相关工具
-        def only_browser(name: str) -> bool:
-            return name.startswith("browser_") or "navigate" in name
-
-        # 4) 将远端工具同步到本地工具注册表
-        await sync_mcp_server_tools_into_registry(
-            server_name="playwright",
-            manager=self._mcp_mgr,
-            tool_registry=self.tool_registry,
-            include=only_browser,
-            save_images_dir="./outputs"
-        )
-
-        self._mcp_ready = True
 
 
