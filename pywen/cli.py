@@ -257,6 +257,7 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
         except Exception as e:
             console.print(f"Error: {e}", "red")
             in_task_execution = False
+    await current_agent.aclose()
 
 
 async def execute_streaming_with_cancellation(agent, user_input, console, cancel_event):

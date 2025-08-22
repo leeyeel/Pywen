@@ -6,6 +6,7 @@ import asyncio
 from typing import Any, Dict, Optional, Iterable, Callable, List 
 from datetime import datetime
 
+from anyio import create_unix_listener
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -53,6 +54,9 @@ class MCPServerManager:
         self._sessions: Dict[str, ClientSession] = {}
         self._ctxs: Dict[str, Any] = {}
         self._locks: Dict[str, asyncio.Lock] = {}
+        self._tasks = {}
+        self._stops = {}
+        self._ready = {}
 
     async def add_stdio_server(self, name: str, command: str, args: Iterable[str]) -> None:
         """启动并连接一个以 stdio 暴露的 MCP server。"""
@@ -63,17 +67,27 @@ class MCPServerManager:
             if name in self._sessions:
                 return
 
+            stop = asyncio.Event()
+            ready = asyncio.Event()
+            self._stops[name] = stop
+            self._ready[name] = ready
+            self._tasks[name] = asyncio.create_task(
+                    self._session_owner_task(name, command, args, ready, stop)
+            )
+            await ready.wait()
+
+    async def _session_owner_task(self, name, command, args, ready_evt, stop_evt):
             params = StdioServerParameters(command=command, args=list(args))
-
             ctx = stdio_client(params)
-            read, write = await ctx.__aenter__()
-
-            sess = ClientSession(read, write)
-            await sess.__aenter__()
-            await sess.initialize()
-
-            self._sessions[name] = sess
-            self._ctxs[name] = ctx
+            async with ctx as (read, write):
+                async with ClientSession(read, write) as sess:
+                    await sess.initialize()
+                    self._ctxs[name] = ctx 
+                    self._sessions[name] = sess 
+                    ready_evt.set()
+                    await stop_evt.wait()
+            self._sessions.pop(name, None)
+            self._ctxs.pop(name, None)
 
     async def list_tools(self, server: str):
         return await self._sessions[server].list_tools()
@@ -81,23 +95,60 @@ class MCPServerManager:
     async def call_tool(self, server: str, tool_name: str, args: Dict[str, Any]):
         return await self._sessions[server].call_tool(tool_name, args or {})
 
-    async def close(self) -> None:
-        """按与打开相反的顺序，优雅关闭所有资源。"""
-        for name, sess in list(self._sessions.items()):
-            try:
-                # exit session
-                await sess.__aexit__(None, None, None)
-            except Exception:
-                pass
-        self._sessions.clear()
+    async def close(self, *, timeout: float = 5.0) -> None:
+        """
+        关闭所有已启动的 MCP server 连接。
+        - 先向每个 owner task 发送 stop 信号（通过 Event）
+        - 等待 owner task 在给定超时时间内退出（它们会在 *同一个* task 内执行 __aexit__）
+        - 超时则取消该 task，并做兜底清理
+        - 幂等：重复调用无副作用
+        """
+        if getattr(self, "_closed", False):
+            return
+        lock = getattr(self, "_close_lock", None)
+        if lock is None:
+            self._close_lock = asyncio.Lock()
+            lock = self._close_lock
 
-        for _, ctx in list(self._ctxs.items()):
-            try:
-                await ctx.__aexit__(None, None, None)
-            except Exception:
-                pass
-        self._ctxs.clear()
+        async with lock:
+            if getattr(self, "_closed", False):
+                return
 
+            names: List[str] = list(getattr(self, "_tasks", {}).keys())
+
+            for name in names:
+                stop_evt = self._stops.get(name)
+                if stop_evt and not stop_evt.is_set():
+                    stop_evt.set()
+
+            for name in names:
+                task = self._tasks.get(name)
+                if not task:
+                    continue
+                try:
+                    await asyncio.wait_for(task, timeout=timeout)
+                except asyncio.TimeoutError:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                except Exception:
+                    pass
+
+            # 兜底
+            for name, ctx in list(self._ctxs.items()):
+                try:
+                    await ctx.__aexit__(None, None, None)
+                except Exception:
+                    pass
+
+            self._sessions.clear()
+            self._ctxs.clear()
+            self._tasks.clear()
+            self._stops.clear()
+            self._ready.clear()
+            self._closed = True
 
 class MCPRemoteTool(BaseTool):
     """
@@ -184,7 +235,7 @@ class MCPRemoteTool(BaseTool):
                 "server": self._server,
                 "tool": self.name,
             },
-            display_markdown=text,   # 如需与 message 不同可自行替换
+            display_markdown=text,
         )
 
 
