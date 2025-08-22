@@ -48,10 +48,6 @@ class MemoryTool(BaseTool):
         self.memory_dir = base_memory_dir / "projects" / project_id
         self.memory_dir.mkdir(parents=True, exist_ok=True)
 
-        # Debug: 打印存储路径
-        print(f"[MemoryTool] Memory directory: {self.memory_dir}")
-        print(f"[MemoryTool] Project ID: {project_id}")
-
     def _get_project_id(self) -> str:
         """Get project ID from current working directory or environment."""
         # Try to get from environment variable first
@@ -103,7 +99,6 @@ class MemoryTool(BaseTool):
         try:
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            print(f"[MemoryTool] Written to: {full_path}")
         except Exception as e:
             raise Exception(f"Failed to write memory file: {str(e)}")
 
