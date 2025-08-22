@@ -365,6 +365,21 @@ class ConfigWizard:
                     "parallel_tool_calls": True,
                     "max_retries": 3
                 }
+            },
+            "mcp": {
+                "enabled": True,
+                "isolated": True,
+                "servers": [
+                    {
+                      "name": "playwright",
+                      "command": "npx",
+                      "args": ["@playwright/mcp@latest"],
+                      "enabled": False,
+                      "include": ["browser_*"],
+                      "save_images_dir": "./outputs/playwright",
+                      "isolated": True 
+                    }
+                ]
             }
         }
 
