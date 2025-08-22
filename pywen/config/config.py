@@ -1,8 +1,8 @@
 """Configuration classes for Pywen Agent."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import os
 from pywen.core.permission_manager import PermissionLevel, PermissionManager
 
@@ -19,6 +19,27 @@ class ApprovalMode(Enum):
     DEFAULT = "default"  # 需要用户确认 -> 映射到 PermissionLevel.LOCKED
     YOLO = "yolo"       # 自动确认所有操作 -> 映射到 PermissionLevel.YOLO
 
+@dataclass
+class MCPServerConfig:
+    """Single MCP server config item."""
+    name: str
+    command: str
+    args: List[str] = field(default_factory=list)
+    enabled: bool = True
+    include: List[str] = field(default_factory=list)
+    save_images_dir: Optional[str] = None
+    isolated: bool = False 
+    extras: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MCPConfig:
+    """Top-level MCP config."""
+    enabled: bool = True
+    isolated: bool = False
+    servers: List[MCPServerConfig] = field(default_factory=list)
+    extras: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class ModelConfig:
@@ -31,6 +52,7 @@ class ModelConfig:
     max_tokens: int = 4096
     top_p: float = 0.95
     top_k: int = 50
+    extras: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -52,6 +74,12 @@ class Config:
     # Tool API Keys
     serper_api_key: Optional[str] = None
     jina_api_key: Optional[str] = None
+
+    # MCP config
+    mcp: Optional[MCPConfig] = None
+
+    # Passthrough for top-level custom fields
+    extras: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Initialize permission manager after dataclass creation."""
@@ -97,18 +125,24 @@ class Config:
         # Load tool API keys
         serper_api_key = data.get('serper_api_key') or os.getenv('SERPER_API_KEY')
         jina_api_key = data.get('jina_api_key') or os.getenv('JINA_API_KEY')
-        
-        return cls(
-            model_config=ModelConfig(
-                provider=ModelProvider(data['model_config']['provider']),
-                model=data['model_config']['model'],
-                api_key=data['model_config']['api_key'],
-                base_url=data['model_config'].get('base_url'),
-                temperature=data['model_config'].get('temperature', 0.7),
-                max_tokens=data['model_config'].get('max_tokens', 4096),
-                top_p=data['model_config'].get('top_p', 0.95),
-                top_k=data['model_config'].get('top_k', 50)
-            ),
+
+        # Build ModelConfig with passthrough
+        mc_raw = data.get('model_config', {})
+        model_config = ModelConfig(
+            provider=ModelProvider(mc_raw['provider']),
+            model=mc_raw['model'],
+            api_key=mc_raw['api_key'],
+            base_url=mc_raw.get('base_url'),
+            temperature=mc_raw.get('temperature', 0.7),
+            max_tokens=mc_raw.get('max_tokens', 4096),
+            top_p=mc_raw.get('top_p', 0.95),
+            top_k=mc_raw.get('top_k', 50),
+        )
+        known_mc = {'provider','model','api_key','base_url','temperature','max_tokens','top_p','top_k'}
+        model_config.extras = {k: v for k, v in mc_raw.items() if k not in known_mc}
+
+        cfg = cls(
+            model_config=model_config,
             max_iterations=data.get('max_iterations', 10),
             enable_logging=data.get('enable_logging', True),
             log_level=data.get('log_level', "INFO"),
@@ -125,4 +159,16 @@ class Config:
             jina_api_key=jina_api_key,
         )
 
-
+        # Passthrough (top-level extras)
+        known_top = {
+            'default_provider',
+            'model_providers',
+            'max_steps',
+            'enable_lakeview',
+            'approval_mode',
+            'serper_api_key',
+            'jina_api_key',
+            'mcp',
+        }
+        cfg.extras = {k: v for k, v in data.items() if k not in known_top}
+        return cfg

@@ -3,9 +3,9 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
-from .config import Config, ModelConfig, ModelProvider
+from .config import Config, ModelConfig, ModelProvider, MCPConfig, MCPServerConfig
 
 from .config import ApprovalMode
 
@@ -120,10 +120,9 @@ def parse_config_data(config_data: Dict[str, Any]) -> Config:
     if not model_config.api_key:
         raise ValueError(f"API key is required for provider '{default_provider}'")
     
-
     approval_mode_str = config_data.get("approval_mode", "default")
     approval_mode = ApprovalMode.YOLO if approval_mode_str == "yolo" else ApprovalMode.DEFAULT
-    
+
     # Create main config
     config = Config(
         model_config=model_config,
@@ -135,7 +134,46 @@ def parse_config_data(config_data: Dict[str, Any]) -> Config:
         serper_api_key=config_data.get("serper_api_key") or os.getenv("SERPER_API_KEY"),
         jina_api_key=config_data.get("jina_api_key") or os.getenv("JINA_API_KEY")
     )
-    
+
+    mcp_raw = config_data.get("mcp")
+    if isinstance(mcp_raw, dict):
+        mcp_cfg = MCPConfig(
+            enabled=bool(mcp_raw.get("enabled", True)),
+            isolated=bool(mcp_raw.get("isolated", False)),
+        )
+        # servers
+        servers_raw = mcp_raw.get("servers", [])
+        servers: List[MCPServerConfig] = []
+        for s in servers_raw if isinstance(servers_raw, list) else []:
+            if not isinstance(s, dict):
+                continue
+            name = s.get("name")
+            command = s.get("command")
+            if not (name and command):
+                continue
+            srv = MCPServerConfig(
+                name=name,
+                command=command,
+                args=list(s.get("args", [])) if isinstance(s.get("args", []), list) else [],
+                enabled=bool(s.get("enabled", True)),
+                include=list(s.get("include", [])) if isinstance(s.get("include", []), list) else [],
+                save_images_dir=s.get("save_images_dir"),
+                isolated=bool(s.get("isolated", False))
+            )
+            known_srv = {"name","command","args","enabled","include","save_images_dir", "isolated"}
+            srv.extras = {k: v for k, v in s.items() if k not in known_srv}
+            servers.append(srv)
+        mcp_cfg.servers = servers
+        known_mcp = {"enabled","isolated","servers"}
+        mcp_cfg.extras = {k: v for k, v in mcp_raw.items() if k not in known_mcp}
+        config.mcp = mcp_cfg
+
+        used_top = {
+            "default_provider","model_providers","max_steps","enable_lakeview",
+            "approval_mode","serper_api_key","jina_api_key","mcp"
+        }
+        config.extras = {k: v for k, v in config_data.items() if k not in used_top}
+
     return config
 
 
