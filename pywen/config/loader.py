@@ -75,6 +75,27 @@ def load_config_from_file(config_path: str = None) -> Config:
     with open(config_file, 'r', encoding='utf-8') as f:
         config_data = json.load(f)
 
+    # Check for mcp config and update if missing
+    if "mcp" not in config_data:
+        config_data["mcp"] = {
+            "enabled": True,
+            "isolated": True,
+            "servers": [
+                {
+                  "name": "playwright",
+                  "command": "npx",
+                  "args": ["@playwright/mcp@latest"],
+                  "enabled": False,
+                  "include": ["browser_*"],
+                  "save_images_dir": "./outputs/playwright",
+                  "isolated": True
+                }
+            ]
+        }
+        # Write the updated config back to the file
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=2, ensure_ascii=False)
+
     return parse_config_data(config_data)
 
 
