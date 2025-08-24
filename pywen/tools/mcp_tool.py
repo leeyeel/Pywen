@@ -3,6 +3,7 @@ import os
 import json
 import base64
 import asyncio
+import shutil
 from typing import Any, Dict, Optional, Iterable, Callable, List 
 from datetime import datetime
 
@@ -48,6 +49,14 @@ def _make_tool_result(
         summary=summary
     )
 
+class MCPServerLaunchError(RuntimeError):
+    pass
+
+def _is_executable(cmd: str) -> bool:
+    if os.path.sep in cmd or (os.path.altsep and os.path.altsep in cmd):
+        return os.path.isfile(cmd) and os.access(cmd, os.X_OK)
+    return shutil.which(cmd) is not None
+
 class MCPServerManager:
     """管理多个 MCP server 的连接与调用（正确管理 async context）。"""
     def __init__(self) -> None:
@@ -62,6 +71,12 @@ class MCPServerManager:
         """启动并连接一个以 stdio 暴露的 MCP server。"""
         if name in self._sessions:
             return
+        if not _is_executable(command):
+            hint = (
+                f"Command '{command}' not found or not executable. "
+                f"Please install it first."
+            )
+            raise MCPServerLaunchError(hint)
         self._locks.setdefault(name, asyncio.Lock())
         async with self._locks[name]:
             if name in self._sessions:
@@ -71,10 +86,38 @@ class MCPServerManager:
             ready = asyncio.Event()
             self._stops[name] = stop
             self._ready[name] = ready
-            self._tasks[name] = asyncio.create_task(
+            task = asyncio.create_task(
                     self._session_owner_task(name, command, args, ready, stop)
             )
-            await ready.wait()
+            self._tasks[name] = task 
+
+            try:
+                await asyncio.wait_for(ready.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                task.cancel()
+                try:
+                    await task
+                except Exception:
+                    pass
+                # 清理痕迹
+                self._tasks.pop(name, None)
+                self._stops.pop(name, None)
+                self._ready.pop(name, None)
+                raise MCPServerLaunchError(
+                    f"Timed out waiting for MCP server '{name}' to become ready "
+                    f"(command='{command}', args={list(args)}, timeout={5}s). "
+                    "Check that the command is valid and can start without prompts."
+                )
+
+            if task.done() and task.exception():
+                ex = task.exception()
+                # 清理
+                self._tasks.pop(name, None)
+                self._stops.pop(name, None)
+                self._ready.pop(name, None)
+                raise MCPServerLaunchError(
+                    f"Failed to start MCP server '{name}' (command='{command}'): {ex}"
+                )
 
     async def _session_owner_task(self, name, command, args, ready_evt, stop_evt):
             params = StdioServerParameters(command=command, args=list(args))

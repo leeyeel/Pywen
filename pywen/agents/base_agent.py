@@ -165,7 +165,10 @@ class BaseAgent(ABC):
                 if server_isolated and not any(a == "--isolated" for a in args):
                     args.append("--isolated")
 
-                await mgr.add_stdio_server(name, command, args)
+                try:
+                    await mgr.add_stdio_server(name, command, args)
+                except Exception as e:
+                    self.cli_console.print(f"[MCP] Failed to start server: {e}", "yellow")
 
             for s in servers:
                 if not s.enabled:
