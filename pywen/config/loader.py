@@ -92,6 +92,21 @@ def load_config_from_file(config_path: str = None) -> Config:
                 }
             ]
         }
+
+    # Check for mcp config and update if missing
+    if "memory_moniter" not in config_data:
+        config_data["memory_moniter"] = {
+            "check_interval": 3,
+            "maximum_capacity": 1000000,
+            "rules": [
+                [0.92, 1],
+                [0.80, 1],
+                [0.60, 2],
+                [0.00, 3]
+            ],
+            "model": "Qwen/Qwen3-235B-A22B-Instruct-2507"
+        }
+
         # Write the updated config back to the file
         with open(config_file, 'w', encoding='utf-8') as f:
             json.dump(config_data, f, indent=2, ensure_ascii=False)
@@ -189,9 +204,28 @@ def parse_config_data(config_data: Dict[str, Any]) -> Config:
         mcp_cfg.extras = {k: v for k, v in mcp_raw.items() if k not in known_mcp}
         config.mcp = mcp_cfg
 
+    # Parse memory moniter config
+    memory_moniter_raw = config_data.get("memory_moniter")
+    if memory_moniter_raw:
+        from .config import MemoryMoniterConfig
+        memory_moniter_config = MemoryMoniterConfig(
+            check_interval=int(memory_moniter_raw.get("check_interval", 3)),
+            rules=memory_moniter_raw.get("rules", [
+                [0.92, 1],
+                [0.80, 1],
+                [0.60, 2],
+                [0.00, 3]
+            ]),
+            maximum_capacity = memory_moniter_raw.get("maximum_capacity", 1000000),
+            model=memory_moniter_raw.get("model", "Qwen/Qwen3-235B-A22B-Instruct-2507")
+        )
+        known_field = {"check_interval", "rules", "models"}
+        memory_moniter_config.extras = {k: v for k, v in memory_moniter_raw.items() if k not in known_field}
+        config.memory_moniter = memory_moniter_config
+
         used_top = {
             "default_provider","model_providers","max_steps","enable_lakeview",
-            "approval_mode","serper_api_key","jina_api_key","mcp"
+            "approval_mode","serper_api_key","jina_api_key","mcp","memory_moniter"
         }
         config.extras = {k: v for k, v in config_data.items() if k not in used_top}
 
@@ -270,6 +304,17 @@ def create_default_config(output_path: str = None) -> None:
                   "isolated": True 
                 }
             ]
+        },
+        "memory_moniter":{
+            "check_interval": 3,
+            "maximum_capacity": 1000000,
+            "rules": [
+                [0.92, 1],
+                [0.80, 1],
+                [0.60, 2],
+                [0.00, 3]
+            ],
+            "model": "Qwen/Qwen3-235B-A22B-Instruct-2507"
         }
     }
 

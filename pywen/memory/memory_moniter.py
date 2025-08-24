@@ -9,32 +9,35 @@ from typing import Dict, Any
 from rich import print
 
 
-@dataclass
-class AdaptiveThreshold:
 
-    check_interval: int = 3
-    max_tokens: int = 20000
-    rules: tuple[tuple[float, int], ...] = (
-        (0.92, 1),
-        (0.80, 1),   # ≥80 % 每 1 轮
-        (0.60, 2),   # ≥60 % 每 2 轮
-        (0.00, 3),   # 默认每 3 轮
-    )
+# @dataclass
+# class AdaptiveThreshold:
+
+#     check_interval: int = 3
+#     max_tokens: int = 8000
+#     rules: tuple[tuple[float, int], ...] = (
+#         (0.92, 1),
+#         (0.80, 1),   # ≥80 % 每 1 轮
+#         (0.60, 2),   # ≥60 % 每 2 轮
+#         (0.00, 3),   # 默认每 3 轮
+#     )
 
 
-class MemoryMonitor:
+class MemoryMoniter:
 
-    def __init__(self, threshold: AdaptiveThreshold | None = None):
-        self.check_interval = threshold.check_interval
-        self.max_tokens = threshold.max_tokens
-        self.rules = threshold.rules
-        self.model = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+    def __init__(self, config):
+        self.config = config
+        self.check_interval = self.config.memory_moniter.check_interval
+        self.max_tokens = self.config.memory_moniter.maximum_capacity
+        self.rules = self.config.memory_moniter.rules
+        self.model = self.config.memory_moniter.model
+        self.last_checkd_turn = 0
 
 
     async def call_llm(self, prompt) -> str:
         client = AsyncOpenAI(
-            api_key=os.environ["MODELSCOPE_API_KEY"],
-            base_url="https://api-inference.modelscope.cn/v1/"
+            api_key=self.config.model_config.api_key,
+            base_url=self.config.model_config.base_url
         )
 
         try:
@@ -53,9 +56,10 @@ class MemoryMonitor:
     async def run_monitored(self, turn, conversation_history, usage):
         print(f"\n[bold magenta]Monitoring[/] on turn [underline cyan]{turn}[/] :rocket:")
 
-        if turn % self.check_interval == 0:
+        if (turn - self.last_checkd_turn) % self.check_interval == 0:
             alert = self.maybe_compress(usage)
             self.check_interval = alert["check_interval"]
+            self.last_checkd_turn = turn
         else:
             return None
 

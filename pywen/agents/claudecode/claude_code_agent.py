@@ -13,10 +13,6 @@ from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
 from pywen.core.session_stats import session_stats
 
-# Import memory moniter and file restorer
-from pywen.memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
-from pywen.memory.file_restorer import IntelligentFileRestorer
-
 from pywen.agents.claudecode.tools.tool_adapter import ToolAdapterFactory
 from pywen.config.loader import get_trajectories_dir
 from pywen.agents.claudecode.system_reminder import (
@@ -62,9 +58,9 @@ class ClaudeCodeAgent(BaseAgent):
         session_stats.set_current_agent(self.type)
 
         # Initialize memory moniter and file restorer
-        self.current_turn = 0
-        self.memory_moniter = MemoryMonitor(AdaptiveThreshold(check_interval=3, max_tokens=200000, rules=((0.92, 1), (0.80, 1), (0.60, 2), (0.00, 3))))
-        self.file_restorer = IntelligentFileRestorer()
+        # self.current_turn = 0
+        # self.memory_moniter = MemoryMonitor(AdaptiveThreshold(check_interval=3, max_tokens=200000, rules=((0.92, 1), (0.80, 1), (0.60, 2), (0.00, 3))))
+        # self.file_restorer = IntelligentFileRestorer()
 
         # Track quota check status
         self.quota_checked = False
@@ -72,6 +68,9 @@ class ClaudeCodeAgent(BaseAgent):
         # Initialize system reminder service
         self.todo_items = []  # Track current todo items
         reset_reminder_session()  # Reset on agent initialization
+
+        # Initialize file metrics
+        self.file_metrics = dict()
 
     def _setup_claude_code_tools(self):
         """Setup Claude Code specific tools and configure them."""
@@ -167,7 +166,7 @@ class ClaudeCodeAgent(BaseAgent):
         """
         try:
             # Record the current turn
-            self.current_turn += 1
+            # self.current_turn += 1
 
             # Set this agent as current in the registry for tool access
             from pywen.core.agent_registry import set_current_agent
@@ -510,12 +509,13 @@ class ClaudeCodeAgent(BaseAgent):
             if not tool_calls:
 
                 # Run memory moniter after Task completed
-                current_usage = final_response.usage.total_tokens
-                comression = await self.memory_moniter.run_monitored(self.current_turn, self.conversation_history, current_usage)
-                if comression is not None:
-                    self.conversation_history = comression
+                # current_usage = final_response.usage.total_tokens
+                # comression = await self.memory_moniter.run_monitored(self.current_turn, self.conversation_history, current_usage)
+                # if comression is not None:
+                #     self.conversation_history = comression
 
                 # Yield task completion event
+                yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
                 yield {
                     "type": "task_complete",
                     "content": assistant_message.content if assistant_message else "",

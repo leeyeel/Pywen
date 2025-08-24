@@ -16,8 +16,8 @@ from pywen.agents.qwen.task_continuation_checker import TaskContinuationChecker,
 from pywen.agents.qwen.loop_detection_service import AgentLoopDetectionService
 from pywen.utils.token_limits import TokenLimits, ModelProvider
 from pywen.core.session_stats import session_stats
-from pywen.memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
-from pywen.memory.file_restorer import IntelligentFileRestorer
+# from pywen.memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
+# from pywen.memory.file_restorer import IntelligentFileRestorer
 
 
 class EventType(Enum):
@@ -69,10 +69,13 @@ class QwenAgent(BaseAgent):
         self.system_prompt = self.get_core_system_prompt()
 
         # Initialize memory monitor and file restorer
-        self.dialogue_counter = 0
+        # self.dialogue_counter = 0
+        # self.file_metrics = dict()
+        # self.memory_monitor = MemoryMonitor(AdaptiveThreshold())
+        # self.file_restorer = IntelligentFileRestorer()
+
+        # Initialize file metrics
         self.file_metrics = dict()
-        self.memory_monitor = MemoryMonitor(AdaptiveThreshold())
-        self.file_restorer = IntelligentFileRestorer()
 
 
     #Need: Different Agent need to rewrite
@@ -137,7 +140,7 @@ class QwenAgent(BaseAgent):
         current_message = user_message
 
         # Record every dialogue
-        self.dialogue_counter += 1
+        # self.dialogue_counter += 1
         
         while self.current_task_turns < self.max_task_turns:
             self.current_task_turns += 1
@@ -739,84 +742,85 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                     # 3. 批量处理所有工具调用
                     if collected_tool_calls:
                         async for tool_event in self._process_tool_calls_streaming(turn, collected_tool_calls):
-                            if tool_event["type"] != "tool_result":
-                                continue
+                            # if tool_event["type"] != "tool_result":
+                            #     continue
 
-                            tool_name = tool_event["data"]["name"]
-                            result    = tool_event["data"]["result"]
-                            success   = tool_event["data"]["success"]
+                            # tool_name = tool_event["data"]["name"]
+                            # result    = tool_event["data"]["result"]
+                            # success   = tool_event["data"]["success"]
 
-                            if not success or tool_name not in {"read_file", "write_file", "edit"}:
-                                continue
+                            # if not success or tool_name not in {"read_file", "write_file", "edit"}:
+                            #     continue
 
-                            try:
-                                # 1) 取文件路径
-                                arguments = tool_event["data"]["arguments"]
-                                file_path_str = None
-                                if isinstance(result, dict) and "file_path" in result:
-                                    file_path_str = result["file_path"]
-                                elif isinstance(arguments, dict):
-                                    file_path_str = arguments.get("path")
+                            # try:
+                            #     # 1) 取文件路径
+                            #     arguments = tool_event["data"]["arguments"]
+                            #     file_path_str = None
+                            #     if isinstance(result, dict) and "file_path" in result:
+                            #         file_path_str = result["file_path"]
+                            #     elif isinstance(arguments, dict):
+                            #         file_path_str = arguments.get("path")
 
-                                if not file_path_str:
-                                    raise ValueError("missing file path")
+                            #     if not file_path_str:
+                            #         raise ValueError("missing file path")
 
-                                file_path = Path(file_path_str).resolve()
+                            #     file_path = Path(file_path_str).resolve()
 
-                                # 2) 计算 key
-                                try:
-                                    key = str(file_path.relative_to(Path.cwd()))
-                                except ValueError:
-                                    key = str(file_path)
+                            #     # 2) 计算 key
+                            #     try:
+                            #         key = str(file_path.relative_to(Path.cwd()))
+                            #     except ValueError:
+                            #         key = str(file_path)
 
-                                # 3) 重新 stat —— 失败就整体跳过，不硬凑
-                                st = file_path.stat()
-                                last_access_ms = int(st.st_atime * 1000)
-                                est_tokens = st.st_size // 4
+                            #     # 3) 重新 stat —— 失败就整体跳过，不硬凑
+                            #     st = file_path.stat()
+                            #     last_access_ms = int(st.st_atime * 1000)
+                            #     est_tokens = st.st_size // 4
 
-                            except Exception:
-                                # 任何一步拿不到可靠数据就直接放弃本次指标更新
-                                continue
+                            # except Exception:
+                            #     # 任何一步拿不到可靠数据就直接放弃本次指标更新
+                            #     continue
 
-                            # 3) 建档案（尽量从 stat 补充；失败则使用兜底值）
-                            if key not in self.file_metrics:
-                                # 第一次见：根据本次工具类型初始化计数
-                                init_read = 1 if tool_name == "read_file" else 0
-                                init_write = 1 if tool_name == "write_file" else 0
-                                init_edit = 1 if tool_name == "edit" else 0
-                                last_op = {"read_file": "read", "write_file": "write", "edit": "edit"}[tool_name]
+                            # # 3) 建档案（尽量从 stat 补充；失败则使用兜底值）
+                            # if key not in self.file_metrics:
+                            #     # 第一次见：根据本次工具类型初始化计数
+                            #     init_read = 1 if tool_name == "read_file" else 0
+                            #     init_write = 1 if tool_name == "write_file" else 0
+                            #     init_edit = 1 if tool_name == "edit" else 0
+                            #     last_op = {"read_file": "read", "write_file": "write", "edit": "edit"}[tool_name]
 
-                                self.file_metrics[key] = {
-                                    "path": key,
-                                    "lastAccessTime": last_access_ms,
-                                    "readCount": init_read,
-                                    "writeCount": init_write,
-                                    "editCount": init_edit,
-                                    "operationsInLastHour": 0,      # 可按需要再维护
-                                    "lastOperation": last_op,
-                                    "estimatedTokens": est_tokens,
-                                }
-                            else:
-                                # 已存在：只累加计数、刷新时间和大小
-                                meta = self.file_metrics[key]
+                            #     self.file_metrics[key] = {
+                            #         "path": key,
+                            #         "lastAccessTime": last_access_ms,
+                            #         "readCount": init_read,
+                            #         "writeCount": init_write,
+                            #         "editCount": init_edit,
+                            #         "operationsInLastHour": 0,      # 可按需要再维护
+                            #         "lastOperation": last_op,
+                            #         "estimatedTokens": est_tokens,
+                            #     }
+                            # else:
+                            #     # 已存在：只累加计数、刷新时间和大小
+                            #     meta = self.file_metrics[key]
 
-                                if tool_name == "read_file":
-                                    meta["readCount"] += 1
-                                    meta["lastOperation"] = "read"
-                                elif tool_name == "write_file":
-                                    meta["writeCount"] += 1
-                                    meta["lastOperation"] = "write"
-                                elif tool_name == "edit":
-                                    meta["editCount"] += 1
-                                    meta["lastOperation"] = "edit"
+                            #     if tool_name == "read_file":
+                            #         meta["readCount"] += 1
+                            #         meta["lastOperation"] = "read"
+                            #     elif tool_name == "write_file":
+                            #         meta["writeCount"] += 1
+                            #         meta["lastOperation"] = "write"
+                            #     elif tool_name == "edit":
+                            #         meta["editCount"] += 1
+                            #         meta["lastOperation"] = "edit"
 
-                                meta["lastAccessTime"] = last_access_ms
-                                meta["estimatedTokens"] = est_tokens
+                            #     meta["lastAccessTime"] = last_access_ms
+                            #     meta["estimatedTokens"] = est_tokens
 
                             yield tool_event
                         continue
                     else:
                         turn.complete(TurnStatus.COMPLETED)
+                        yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
                         yield {"type": "turn_complete", "data": {"status": "completed"}}
                         break
                 
@@ -829,24 +833,24 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
 
 
         # Run Memory Moniter and file restorer
-        total_tokens = 0
-        if final_response and hasattr(final_response, "usage") and final_response.usage:
-            total_tokens = final_response.usage.total_tokens
+        # total_tokens = 0
+        # if final_response and hasattr(final_response, "usage") and final_response.usage:
+        #     total_tokens = final_response.usage.total_tokens
 
-        compression = await self.memory_monitor.run_monitored(
-            self.dialogue_counter,
-            self.conversation_history,
-            total_tokens
-        )
+        # compression = await self.memory_monitor.run_monitored(
+        #     self.dialogue_counter,
+        #     self.conversation_history,
+        #     total_tokens
+        # )
 
-        if compression is not None:
-            file_content = self.file_restorer.file_recover(self.file_metrics)
-            if file_content is not None:
-                summary = compression + "\nHere is the potentially important file content:\n" + file_content
-                self.conversation_history = [LLMMessage(role="user", content=summary)]
-            else:
-                summary = compression
-                self.conversation_history = [LLMMessage(role="user", content=summary)]
+        # if compression is not None:
+        #     file_content = self.file_restorer.file_recover(self.file_metrics)
+        #     if file_content is not None:
+        #         summary = compression + "\nHere is the potentially important file content:\n" + file_content
+        #         self.conversation_history = [LLMMessage(role="user", content=summary)]
+        #     else:
+        #         summary = compression
+        #         self.conversation_history = [LLMMessage(role="user", content=summary)]
                                     
         # Check if we hit max iterations
         if turn.iterations >= self.max_iterations and turn.status == TurnStatus.ACTIVE:
