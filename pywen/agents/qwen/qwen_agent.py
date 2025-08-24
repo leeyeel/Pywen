@@ -16,8 +16,6 @@ from pywen.agents.qwen.task_continuation_checker import TaskContinuationChecker,
 from pywen.agents.qwen.loop_detection_service import AgentLoopDetectionService
 from pywen.utils.token_limits import TokenLimits, ModelProvider
 from pywen.core.session_stats import session_stats
-# from pywen.memory.memory_moniter import MemoryMonitor, AdaptiveThreshold
-# from pywen.memory.file_restorer import IntelligentFileRestorer
 
 
 class EventType(Enum):
@@ -832,7 +830,7 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 raise e
 
 
-        # Run Memory Moniter and file restorer
+        # Run Memory monitor and file restorer
         # total_tokens = 0
         # if final_response and hasattr(final_response, "usage") and final_response.usage:
         #     total_tokens = final_response.usage.total_tokens

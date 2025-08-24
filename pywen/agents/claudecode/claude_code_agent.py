@@ -37,7 +37,6 @@ class ClaudeCodeAgent(BaseAgent):
 
         # Initialize conversation history for session continuity
         self.conversation_history: List[LLMMessage] = []
-        # self.max_history_messages = getattr(config, 'max_history_messages', 20)  # Keep last 20 messages
 
         # Ensure trajectories directory exists
         trajectories_dir = get_trajectories_dir()
@@ -56,11 +55,6 @@ class ClaudeCodeAgent(BaseAgent):
 
         # Register this agent with session stats
         session_stats.set_current_agent(self.type)
-
-        # Initialize memory moniter and file restorer
-        # self.current_turn = 0
-        # self.memory_moniter = MemoryMonitor(AdaptiveThreshold(check_interval=3, max_tokens=200000, rules=((0.92, 1), (0.80, 1), (0.60, 2), (0.00, 3))))
-        # self.file_restorer = IntelligentFileRestorer()
 
         # Track quota check status
         self.quota_checked = False
@@ -165,8 +159,6 @@ class ClaudeCodeAgent(BaseAgent):
         3. Core Agent flow with official prompt structure
         """
         try:
-            # Record the current turn
-            # self.current_turn += 1
 
             # Set this agent as current in the registry for tool access
             from pywen.core.agent_registry import set_current_agent
@@ -218,7 +210,6 @@ class ClaudeCodeAgent(BaseAgent):
             })
 
             # 3. Core Agent flow with official prompt structure
-            # Add new user message to conversation history
             user_message = LLMMessage(role="user", content=query)
             self.conversation_history.append(user_message)
 
@@ -508,9 +499,9 @@ class ClaudeCodeAgent(BaseAgent):
             # TOP CONDITION: No tool calls means we're done
             if not tool_calls:
 
-                # Run memory moniter after Task completed
+                # Run memory monitor after Task completed
                 # current_usage = final_response.usage.total_tokens
-                # comression = await self.memory_moniter.run_monitored(self.current_turn, self.conversation_history, current_usage)
+                # comression = await self.memory_monitor.run_monitored(self.current_turn, self.conversation_history, current_usage)
                 # if comression is not None:
                 #     self.conversation_history = comression
 

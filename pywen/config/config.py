@@ -56,7 +56,7 @@ class ModelConfig:
 
 
 @dataclass
-class MemoryMoniterConfig:
+class MemorymonitorConfig:
     """Memory monitor configuration."""
     check_interval: int = 3
     maximum_capacity: int = 1000000
@@ -94,7 +94,7 @@ class Config:
     mcp: Optional[MCPConfig] = None
 
     # Memory monitor config
-    memory_moniter: Optional[MemoryMoniterConfig] = None
+    memory_monitor: Optional[MemorymonitorConfig] = None
 
     # Passthrough for top-level custom fields
     extras: Dict[str, Any] = field(default_factory=dict)

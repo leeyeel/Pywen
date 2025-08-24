@@ -22,7 +22,7 @@ from pywen.agents.claudecode.claude_code_agent import ClaudeCodeAgent
 from pywen.ui.cli_console import CLIConsole
 from pywen.ui.command_processor import CommandProcessor
 from pywen.ui.utils.keyboard import create_key_bindings
-from pywen.memory.memory_moniter import MemoryMoniter
+from pywen.memory.memory_monitor import Memorymonitor
 from pywen.memory.file_restorer import IntelligentFileRestorer
 from pywen.utils.llm_basics import LLMMessage
 
@@ -107,8 +107,8 @@ async def main():
     agent = QwenAgent(config)
     agent.set_cli_console(console)
 
-    # Create memory moniter and file restorer
-    memory_moniter = MemoryMoniter(config)
+    # Create memory monitor and file restorer
+    memory_monitor = Memorymonitor(config)
     file_restorer = IntelligentFileRestorer()
 
     # Display current mode
@@ -120,12 +120,12 @@ async def main():
 
     # Run in appropriate mode
     if args.interactive or not args.prompt:
-        await interactive_mode_streaming(agent, console, session_id, memory_moniter, file_restorer)
+        await interactive_mode_streaming(agent, console, session_id, memory_monitor, file_restorer)
     else:
         await single_prompt_mode_streaming(agent, console, args.prompt)
 
 
-async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, session_id: str, memory_moniter: MemoryMoniter, file_restorer: IntelligentFileRestorer):
+async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, session_id: str, memory_monitor: Memorymonitor, file_restorer: IntelligentFileRestorer):
     """Run agent in interactive mode with streaming using prompt_toolkit."""
     
     # Create command processor and history
@@ -224,7 +224,7 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
             # Execute user request
             try:
                 current_task = asyncio.create_task(
-                    execute_streaming_with_cancellation(current_agent, user_input, console, cancel_event, memory_moniter, file_restorer, dialogue_counter)  
+                    execute_streaming_with_cancellation(current_agent, user_input, console, cancel_event, memory_monitor, file_restorer, dialogue_counter)  
                 )
                 
                 result = await current_task
@@ -274,7 +274,7 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
     await current_agent.aclose()
 
 
-async def execute_streaming_with_cancellation(agent, user_input, console, cancel_event, memory_moniter, file_restorer, dialogue_counter):
+async def execute_streaming_with_cancellation(agent, user_input, console, cancel_event, memory_monitor, file_restorer, dialogue_counter):
     """Execute streaming task with cancellation support."""
     try:
         async for event in agent.run(user_input):
@@ -306,8 +306,8 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
             # Return specific states to main loop
             if result in ["task_complete", "max_turns_reached", "waiting_for_user"]:
                 
-                # Running Memory Moniter and File Restorer
-                compression = await memory_moniter.run_monitored(
+                # Running Memory monitor and File Restorer
+                compression = await memory_monitor.run_monitored(
                     dialogue_counter,
                     agent.conversation_history,
                     total_tokens

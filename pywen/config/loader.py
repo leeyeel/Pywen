@@ -94,8 +94,8 @@ def load_config_from_file(config_path: str = None) -> Config:
         }
 
     # Check for mcp config and update if missing
-    if "memory_moniter" not in config_data:
-        config_data["memory_moniter"] = {
+    if "memory_monitor" not in config_data:
+        config_data["memory_monitor"] = {
             "check_interval": 3,
             "maximum_capacity": 1000000,
             "rules": [
@@ -204,28 +204,28 @@ def parse_config_data(config_data: Dict[str, Any]) -> Config:
         mcp_cfg.extras = {k: v for k, v in mcp_raw.items() if k not in known_mcp}
         config.mcp = mcp_cfg
 
-    # Parse memory moniter config
-    memory_moniter_raw = config_data.get("memory_moniter")
-    if memory_moniter_raw:
-        from .config import MemoryMoniterConfig
-        memory_moniter_config = MemoryMoniterConfig(
-            check_interval=int(memory_moniter_raw.get("check_interval", 3)),
-            rules=memory_moniter_raw.get("rules", [
+    # Parse memory monitor config
+    memory_monitor_raw = config_data.get("memory_monitor")
+    if memory_monitor_raw:
+        from .config import MemorymonitorConfig
+        memory_monitor_config = MemorymonitorConfig(
+            check_interval=int(memory_monitor_raw.get("check_interval", 3)),
+            rules=memory_monitor_raw.get("rules", [
                 [0.92, 1],
                 [0.80, 1],
                 [0.60, 2],
                 [0.00, 3]
             ]),
-            maximum_capacity = memory_moniter_raw.get("maximum_capacity", 1000000),
-            model=memory_moniter_raw.get("model", "Qwen/Qwen3-235B-A22B-Instruct-2507")
+            maximum_capacity = memory_monitor_raw.get("maximum_capacity", 1000000),
+            model=memory_monitor_raw.get("model", "Qwen/Qwen3-235B-A22B-Instruct-2507")
         )
         known_field = {"check_interval", "rules", "models"}
-        memory_moniter_config.extras = {k: v for k, v in memory_moniter_raw.items() if k not in known_field}
-        config.memory_moniter = memory_moniter_config
+        memory_monitor_config.extras = {k: v for k, v in memory_monitor_raw.items() if k not in known_field}
+        config.memory_monitor = memory_monitor_config
 
         used_top = {
             "default_provider","model_providers","max_steps","enable_lakeview",
-            "approval_mode","serper_api_key","jina_api_key","mcp","memory_moniter"
+            "approval_mode","serper_api_key","jina_api_key","mcp","memory_monitor"
         }
         config.extras = {k: v for k, v in config_data.items() if k not in used_top}
 
@@ -305,7 +305,7 @@ def create_default_config(output_path: str = None) -> None:
                 }
             ]
         },
-        "memory_moniter":{
+        "memory_monitor":{
             "check_interval": 3,
             "maximum_capacity": 1000000,
             "rules": [

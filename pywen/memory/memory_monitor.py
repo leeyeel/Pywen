@@ -3,34 +3,19 @@ import re
 import os
 from openai import AsyncOpenAI
 from .prompt import compression_prompt, keyword_continuity_score_prompt, first_downgrade_prompt, second_downgrade_prompt
-from dataclasses import dataclass
 from pywen.utils.llm_basics import LLMMessage
 from typing import Dict, Any
 from rich import print
 
 
-
-# @dataclass
-# class AdaptiveThreshold:
-
-#     check_interval: int = 3
-#     max_tokens: int = 8000
-#     rules: tuple[tuple[float, int], ...] = (
-#         (0.92, 1),
-#         (0.80, 1),   # ≥80 % 每 1 轮
-#         (0.60, 2),   # ≥60 % 每 2 轮
-#         (0.00, 3),   # 默认每 3 轮
-#     )
-
-
-class MemoryMoniter:
+class Memorymonitor:
 
     def __init__(self, config):
         self.config = config
-        self.check_interval = self.config.memory_moniter.check_interval
-        self.max_tokens = self.config.memory_moniter.maximum_capacity
-        self.rules = self.config.memory_moniter.rules
-        self.model = self.config.memory_moniter.model
+        self.check_interval = self.config.memory_monitor.check_interval
+        self.max_tokens = self.config.memory_monitor.maximum_capacity
+        self.rules = self.config.memory_monitor.rules
+        self.model = self.config.memory_monitor.model
         self.last_checkd_turn = 0
 
 
