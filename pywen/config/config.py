@@ -56,6 +56,21 @@ class ModelConfig:
 
 
 @dataclass
+class MemoryMoniterConfig:
+    """Memory monitor configuration."""
+    check_interval: int = 3
+    maximum_capacity: int = 1000000
+    rules: List[List[float]] = field(default_factory=lambda: [
+        [0.92, 1],
+        [0.80, 1],
+        [0.60, 2],
+        [0.00, 3]
+    ])
+    model: str = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+    extras: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Config:
     """Agent configuration."""
     model_config: ModelConfig
@@ -77,6 +92,9 @@ class Config:
 
     # MCP config
     mcp: Optional[MCPConfig] = None
+
+    # Memory monitor config
+    memory_moniter: Optional[MemoryMoniterConfig] = None
 
     # Passthrough for top-level custom fields
     extras: Dict[str, Any] = field(default_factory=dict)

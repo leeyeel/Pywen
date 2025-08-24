@@ -323,6 +323,10 @@ class CLIConsole:
 
             elif event_type == "tool_result":
                 self.display_tool_result(data)
+                return "tool_result"
+
+            elif event_type == "turn_token_usage":
+                return "turn_token_usage"
 
             elif event_type == "waiting_for_user":
                 self.print(f"💭{data['reasoning']}", "yellow")

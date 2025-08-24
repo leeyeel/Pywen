@@ -173,3 +173,68 @@ class IntelligentFileRestorer:
                 )
 
         return "".join(contents)
+
+    
+    def update_file_metrics(self, arguments, result, file_metrics, tool_name):
+        try:
+            # 1) 取文件路径
+            file_path_str = None
+            if isinstance(result, dict) and "file_path" in result:
+                file_path_str = result["file_path"]
+            elif isinstance(arguments, dict):
+                file_path_str = arguments.get("path")
+
+            if not file_path_str:
+                raise ValueError("missing file path")
+
+            file_path = Path(file_path_str).resolve()
+
+            # 2) 计算 key
+            try:
+                key = str(file_path.relative_to(Path.cwd()))
+            except ValueError:
+                key = str(file_path)
+
+            # 3) 重新 stat —— 失败就整体跳过，不硬凑
+            st = file_path.stat()
+            last_access_ms = int(st.st_atime * 1000)
+            est_tokens = st.st_size // 4
+
+        except Exception:
+            # 任何一步拿不到可靠数据就直接放弃本次指标更新
+            return
+
+        # 3) 建档案（尽量从 stat 补充；失败则使用兜底值）
+        if key not in file_metrics:
+            # 第一次见：根据本次工具类型初始化计数
+            init_read = 1 if tool_name == "read_file" else 0
+            init_write = 1 if tool_name == "write_file" else 0
+            init_edit = 1 if tool_name == "edit" else 0
+            last_op = {"read_file": "read", "write_file": "write", "edit": "edit"}[tool_name]
+
+            file_metrics[key] = {
+                "path": key,
+                "lastAccessTime": last_access_ms,
+                "readCount": init_read,
+                "writeCount": init_write,
+                "editCount": init_edit,
+                "operationsInLastHour": 0,      # 可按需要再维护
+                "lastOperation": last_op,
+                "estimatedTokens": est_tokens,
+            }
+        else:
+            # 已存在：只累加计数、刷新时间和大小
+            meta = file_metrics[key]
+
+            if tool_name == "read_file":
+                meta["readCount"] += 1
+                meta["lastOperation"] = "read"
+            elif tool_name == "write_file":
+                meta["writeCount"] += 1
+                meta["lastOperation"] = "write"
+            elif tool_name == "edit":
+                meta["editCount"] += 1
+                meta["lastOperation"] = "edit"
+
+            meta["lastAccessTime"] = last_access_ms
+            meta["estimatedTokens"] = est_tokens
