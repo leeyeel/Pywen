@@ -108,7 +108,6 @@ async def main():
     agent.set_cli_console(console)
 
     # Create memory moniter and file restorer
-    print("config:", config)
     memory_moniter = MemoryMoniter(config)
     file_restorer = IntelligentFileRestorer()
 
@@ -319,7 +318,6 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
                     if file_content is not None:
                         summary = compression + "\nHere is the potentially important file content:\n" + file_content
                         agent.conversation_history = [LLMMessage(role="user", content=summary)]
-                        print(agent.conversation_history)
                     else:
                         summary = compression
                         agent.conversation_history = [LLMMessage(role="user", content=summary)]
