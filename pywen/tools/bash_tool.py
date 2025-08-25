@@ -115,7 +115,9 @@ class BashTool(BaseTool):
             r'streamlit.*run',
             r'gradio',
             r'npm.*start',
-            r'node.*server'
+            r'node.*server',
+            r'python.*-m.*http\.server',
+            r'http\.server'
         ]
         
         is_long_running = any(re.search(pattern, command, re.IGNORECASE) for pattern in long_running_patterns)
@@ -157,16 +159,25 @@ class BashTool(BaseTool):
                             output_chunks.append(line_text)
                             
                             # 检查是否有服务器启动信息
-                            if any(keyword in line_text.lower() for keyword in ['running on', 'serving at', 'listening on', 'server started']):
+                            if any(keyword in line_text.lower() for keyword in ['running on', 'serving at', 'listening on', 'server started', 'serving http']):
                                 port_match = re.search(r'(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d+)', line_text)
                                 if port_match:
                                     port = port_match.group(1)
-                                    server_info = f"\n🌐 Server detected! Access at: http://localhost:{port}"
-                                    server_info += f"\nCheck logs: tail -f server.log"
+                                    server_info = f"\n🌐 Server started! Access at: http://localhost:{port}"
+                                    server_info += f"\n📝 To stop the server, use Ctrl+C or close this process"
                                     output_chunks.append(server_info)
+                                    
+                                    # 服务器启动后立即返回结果
+                                    result_text = "\n".join(output_chunks)
+                                    result_text += "\n\n✅ Server is running in background"
+                                    return ToolResult(
+                                        call_id="",
+                                        result=result_text,
+                                        metadata={"process_running": True, "server_port": port}
+                                    )
                             
-                            # 每收集5行或运行超过3秒就返回一次结果
-                            if len(output_chunks) >= 5 or (asyncio.get_event_loop().time() - start_time) > 3:
+                            # 每收集3行或运行超过2秒就返回一次结果
+                            if len(output_chunks) >= 3 or (asyncio.get_event_loop().time() - start_time) > 2:
                                 result_text = "\n".join(output_chunks)
                                 if process.returncode is None:  # 进程还在运行
                                     result_text += "\n\n⏳ Process is still running..."

@@ -106,7 +106,7 @@ class QwenAgent(BaseAgent):
     #Need: Different Agent need to rewrite
     async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run agent with streaming output and task continuation."""
-        await self.setup_tools()
+        await self.setup_tools_mcp()
         model_name = self.llm_client.utils_config.model_params.model
         # Get token limit from TokenLimits class
         max_tokens = TokenLimits.get_limit(ModelProvider.QWEN, model_name)

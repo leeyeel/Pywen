@@ -33,6 +33,7 @@ class BaseAgent(ABC):
         
         # Initialize tools with agent-specific configuration
         self.tool_registry = ToolRegistry()
+        self.setup_tools()
         
         # Initialize tool executor
         self.tool_executor = NonInteractiveToolExecutor(self.tool_registry)
@@ -41,8 +42,7 @@ class BaseAgent(ABC):
         self._mcp_mgr = None
         self._mcp_init_lock = asyncio.Lock()
 
-    async def setup_tools(self):
-        """Setup tools based on agent configuration."""
+    def setup_tools(self):
         enabled_tools = self.get_enabled_tools()
 
         # Use the new ToolRegistry method to register tools by names
@@ -54,6 +54,10 @@ class BaseAgent(ABC):
             for tool_name in failed_tools:
                 self.cli_console.print(f"Failed to register tool: {tool_name}", "yellow")
 
+
+    async def setup_tools_mcp(self):
+        """Setup tools based on agent configuration."""
+        
         await self._ensure_mcp_synced()
     
     

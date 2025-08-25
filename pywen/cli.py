@@ -294,7 +294,7 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
                 tool_name = event["data"]["name"]
                 success   = event["data"]["success"]
                 result    = event["data"]["result"]
-                arguments = event["data"]["arguments"]
+                arguments = event["data"].get("arguments",{})
 
                 if success and tool_name in {"read_file", "write_file", "edit"}:
                     file_restorer.update_file_metrics(arguments, result, agent.file_metrics, tool_name)
