@@ -131,8 +131,10 @@ class BashTool(BaseTool):
                     stdin=asyncio.subprocess.DEVNULL
                 )
             else:
+                # Use bash -c to ensure full shell feature support (brace expansion, etc.)
+                escaped_command = command.replace("'", "'\"'\"'")
                 process = await asyncio.create_subprocess_shell(
-                    command,
+                    f"bash -c '{escaped_command}'",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
                     stdin=asyncio.subprocess.DEVNULL

@@ -307,6 +307,10 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
             if result in ["task_complete", "max_turns_reached", "waiting_for_user"]:
                 
                 # Running Memory monitor and File Restorer
+                # Ensure total_tokens is initialized with a default value
+                if 'total_tokens' not in locals():
+                    total_tokens = 0
+                
                 compression = await memory_monitor.run_monitored(
                     dialogue_counter,
                     agent.conversation_history,
