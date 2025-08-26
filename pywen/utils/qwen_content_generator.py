@@ -19,15 +19,18 @@ class QwenContentGenerator(ContentGenerator):
     def __init__(self, config: Config):
         super().__init__(config)
         self.api_key = config.api_key
-        self.base_url = config.model_params.base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        self.base_url = config.model_params.base_url or "https://api-inference.modelscope.cn/v1"
         
         if not self.api_key:
             raise ValueError("Qwen API key is required")
         
         # Initialize OpenAI client with Qwen's compatible endpoint
+        # Add timeout configuration to handle network issues
         self.client = openai.AsyncOpenAI(
             api_key=self.api_key,
-            base_url=self.base_url
+            base_url=self.base_url,
+            timeout=120.0,  # 2 minutes timeout
+            max_retries=3   # Retry up to 3 times
         )
     
     def _convert_messages_to_openai_format(self, messages: List[LLMMessage]) -> List[Dict[str, Any]]:
@@ -77,7 +80,57 @@ class QwenContentGenerator(ContentGenerator):
             openai_tools.append(openai_tool)
         
         return openai_tools
-    
+
+    def _safe_json_parse(self, json_str: str) -> dict:
+        """Safely parse JSON string, handling both standard JSON and Python dict formats."""
+        if not json_str or not json_str.strip():
+            return {}
+
+        try:
+            # First try standard JSON parsing
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            try:
+                # Try to use ast.literal_eval for Python dict format (more reliable)
+                import ast
+                return ast.literal_eval(json_str)
+            except (ValueError, SyntaxError):
+                try:
+                    # If that fails, try to fix common issues and parse again
+                    fixed_str = self._fix_json_format(json_str)
+                    return json.loads(fixed_str)
+                except json.JSONDecodeError:
+                    # If all else fails, try one more time with ast
+                    try:
+                        return ast.literal_eval(fixed_str)
+                    except (ValueError, SyntaxError):
+                        # Log the error and return empty dict
+                        print(f"Warning: Could not parse JSON/dict: {json_str[:200]}...")
+                        return {}
+
+    def _fix_json_format(self, json_str: str) -> str:
+        """Attempt to fix common JSON formatting issues."""
+        import re
+
+        # Remove any leading/trailing whitespace
+        fixed = json_str.strip()
+
+        # Handle cases where the string might be wrapped in extra quotes
+        if fixed.startswith('"{') and fixed.endswith('}"'):
+            fixed = fixed[1:-1]
+
+        # Try to fix simple single quote to double quote conversion
+        # But be careful about quotes inside string values
+        try:
+            # Use regex to replace single quotes that are likely JSON delimiters
+            # This is a simple heuristic and may not work for all cases
+            fixed = re.sub(r"'(\w+)':", r'"\1":', fixed)  # Replace 'key': with "key":
+            fixed = re.sub(r": '([^']*)'", r': "\1"', fixed)  # Replace : 'value' with : "value"
+        except Exception:
+            pass
+
+        return fixed
+
     def _parse_openai_response(self, response) -> LLMResponse:
         """Parse OpenAI-compatible response to LLMResponse."""
         choice = response.choices[0]
@@ -93,7 +146,7 @@ class QwenContentGenerator(ContentGenerator):
                 tc = ToolCall(
                     call_id=tool_call.id,
                     name=tool_call.function.name,
-                    arguments=json.loads(tool_call.function.arguments)
+                    arguments=self._safe_json_parse(tool_call.function.arguments)
                 )
                 tool_calls.append(tc)
         
@@ -146,7 +199,15 @@ class QwenContentGenerator(ContentGenerator):
         try:
             response = await self.client.chat.completions.create(**request_params)
             return self._parse_openai_response(response)
-            
+
+        except openai.APITimeoutError as e:
+            raise Exception(f"Qwen API timeout error: Request timed out after {self.client.timeout}s. Please check your network connection and try again.")
+        except openai.APIConnectionError as e:
+            raise Exception(f"Qwen API connection error: Failed to connect to Qwen API. Please check your network connection.")
+        except openai.RateLimitError as e:
+            raise Exception(f"Qwen API rate limit error: {str(e)}. Please wait and try again.")
+        except openai.AuthenticationError as e:
+            raise Exception(f"Qwen API authentication error: Invalid API key. Please check your configuration.")
         except Exception as e:
             raise Exception(f"Qwen API error: {str(e)}")
     
@@ -219,7 +280,6 @@ class QwenContentGenerator(ContentGenerator):
                 if delta.tool_calls:
                     # 如果这是第一次遇到工具调用，先输出已有的文本内容
                     if not content_yielded_before_tools and accumulated_content:
-                        print("🔧 Generating tool calls...")
                         yield LLMResponse(
                             content="".join(accumulated_content),
                             model=final_model,
@@ -233,7 +293,7 @@ class QwenContentGenerator(ContentGenerator):
                         index = tc_delta.index if hasattr(tc_delta, 'index') else 0
                         
                         if index not in tool_call_buffers:
-                            tool_call_buffers[index] = {"id": "", "name": "", "args_str": ""}
+                            tool_call_buffers[index] = {"id": "", "name": "", "args_str": "", "name_printed": False}
                         
                         buf = tool_call_buffers[index]
 
@@ -243,8 +303,12 @@ class QwenContentGenerator(ContentGenerator):
 
                         # 更新工具信息
                         if tc_delta.function:
-                            if tc_delta.function.name:
+                            if tc_delta.function.name and not buf["name_printed"]:
                                 buf["name"] = tc_delta.function.name
+                                # Don't print "Calling" message for think_tool
+                                if tc_delta.function.name != "think_tool":
+                                    print(f"🔧 Calling {tc_delta.function.name} tool...")
+                                buf["name_printed"] = True
                             if tc_delta.function.arguments:
                                 buf["args_str"] += tc_delta.function.arguments
 
@@ -255,10 +319,10 @@ class QwenContentGenerator(ContentGenerator):
                     try:
                         # 尝试解析完整的JSON参数
                         if buf["args_str"].strip():
-                            args = json.loads(buf["args_str"])
+                            args = self._safe_json_parse(buf["args_str"])
                         else:
                             args = {}
-                    except json.JSONDecodeError as e:
+                    except Exception as e:
                         print(f"JSON parse error for tool {buf['name']}: {e}")
                         print(f"Raw arguments: {buf['args_str']}")
                         args = {}
@@ -290,6 +354,14 @@ class QwenContentGenerator(ContentGenerator):
                     usage=final_usage
                 )
 
+        except openai.APITimeoutError as e:
+            raise Exception(f"Qwen API streaming timeout: Request timed out after {self.client.timeout}s. Please check your network connection and try again.")
+        except openai.APIConnectionError as e:
+            raise Exception(f"Qwen API streaming connection error: Failed to connect to Qwen API. Please check your network connection.")
+        except openai.RateLimitError as e:
+            raise Exception(f"Qwen API streaming rate limit error: {str(e)}. Please wait and try again.")
+        except openai.AuthenticationError as e:
+            raise Exception(f"Qwen API streaming authentication error: Invalid API key. Please check your configuration.")
         except Exception as e:
             raise Exception(f"Qwen API streaming error: {str(e)}")
     

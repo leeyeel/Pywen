@@ -4,8 +4,9 @@ import threading
 from typing import Callable, Optional
 
 from prompt_toolkit.key_binding import KeyBindings
-from config.config import ApprovalMode
-from ui.cli_console import CLIConsole
+from pywen.config.config import ApprovalMode
+from pywen.ui.cli_console import CLIConsole
+from pywen.core.permission_manager import PermissionLevel
 
 
 def create_key_bindings(
@@ -28,28 +29,70 @@ def create_key_bindings(
         """Insert a newline (Alt+Enter)."""
         event.app.current_buffer.insert_text('\n')
     
-    # Ctrl+Y - Toggle YOLO mode
+    # Ctrl+Y - Cycle through permission levels
     @bindings.add('c-y')
     def _(event):
-        """Toggle YOLO mode."""
+        """Cycle through permission levels: LOCKED -> EDIT_ONLY -> PLANNING -> YOLO -> LOCKED"""
         console = console_getter()
         if hasattr(console, 'config') and console.config:
-            current_mode = console.config.get_approval_mode()
-            if current_mode == ApprovalMode.YOLO:
-                console.config.set_approval_mode(ApprovalMode.DEFAULT)
-                console.print("\n[yellow]🔒 YOLO mode disabled - tool confirmation required[/yellow]")
-            else:
-                console.config.set_approval_mode(ApprovalMode.YOLO)
-                console.print("\n[green]🚀 YOLO mode enabled - auto-approving all tools[/green]")
+            try:
+                # Use new permission system if available
+                if hasattr(console.config, 'get_permission_manager'):
+                    permission_manager = console.config.get_permission_manager()
+                    current_level = permission_manager.get_permission_level()
+
+                    # Define the cycle order
+                    cycle_order = [
+                        PermissionLevel.LOCKED,
+                        PermissionLevel.EDIT_ONLY,
+                        PermissionLevel.PLANNING,
+                        PermissionLevel.YOLO
+                    ]
+
+                    # Find current index and get next level
+                    try:
+                        current_index = cycle_order.index(current_level)
+                        next_index = (current_index + 1) % len(cycle_order)
+                        next_level = cycle_order[next_index]
+                    except ValueError:
+                        # If current level not in cycle, start from LOCKED
+                        next_level = PermissionLevel.LOCKED
+
+                    # Set new permission level
+                    console.config.set_permission_level(next_level)
+
+                    # Display status with appropriate color and icon
+                    level_info = {
+                        PermissionLevel.LOCKED: ("🔒 LOCKED", "全锁状态：所有操作都需要确认","red"),
+                        PermissionLevel.EDIT_ONLY: ("✏️ EDIT_ONLY", "编辑权限：自动确认文件编辑，其他需要确认","yellow"),
+                        PermissionLevel.PLANNING: ("📝 PLANNING", "规划权限：自动确认非编辑操作，编辑需要确认","blue"),
+                        PermissionLevel.YOLO: ("🚀 YOLO", "锁开状态：自动确认所有操作","green")
+                    }
+
+                    icon_text, description , color= level_info[next_level]
+                    console.print(f"{icon_text} - {description}",color)
+
+                else:
+                    # Fallback to old YOLO/DEFAULT toggle for backward compatibility
+                    current_mode = console.config.get_approval_mode()
+                    if current_mode == ApprovalMode.YOLO:
+                        console.config.set_approval_mode(ApprovalMode.DEFAULT)
+                        console.print("\n🔒 DEFAULT mode - tool confirmation required","yellow")
+                    else:
+                        console.config.set_approval_mode(ApprovalMode.YOLO)
+                        console.print("\n🚀 YOLO mode - auto-approving all tools","green")
+
+            except Exception as e:
+                console.print(f"Error switching permission level: {e}","red")
         else:
-            console.print("[red]Configuration not available[/red]")
+            console.print("Configuration not available","red")
     
     # Shift+Tab - Toggle auto-accepting edits (placeholder)
     @bindings.add('s-tab')
     def _(event):
         """Toggle auto-accepting edits."""
         console = console_getter()
-        console.print("[yellow]Auto-accepting edits toggled (not implemented yet)[/yellow]")
+        console.print("Auto-accepting edits toggled (not implemented yet)","yellow")
     
     # ESC - 取消当前操作
     @bindings.add('escape')
@@ -61,9 +104,9 @@ def create_key_bindings(
         buffer = event.app.current_buffer
         if buffer.text:
             buffer.reset()
-            console.print("[yellow]Input cleared[/yellow]")
+            console.print("Input cleared","yellow")
         elif cancel_event and not cancel_event.is_set():
-            console.print("[yellow]Cancelling current operation...[/yellow]")
+            console.print("Cancelling current operation...","yellow")
             cancel_event.set()
             # 如果有当前任务，也取消它
             if current_task_getter:
@@ -89,7 +132,7 @@ def create_key_bindings(
         
         if has_running_task:
             # 如果有正在运行的任务，第一次按 Ctrl+C 取消任务
-            console.print("\n[yellow]Cancelling current operation... (Press Ctrl+C again to force quit)[/yellow]")
+            console.print("\nCancelling current operation... (Press Ctrl+C again to force quit)","yellow")
             if cancel_event and not cancel_event.is_set():
                 cancel_event.set()
             if current_task:
@@ -112,7 +155,7 @@ def create_key_bindings(
             ctrl_c_count += 1
             
             if ctrl_c_count == 1:
-                console.print("[yellow]Press Ctrl+C again to quit[/yellow]")
+                console.print("Press Ctrl+C again to quit","yellow")
                 
                 def reset_count():
                     nonlocal ctrl_c_count
@@ -124,7 +167,7 @@ def create_key_bindings(
                 ctrl_c_timer.start()
                 
             elif ctrl_c_count >= 2:
-                console.print("[red]Force quitting...[/red]")
+                console.print("Force quitting...","red")
                 event.app.exit()
     
     # Alt+Left - Jump word left

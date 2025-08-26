@@ -5,7 +5,7 @@ import os
 import locale
 import re
 
-from .base import BaseTool, ToolResult
+from .base import BaseTool, ToolResult, ToolRiskLevel
 
 
 class BashTool(BaseTool):
@@ -47,7 +47,8 @@ class BashTool(BaseTool):
                     }
                 },
                 "required": ["command"]
-            }
+            },
+            risk_level=ToolRiskLevel.LOW  # Default to low risk, will be elevated for dangerous commands
         )
         
         # 检测系统编码
@@ -63,18 +64,48 @@ class BashTool(BaseTool):
             except:
                 self._encoding = 'gbk'
     
-    def is_risky(self, **kwargs) -> bool:
-        """Check if command is risky."""
+    def get_risk_level(self, **kwargs) -> ToolRiskLevel:
+        """Get risk level based on the command."""
         command = kwargs.get("command", "")
-        risky_commands = ["rm", "del", "format", "fdisk", "mkfs", "dd", "shutdown", "reboot"]
-        return any(cmd in command.lower() for cmd in risky_commands)
+
+        # High risk commands
+        high_risk_commands = ["rm -rf", "del /s", "format", "fdisk", "mkfs", "dd", "shutdown", "reboot"]
+        if any(cmd in command.lower() for cmd in high_risk_commands):
+            return ToolRiskLevel.HIGH
+
+        # Medium risk commands
+        medium_risk_commands = ["rm", "del", "mv", "cp", "chmod", "chown", "sudo", "su"]
+        if any(cmd in command.lower() for cmd in medium_risk_commands):
+            return ToolRiskLevel.MEDIUM
+
+        # Default to low risk
+        return ToolRiskLevel.LOW
+
+    async def _generate_confirmation_message(self, **kwargs) -> str:
+        """Generate detailed confirmation message for bash commands."""
+        command = kwargs.get("command", "")
+        risk_level = self.get_risk_level(**kwargs)
+
+        message = f"🔧 Execute bash command:\n"
+        message += f"Command: {command}\n"
+        message += f"Risk Level: {risk_level.value.upper()}\n"
+
+        if risk_level == ToolRiskLevel.HIGH:
+            message += "⚠️  WARNING: This is a HIGH RISK command that could cause system damage!\n"
+        elif risk_level == ToolRiskLevel.MEDIUM:
+            message += "⚠️  CAUTION: This command may modify files or system state.\n"
+
+        return message
     
     async def execute(self, **kwargs) -> ToolResult:
         """Execute bash command with streaming output."""
         command = kwargs.get("command")
-        
+
         if not command:
             return ToolResult(call_id="", error="No command provided")
+
+        # 在输出开头显示执行的命令
+        command_header = f"$ {command}\n"
         
         # 检测是否是长时间运行的命令
         long_running_patterns = [
@@ -84,7 +115,9 @@ class BashTool(BaseTool):
             r'streamlit.*run',
             r'gradio',
             r'npm.*start',
-            r'node.*server'
+            r'node.*server',
+            r'python.*-m.*http\.server',
+            r'http\.server'
         ]
         
         is_long_running = any(re.search(pattern, command, re.IGNORECASE) for pattern in long_running_patterns)
@@ -107,7 +140,7 @@ class BashTool(BaseTool):
             
             if is_long_running:
                 # 流式读取输出
-                output_chunks = []
+                output_chunks = [command_header]  # 开头显示命令
                 start_time = asyncio.get_event_loop().time()
                 
                 while True:
@@ -126,16 +159,25 @@ class BashTool(BaseTool):
                             output_chunks.append(line_text)
                             
                             # 检查是否有服务器启动信息
-                            if any(keyword in line_text.lower() for keyword in ['running on', 'serving at', 'listening on', 'server started']):
+                            if any(keyword in line_text.lower() for keyword in ['running on', 'serving at', 'listening on', 'server started', 'serving http']):
                                 port_match = re.search(r'(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d+)', line_text)
                                 if port_match:
                                     port = port_match.group(1)
-                                    server_info = f"\n🌐 Server detected! Access at: http://localhost:{port}"
-                                    server_info += f"\nCheck logs: tail -f server.log"
+                                    server_info = f"\n🌐 Server started! Access at: http://localhost:{port}"
+                                    server_info += f"\n📝 To stop the server, use Ctrl+C or close this process"
                                     output_chunks.append(server_info)
+                                    
+                                    # 服务器启动后立即返回结果
+                                    result_text = "\n".join(output_chunks)
+                                    result_text += "\n\n✅ Server is running in background"
+                                    return ToolResult(
+                                        call_id="",
+                                        result=result_text,
+                                        metadata={"process_running": True, "server_port": port}
+                                    )
                             
-                            # 每收集5行或运行超过3秒就返回一次结果
-                            if len(output_chunks) >= 5 or (asyncio.get_event_loop().time() - start_time) > 3:
+                            # 每收集3行或运行超过2秒就返回一次结果
+                            if len(output_chunks) >= 3 or (asyncio.get_event_loop().time() - start_time) > 2:
                                 result_text = "\n".join(output_chunks)
                                 if process.returncode is None:  # 进程还在运行
                                     result_text += "\n\n⏳ Process is still running..."
@@ -175,7 +217,7 @@ class BashTool(BaseTool):
                 if output_chunks:
                     return ToolResult(call_id="", result="\n".join(output_chunks))
                 else:
-                    return ToolResult(call_id="", result="Process completed with no output")
+                    return ToolResult(call_id="", result=f"{command_header}Process completed with no output")
             
             else:
                 # 普通命令，正常等待完成
@@ -193,9 +235,13 @@ class BashTool(BaseTool):
                     stdout_text = stdout.decode(self._encoding, errors='replace') if stdout else ""
                 
                 if process.returncode == 0:
-                    return ToolResult(call_id="", result=stdout_text or "Command executed successfully")
+                    result_text = command_header + (stdout_text or "Command executed successfully")
+                    return ToolResult(call_id="", result=result_text)
                 else:
-                    return ToolResult(call_id="", error=f"Command failed with exit code {process.returncode}")
+                    error_text = command_header + f"Command failed with exit code {process.returncode}"
+                    if stdout_text:
+                        error_text += f"\nOutput:\n{stdout_text}"
+                    return ToolResult(call_id="", error=error_text)
         
         except Exception as e:
             return ToolResult(call_id="", error=f"Error executing command: {str(e)}")

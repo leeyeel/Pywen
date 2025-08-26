@@ -15,7 +15,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 readme = "README.md"
-requires-python = ">=3.9, <3.13"
+requires-python = ">=3.10, <3.13"
 dependencies = [
     "openai>=1.86.0",
     "anthropic>=0.54.0",
@@ -35,6 +35,8 @@ dependencies = [
     "textual>=5.0.1",
     "prompt-toolkit>=3.0.51",
     "aiohttp>=3.12.13",
+    "loguru>=0.7.3",
+    "mcp>=1.13.0",
 ]
 
 [project.scripts]

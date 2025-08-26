@@ -1,5 +1,9 @@
 """Qwen Agent implementation with streaming logic."""
+import os
+import subprocess
+import uuid
 
+from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any, AsyncGenerator
@@ -10,11 +14,9 @@ from pywen.agents.qwen.turn import Turn, TurnStatus
 from pywen.utils.llm_basics import LLMMessage
 from pywen.agents.qwen.task_continuation_checker import TaskContinuationChecker, TaskContinuationResponse
 from pywen.agents.qwen.loop_detection_service import AgentLoopDetectionService
-import os
-import subprocess
-from pathlib import Path
-import uuid
 from pywen.utils.token_limits import TokenLimits, ModelProvider
+from pywen.core.session_stats import session_stats
+
 
 class EventType(Enum):
     """Types of events during agent execution."""
@@ -41,6 +43,9 @@ class QwenAgent(BaseAgent):
         # Initialize shared components via base class (includes tool setup)
         super().__init__(config, cli_console)
         self.type = "QwenAgent"
+
+        # Register this agent with session stats
+        session_stats.set_current_agent(self.type)
         # QwenAgent specific initialization (before calling super)
         self.max_task_turns = getattr(config, 'max_task_turns', 5)
         self.current_task_turns = 0
@@ -60,6 +65,15 @@ class QwenAgent(BaseAgent):
         # Build system prompt
         #self.system_prompt = self._build_system_prompt()    
         self.system_prompt = self.get_core_system_prompt()
+
+        # Initialize memory monitor and file restorer
+        # self.dialogue_counter = 0
+        # self.file_metrics = dict()
+        # self.memory_monitor = MemoryMonitor(AdaptiveThreshold())
+        # self.file_restorer = IntelligentFileRestorer()
+
+        # Initialize file metrics
+        self.file_metrics = dict()
 
 
     #Need: Different Agent need to rewrite
@@ -92,6 +106,7 @@ class QwenAgent(BaseAgent):
     #Need: Different Agent need to rewrite
     async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run agent with streaming output and task continuation."""
+        await self.setup_tools_mcp()
         model_name = self.llm_client.utils_config.model_params.model
         # Get token limit from TokenLimits class
         max_tokens = TokenLimits.get_limit(ModelProvider.QWEN, model_name)
@@ -100,6 +115,9 @@ class QwenAgent(BaseAgent):
         # Reset task tracking for new user input
         self.original_user_task = user_message
         self.current_task_turns = 0
+
+        # Record task start in session stats
+        session_stats.record_task_start(self.type)
         
         # Reset loop detection for new task
         self.loop_detector.reset()
@@ -118,6 +136,9 @@ class QwenAgent(BaseAgent):
         
         # Execute task with continuation logic in streaming mode
         current_message = user_message
+
+        # Record every dialogue
+        # self.dialogue_counter += 1
         
         while self.current_task_turns < self.max_task_turns:
             self.current_task_turns += 1
@@ -661,7 +682,8 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
         while turn.iterations < self.max_iterations:
             turn.iterations += 1
             yield {"type": "iteration_start", "data": {"iteration": turn.iterations}}
-            
+
+             
             messages = self._prepare_messages_for_iteration()
             available_tools = self.tool_registry.list_tools()
             
@@ -698,16 +720,16 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 if final_response:
                     turn.add_assistant_response(final_response)
                     self.cli_console.update_token_usage(final_response.usage.input_tokens)
-                    #print(final_response)
-                    # 记录LLM交互
+                    # 记录LLM交互 (session stats 会在 trajectory_recorder 中自动记录)
                     self.trajectory_recorder.record_llm_interaction(
                         messages=messages,
                         response=final_response,
                         provider=self.config.model_config.provider.value,
                         model=self.config.model_config.model,
-                        tools=available_tools
+                        tools=available_tools,
+                        agent_name=self.type
                     )
-                    
+
                     # 添加到对话历史
                     self.conversation_history.append(LLMMessage(
                         role="assistant",
@@ -718,18 +740,116 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                     # 3. 批量处理所有工具调用
                     if collected_tool_calls:
                         async for tool_event in self._process_tool_calls_streaming(turn, collected_tool_calls):
+                            # if tool_event["type"] != "tool_result":
+                            #     continue
+
+                            # tool_name = tool_event["data"]["name"]
+                            # result    = tool_event["data"]["result"]
+                            # success   = tool_event["data"]["success"]
+
+                            # if not success or tool_name not in {"read_file", "write_file", "edit"}:
+                            #     continue
+
+                            # try:
+                            #     # 1) 取文件路径
+                            #     arguments = tool_event["data"]["arguments"]
+                            #     file_path_str = None
+                            #     if isinstance(result, dict) and "file_path" in result:
+                            #         file_path_str = result["file_path"]
+                            #     elif isinstance(arguments, dict):
+                            #         file_path_str = arguments.get("path")
+
+                            #     if not file_path_str:
+                            #         raise ValueError("missing file path")
+
+                            #     file_path = Path(file_path_str).resolve()
+
+                            #     # 2) 计算 key
+                            #     try:
+                            #         key = str(file_path.relative_to(Path.cwd()))
+                            #     except ValueError:
+                            #         key = str(file_path)
+
+                            #     # 3) 重新 stat —— 失败就整体跳过，不硬凑
+                            #     st = file_path.stat()
+                            #     last_access_ms = int(st.st_atime * 1000)
+                            #     est_tokens = st.st_size // 4
+
+                            # except Exception:
+                            #     # 任何一步拿不到可靠数据就直接放弃本次指标更新
+                            #     continue
+
+                            # # 3) 建档案（尽量从 stat 补充；失败则使用兜底值）
+                            # if key not in self.file_metrics:
+                            #     # 第一次见：根据本次工具类型初始化计数
+                            #     init_read = 1 if tool_name == "read_file" else 0
+                            #     init_write = 1 if tool_name == "write_file" else 0
+                            #     init_edit = 1 if tool_name == "edit" else 0
+                            #     last_op = {"read_file": "read", "write_file": "write", "edit": "edit"}[tool_name]
+
+                            #     self.file_metrics[key] = {
+                            #         "path": key,
+                            #         "lastAccessTime": last_access_ms,
+                            #         "readCount": init_read,
+                            #         "writeCount": init_write,
+                            #         "editCount": init_edit,
+                            #         "operationsInLastHour": 0,      # 可按需要再维护
+                            #         "lastOperation": last_op,
+                            #         "estimatedTokens": est_tokens,
+                            #     }
+                            # else:
+                            #     # 已存在：只累加计数、刷新时间和大小
+                            #     meta = self.file_metrics[key]
+
+                            #     if tool_name == "read_file":
+                            #         meta["readCount"] += 1
+                            #         meta["lastOperation"] = "read"
+                            #     elif tool_name == "write_file":
+                            #         meta["writeCount"] += 1
+                            #         meta["lastOperation"] = "write"
+                            #     elif tool_name == "edit":
+                            #         meta["editCount"] += 1
+                            #         meta["lastOperation"] = "edit"
+
+                            #     meta["lastAccessTime"] = last_access_ms
+                            #     meta["estimatedTokens"] = est_tokens
+
                             yield tool_event
                         continue
                     else:
                         turn.complete(TurnStatus.COMPLETED)
+                        yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
                         yield {"type": "turn_complete", "data": {"status": "completed"}}
                         break
+                
+
                         
             except Exception as e:
                 yield {"type": "error", "data": {"error": str(e)}}
                 turn.error(str(e))
                 raise e
-        
+
+
+        # Run Memory monitor and file restorer
+        # total_tokens = 0
+        # if final_response and hasattr(final_response, "usage") and final_response.usage:
+        #     total_tokens = final_response.usage.total_tokens
+
+        # compression = await self.memory_monitor.run_monitored(
+        #     self.dialogue_counter,
+        #     self.conversation_history,
+        #     total_tokens
+        # )
+
+        # if compression is not None:
+        #     file_content = self.file_restorer.file_recover(self.file_metrics)
+        #     if file_content is not None:
+        #         summary = compression + "\nHere is the potentially important file content:\n" + file_content
+        #         self.conversation_history = [LLMMessage(role="user", content=summary)]
+        #     else:
+        #         summary = compression
+        #         self.conversation_history = [LLMMessage(role="user", content=summary)]
+                                    
         # Check if we hit max iterations
         if turn.iterations >= self.max_iterations and turn.status == TurnStatus.ACTIVE:
             turn.complete(TurnStatus.MAX_ITERATIONS)
@@ -748,46 +868,60 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 "arguments": tool_call.arguments
             }}
             
-            # 如果不是YOLO模式，询问用户确认
+            # 检查是否需要用户确认（基于工具风险等级）
             if hasattr(self, 'cli_console') and self.cli_console:
-                confirmed = await self.cli_console.confirm_tool_call(tool_call)
-                if not confirmed:
-                    # 用户拒绝，跳过这个工具
-                    # Create cancelled tool result message and add to conversation history
-                    tool_msg = LLMMessage(
-                        role="tool",
-                        content="Tool execution was cancelled by user",
-                        tool_call_id=tool_call.call_id
-                    )
-                    self.conversation_history.append(tool_msg)
+                # 获取工具实例来检查风险等级
+                tool = self.tool_registry.get_tool(tool_call.name)
+                if tool:
+                    confirmation_details = await tool.get_confirmation_details(**tool_call.arguments)
+                    if confirmation_details:  # 只有需要确认的工具才询问用户
+                        confirmed = await self.cli_console.confirm_tool_call(tool_call, tool)
+                        if not confirmed:
+                                # 用户拒绝，跳过这个工具
+                                # Create cancelled tool result message and add to conversation history
+                                tool_msg = LLMMessage(
+                                    role="tool",
+                                    content="Tool execution was cancelled by user",
+                                    tool_call_id=tool_call.call_id
+                                )
+                                self.conversation_history.append(tool_msg)
 
-                    yield {"type": "tool_result", "data": {
-                        "call_id": tool_call.call_id,
-                        "name": tool_call.name,
-                        "result": "Tool execution rejected by user",
-                        "success": False,
-                        "error": "Tool execution rejected by user"
-                    }}
-                    continue
+                                yield {"type": "tool_result", "data": {
+                                    "call_id": tool_call.call_id,
+                                    "name": tool_call.name,
+                                    "result": "Tool execution rejected by user",
+                                    "success": False,
+                                    "error": "Tool execution rejected by user"
+                                }}
+                                continue
             
             try:
-                results = await self.tool_executor.execute_tools([tool_call])
+                # 工具执行 (session stats 会在 tool_scheduler 中自动记录)
+                results = await self.tool_executor.execute_tools([tool_call], self.type)
                 result = results[0]
-                # 立即发送工具结果
+
+                # 立即发送工具结果（补充 arguments 以便后续路径解析回退）
                 yield {"type": "tool_result", "data": {
                     "call_id": tool_call.call_id,
                     "name": tool_call.name,
                     "result": result.result,
                     "success": result.success,
-                    "error": result.error
+                    "error": result.error,
+                    "arguments": tool_call.arguments
                 }}
-                
+
                 turn.add_tool_result(result)
                 
                 # 添加到对话历史
+                # Handle both structured (dict) and simple (str) result formats
+                if isinstance(result.result, dict):
+                    content = result.result.get('summary', str(result.result)) or str(result.error)
+                else:
+                    content = str(result.result) or str(result.error)
+
                 tool_msg = LLMMessage(
                     role="tool",
-                    content=result.result or str(result.error),
+                    content=content,
                     tool_call_id=tool_call.call_id
                 )
                 self.conversation_history.append(tool_msg)
@@ -865,6 +999,14 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
     def _prepare_messages_for_iteration(self) -> List[LLMMessage]:
         """Prepare messages for current iteration."""
         messages = []
-        messages.append(LLMMessage(role="system", content=self.system_prompt))
+        cwd_prompte_template = """  
+        Please note that the user launched Pywen under the path {}. 
+        All subsequent file-creation, file-writing, file-reading, and similar operations should be performed within this directory.
+        """
+        cwd_prompt = cwd_prompte_template.format(Path.cwd())  # 有待商榷
+        system_prompt = self.system_prompt + "\n" + cwd_prompt
+        messages.append(LLMMessage(role="system", content=system_prompt))
         messages.extend(self.conversation_history)
         return messages
+
+

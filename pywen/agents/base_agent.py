@@ -1,7 +1,12 @@
 """Base Agent implementation for shared components."""
 
+import asyncio
+import fnmatch
+from typing import Callable, Iterable, Optional
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
+
+from pydantic import functional_serializers
 
 from pywen.config.config import Config
 from pywen.core.client import LLMClient
@@ -9,6 +14,7 @@ from pywen.core.trajectory_recorder import TrajectoryRecorder
 from pywen.core.tool_registry import ToolRegistry
 from pywen.core.tool_executor import NonInteractiveToolExecutor
 from pywen.utils.llm_basics import LLMMessage
+from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
 
 
 class BaseAgent(ABC):
@@ -27,52 +33,33 @@ class BaseAgent(ABC):
         
         # Initialize tools with agent-specific configuration
         self.tool_registry = ToolRegistry()
-        self._setup_tools()
+        self.setup_tools()
         
         # Initialize tool executor
         self.tool_executor = NonInteractiveToolExecutor(self.tool_registry)
-    
-    def _setup_tools(self):
-        """Setup tools based on agent configuration."""
+
+        self._closed = False 
+        self._mcp_mgr = None
+        self._mcp_init_lock = asyncio.Lock()
+
+    def setup_tools(self):
         enabled_tools = self.get_enabled_tools()
-        tool_configs = self.get_tool_configs()
+
+        # Use the new ToolRegistry method to register tools by names
+        registered_tools = self.tool_registry.register_tools_by_names(enabled_tools, self.config)
+
+        # Report any tools that failed to register
+        failed_tools = set(enabled_tools) - set(registered_tools)
+        if failed_tools and self.cli_console:
+            for tool_name in failed_tools:
+                self.cli_console.print(f"Failed to register tool: {tool_name}", "yellow")
+
+
+    async def setup_tools_mcp(self):
+        """Setup tools based on agent configuration."""
         
-        for tool_name in enabled_tools:
-            try:
-                tool_instance = self._create_tool_instance(tool_name, tool_configs.get(tool_name, {}))
-                if tool_instance:
-                    self.tool_registry.register(tool_instance)
-            except Exception as e:
-                self.cli_console.print(f"Failed to register tool {tool_name}: {e}")
+        await self._ensure_mcp_synced()
     
-    def _create_tool_instance(self, tool_name: str, tool_config: Dict[str, Any]):
-        """Create tool instance by name."""
-        tool_map = {
-            'read_file': lambda: self._import_and_create('tools.file_tools', 'ReadFileTool'),
-            'write_file': lambda: self._import_and_create('tools.file_tools', 'WriteFileTool'),
-            'edit_file': lambda: self._import_and_create('tools.edit_tool', 'EditTool'),
-            'read_many_files': lambda: self._import_and_create('tools.read_many_files_tool', 'ReadManyFilesTool'),
-            'ls': lambda: self._import_and_create('tools.ls_tool', 'LSTool'),
-            'grep': lambda: self._import_and_create('tools.grep_tool', 'GrepTool'),
-            'glob': lambda: self._import_and_create('tools.glob_tool', 'GlobTool'),
-            'bash': lambda: self._import_and_create('tools.bash_tool', 'BashTool'),
-            'web_fetch': lambda: self._import_and_create('tools.web_fetch_tool', 'WebFetchTool'),
-            'web_search': lambda: self._import_and_create('tools.web_search_tool', 'WebSearchTool', self.config),
-            'memory': lambda: self._import_and_create('tools.memory_tool', 'MemoryTool'),
-        }
-        
-        if tool_name in tool_map:
-            return tool_map[tool_name]()
-        else:
-            
-            return None
-    
-    def _import_and_create(self, module_name: str, class_name: str, *args):
-        """Dynamically import and create tool instance."""
-        import importlib
-        module = importlib.import_module(module_name)
-        tool_class = getattr(module, class_name)
-        return tool_class(*args)
     
     @abstractmethod
     def get_enabled_tools(self) -> List[str]:
@@ -137,3 +124,87 @@ class BaseAgent(ABC):
         except Exception as e:
             self.cli_console.print(f"Failed to reload config: {e}")
             return False
+
+    def __make_include_predicate(self, patterns: Optional[Iterable[str]]) -> Optional[Callable[[str], bool]]:
+        if not patterns:
+            return None
+        pats = [p for p in patterns if isinstance(p, str) and p.strip()]
+        if not pats:
+            return None
+    
+        def _pred(name: str) -> bool:
+            return any(fnmatch.fnmatch(name, p) for p in pats)
+        return _pred
+
+    async def _ensure_mcp_synced(self):
+        if self._mcp_mgr is not None:
+            return
+
+        async with self._mcp_init_lock:
+            if self._mcp_mgr is not None:
+                return
+
+            mcp_cfg = self.config.mcp or []
+            if not mcp_cfg.enabled:
+                self._mcp_mgr = MCPServerManager()
+                return
+
+            servers = mcp_cfg.servers or []
+            if not servers:
+                self._mcp_mgr = MCPServerManager()
+                return
+
+            mgr = MCPServerManager()
+
+            global_isolated = bool(mcp_cfg.isolated)
+
+            for s in servers:
+                if not s.enabled:
+                    continue
+                name = s.name 
+                command = s.command or "npx"
+                args = list(s.args or [])
+
+                server_isolated = s.isolated and global_isolated
+                if server_isolated and not any(a == "--isolated" for a in args):
+                    args.append("--isolated")
+
+                try:
+                    await mgr.add_stdio_server(name, command, args)
+                except Exception as e:
+                    self.cli_console.print(f"[MCP] Failed to start server: {e}", "yellow")
+
+            for s in servers:
+                if not s.enabled:
+                    continue
+                name = s.name
+                include_pred = self.__make_include_predicate(s.include)
+                save_dir = s.save_images_dir
+
+                await sync_mcp_server_tools_into_registry(
+                    server_name=name,
+                    manager=mgr,
+                    tool_registry=self.tool_registry,
+                    include=include_pred,
+                    save_images_dir=save_dir,
+                )
+
+            self._mcp_mgr = mgr
+
+    async def aclose(self):
+        if self._closed:
+            return 
+        self._closed = True 
+        if self._mcp_mgr:
+            try:
+                await self._mcp_mgr.close()
+            finally:
+                self._mcp_mgr = None
+
+    async def __aenter__(self):
+        await self._ensure_mcp_synced()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.aclose()
+

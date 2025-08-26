@@ -92,7 +92,7 @@ class CommandProcessor:
         
         if not shell_command:
             if console:
-                console.print("[red]No command specified after '!'[/red]")
+                console.print("No command specified after '!'","red")
             return True
         
         # 特殊处理 cd 命令
@@ -100,7 +100,7 @@ class CommandProcessor:
             return await self._handle_cd_command(shell_command, console)
         
         if console:
-            console.print(f"[cyan]Executing shell command:[/cyan] {shell_command}")
+            console.print(f"Executing shell command:{shell_command}","cyan")
         
         try:
             # 执行shell命令
@@ -164,7 +164,7 @@ class CommandProcessor:
             elif target_dir == '-':
                 # cd - 功能需要记录上一个目录，这里简化处理
                 if console:
-                    console.print("[yellow]cd - not supported, use absolute path[/yellow]")
+                    console.print("cd - not supported, use absolute path","yellow")
                 return True
             else:
                 # 展开用户目录符号和相对路径
@@ -179,12 +179,12 @@ class CommandProcessor:
             # 检查目录是否存在
             if not os.path.exists(target_dir):
                 if console:
-                    console.print(f"[red]Directory does not exist: {target_dir}[/red]")
+                    console.print(f"Directory does not exist: {target_dir}","red")
                 return True
             
             if not os.path.isdir(target_dir):
                 if console:
-                    console.print(f"[red]Not a directory: {target_dir}[/red]")
+                    console.print(f"Not a directory: {target_dir}","red")
                 return True
             
             # 改变当前工作目录
