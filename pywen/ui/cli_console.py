@@ -391,18 +391,23 @@ class CLIConsole:
     def display_tool_result(self, data: dict):
         """Display tool execution result with enhanced formatting."""
         tool_name = data.get('name', 'Tool')
+        arguments = data.get('arguments', {})  # Get tool call arguments
         
         if data["success"]:
             result = data.get('result', '')
-            panel = self._create_success_result_panel(tool_name, result)
+            panel = self._create_success_result_panel(tool_name, result, arguments)
         else:
             error = data.get('error', 'Unknown error')
             panel = self._create_error_result_panel(tool_name, error)
         
-        self.console.print(panel)
+        # Only print panel if it's not None (think_tool returns None)
+        if panel is not None:
+            self.console.print(panel)
 
-    def _create_success_result_panel(self, tool_name: str, result) -> Panel:
+    def _create_success_result_panel(self, tool_name: str, result, arguments: dict = None) -> Panel:
         """Create a success result panel with tool-specific formatting."""
+        if arguments is None:
+            arguments = {}
         # Enhanced result display with highlighted content for file operations
         if isinstance(result, dict) and result.get('operation') in ['write_file', 'edit_file']:
             return create_enhanced_tool_result_display(result, tool_name)
@@ -417,17 +422,23 @@ class CLIConsole:
         
         # Special handling for different tool types
         if tool_name == "bash":
-            return self._create_bash_result_panel(result)
+            command = arguments.get('command', '')
+            return self._create_bash_result_panel(result, command)
         elif tool_name in ["read_file", "read_many_files"]:
-            return self._create_file_read_result_panel(tool_name, result)
+            # Get file path from arguments
+            file_path = arguments.get('file_path', '') or arguments.get('path', '')
+            return self._create_file_read_result_panel(tool_name, result, file_path)
         elif tool_name in ["ls", "glob"]:
-            return self._create_list_result_panel(tool_name, result)
+            path = arguments.get('path', '') or arguments.get('pattern', '')
+            return self._create_list_result_panel(tool_name, result, path)
         elif tool_name in ["grep"]:
-            return self._create_search_result_panel(tool_name, result)
+            pattern = arguments.get('pattern', '')
+            path = arguments.get('path', '')
+            return self._create_search_result_panel(tool_name, result, pattern, path)
         else:
             return self._create_generic_result_panel(tool_name, result)
 
-    def _create_bash_result_panel(self, result) -> Panel:
+    def _create_bash_result_panel(self, result, command: str = "") -> Panel:
         """Create formatted panel for bash command results."""
         result_str = str(result)
         
@@ -441,21 +452,38 @@ class CLIConsole:
             # For short output, use simple text
             content = Text(result_str, style="green")
         
+        # Build title with command if available
+        title = "✓ bash"
+        if command:
+            # Truncate long commands
+            if len(command) > 40:
+                short_command = command[:37] + "..."
+            else:
+                short_command = command
+            title = f"✓ bash: {short_command}"
+        
         return Panel(
             content,
-            title="✓ bash",
+            title=title,
             title_align="left",
             border_style="green",
             padding=(0, 1)
         )
 
-    def _create_file_read_result_panel(self, tool_name: str, result) -> Panel:
+    def _create_file_read_result_panel(self, tool_name: str, result, file_path: str = "") -> Panel:
         """Create formatted panel for file read results with line numbers."""
         result_str = str(result)
         
         # Always add line numbers for file content
         lines = result_str.splitlines()
         
+        # Truncate if too many lines (limit to 50 lines)
+        max_lines = 50
+        truncated = False
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            truncated = True
+            
         # Try to detect file type and apply syntax highlighting
         from rich.syntax import Syntax
         try:
@@ -474,8 +502,9 @@ class CLIConsole:
                 language = "text"
             
             # Use syntax highlighting with line numbers if content is long enough
+            truncated_content = '\n'.join(lines)
             if len(lines) > 3 and language != "text":
-                syntax = Syntax(result_str, language, theme="monokai", line_numbers=True, word_wrap=True)
+                syntax = Syntax(truncated_content, language, theme="monokai", line_numbers=True, word_wrap=True)
                 content = syntax
             else:
                 # Manual line numbering for short content or text files
@@ -490,15 +519,35 @@ class CLIConsole:
                 content_with_lines.append(f"{i:3d} │ {line}")
             content = Text('\n'.join(content_with_lines))
         
+        # Add truncation notice if needed
+        if truncated:
+            if isinstance(content, Text):
+                content.append(f"\n... (truncated after {max_lines} lines)", style="dim yellow")
+            else:
+                # For Syntax objects, we need to add a separate text
+                from rich.console import Group
+                truncation_notice = Text(f"... (truncated after {max_lines} lines)", style="dim yellow")
+                content = Group(content, truncation_notice)
+        
+        # Build title with file path if available
+        title = f"✓ {tool_name}"
+        if file_path:
+            # Truncate long file paths
+            if len(file_path) > 50:
+                short_path = "..." + file_path[-47:]  # Keep last 47 chars with "..."
+            else:
+                short_path = file_path
+            title = f"✓ {tool_name}: {short_path}"
+        
         return Panel(
             content,
-            title=f"✓ {tool_name}",
+            title=title,
             title_align="left",
             border_style="blue",
             padding=(0, 1)
         )
 
-    def _create_list_result_panel(self, tool_name: str, result) -> Panel:
+    def _create_list_result_panel(self, tool_name: str, result, path: str = "") -> Panel:
         """Create formatted panel for list results (ls, glob)."""
         result_str = str(result)
         
@@ -517,15 +566,25 @@ class CLIConsole:
         else:
             content = Text(result_str)
         
+        # Build title with path/pattern if available
+        title = f"✓ {tool_name}"
+        if path:
+            # Truncate long paths
+            if len(path) > 40:
+                short_path = "..." + path[-37:]
+            else:
+                short_path = path
+            title = f"✓ {tool_name}: {short_path}"
+        
         return Panel(
             content,
-            title=f"✓ {tool_name}",
+            title=title,
             title_align="left",
             border_style="cyan",
             padding=(0, 1)
         )
 
-    def _create_search_result_panel(self, tool_name: str, result) -> Panel:
+    def _create_search_result_panel(self, tool_name: str, result, pattern: str = "", path: str = "") -> Panel:
         """Create formatted panel for search results (grep)."""
         result_str = str(result)
         
@@ -541,9 +600,30 @@ class CLIConsole:
         
         content = Text('\n'.join(formatted_lines), style="yellow")
         
+        # Build title with pattern and path if available
+        title = f"✓ {tool_name}"
+        title_parts = []
+        if pattern:
+            # Truncate long patterns
+            if len(pattern) > 20:
+                short_pattern = pattern[:17] + "..."
+            else:
+                short_pattern = pattern
+            title_parts.append(f"'{short_pattern}'")
+        if path:
+            # Truncate long paths
+            if len(path) > 30:
+                short_path = "..." + path[-27:]
+            else:
+                short_path = path
+            title_parts.append(f"in {short_path}")
+        
+        if title_parts:
+            title = f"✓ {tool_name}: {' '.join(title_parts)}"
+        
         return Panel(
             content,
-            title=f"✓ {tool_name}",
+            title=title,
             title_align="left",
             border_style="yellow",
             padding=(0, 1)
@@ -552,6 +632,11 @@ class CLIConsole:
     def _create_generic_result_panel(self, tool_name: str, result) -> Panel:
         """Create generic formatted panel for other tools."""
         result_str = str(result) if result else "Operation completed successfully"
+        
+        # Special handling for think_tool - no panel, just dim italic text
+        if tool_name == "think_tool":
+            self.console.print(Text(result_str, style="dim italic"))
+            return None
         
         # Truncate very long results
         if len(result_str) > 500:
@@ -622,7 +707,7 @@ class CLIConsole:
                 content_preview += "..."
             return Text(f"Path: {path}\nContent: {content_preview}", style="green")
         elif tool_name == "read_file" and "path" in arguments:
-            return Text(f"Path: {arguments['path']}", style="blue")
+            return Text(f"Reading: {arguments['path']}", style="blue")
         elif tool_name == "edit_file" and all(key in arguments for key in ["path", "old_text", "new_text"]):
             path = arguments["path"]
             old_preview = arguments["old_text"][:30] + "..." if len(arguments["old_text"]) > 30 else arguments["old_text"]
@@ -639,7 +724,7 @@ class CLIConsole:
                 args_text += f"{key}: {value_display}\n"
             return Text(args_text.rstrip(), style="dim")
 
-    def _get_tool_execution_preview(self, tool_name: str, arguments: dict) -> str:
+    def _get_tool_execution_preview(self, tool_name: str, _arguments: dict) -> str:
         """Get execution preview message for tool."""
         if tool_name == "bash":
             return "➤ Will execute command"

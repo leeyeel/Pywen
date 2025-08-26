@@ -305,7 +305,9 @@ class QwenContentGenerator(ContentGenerator):
                         if tc_delta.function:
                             if tc_delta.function.name and not buf["name_printed"]:
                                 buf["name"] = tc_delta.function.name
-                                print(f"🔧 Calling {tc_delta.function.name} tool...")
+                                # Don't print "Calling" message for think_tool
+                                if tc_delta.function.name != "think_tool":
+                                    print(f"🔧 Calling {tc_delta.function.name} tool...")
                                 buf["name_printed"] = True
                             if tc_delta.function.arguments:
                                 buf["args_str"] += tc_delta.function.arguments
