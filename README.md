@@ -11,8 +11,9 @@
 
 ## 🧬 Recent Updates
 
-- 2025.08.06: Released the first version of Pywen, with execution logic aligned with Gemini CLI/Qwen Code
+- 2025.08.26 Updated the `/agent` module by adding the Claude Code agent, with execution logic aligned to Claude Code, and introducing dedicated tools such as the task tool and todowrite tool. You can switch to the Claude Code agent using `/agent claude`.
 - 2025.08.08: Updated the `/agent` switch agent module, added DeepResearch agent, with execution logic aligned with Google's open-source DeepResearch LangGraph version. You can use `/agent research` to switch GeminiResearchDemo agent.Before you use it, please make sure you have the serper api key.
+- 2025.08.06: Released the first version of Pywen, with execution logic aligned with Gemini CLI/Qwen Code
 
 ## 🎯 Project Background
 
@@ -314,6 +315,7 @@ We thank:
 - **Google** for the [Gemini CLI](https://github.com/google-gemini/gemini-cli) project, which provided agent execution logic and rich tool ecosystem libraries for this project
 - **Alibaba Cloud Qwen Team** for providing the powerful [Qwen3-Coder](https://github.com/QwenLM/Qwen3-Coder) model and [Qwen-Code](https://github.com/QwenLM/qwen-code) reference implementation
 - **ByteDance** for the [trae-agent](https://github.com/bytedance/trae-agent) project, which provided valuable foundational architecture for this project
+- **Yuyz0112** for the [claude-code-reverse](https://github.com/Yuyz0112/claude-code-reverse) project, and **shareAI-lab** for the [Kode](https://github.com/shareAI-lab/Kode) project, both of which provided inspiration for the Claude code agent development in this project
 
 ## 📄 License
 

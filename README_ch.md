@@ -12,8 +12,9 @@
 
 ## 🧬 近期更新
 
-- 2025.08.06 更新第一版Pywen，执行逻辑对标Gemini CLI/Qwen Code
+- 2025.08.26 更新 `/agent` 模块，新增Claude Code智能体，执行逻辑对标Claude Code，实现task tool、todowrite tool等专有工具。你可以使用`/agent claude`切换为Claude Code智能体。
 - 2025.08.08 更新 `/agent` 切换智能体模块，新增DeepResearch 智能体，执行逻辑对标Google开源的DeepResearch LangGraph版本。你可以使用`/agent research`切换为 GeminiResearchDemo 智能体。在你使用之前，请确保你具有serper api key。
+- 2025.08.06 更新第一版Pywen，执行逻辑对标Gemini CLI/Qwen Code
 
 ## 🎯 项目背景
 
@@ -293,6 +294,7 @@ echo $QWEN_API_KEY
 - **Google** 的[Gemini CLI](https://github.com/google-gemini/gemini-cli)项目，为本项目提供了智能体执行逻辑和丰富的工具生态库
 - **阿里云通义千问团队** 提供强大的 [Qwen3-Coder](https://github.com/QwenLM/Qwen3-Coder) 模型和 [Qwen-Code](https://github.com/QwenLM/qwen-code) 参考实现
 - **ByteDance** 的 [trae-agent](https://github.com/bytedance/trae-agent) 项目，为本项目提供了宝贵的基础架构
+- **Yuyz0112** 的 [claude-code-reverse](https://github.com/Yuyz0112/claude-code-reverse)项目和 **shareAI-lab** 的 [Kode](https://github.com/shareAI-lab/Kode)项目，为本项目的claude code智能体开发提供思路
 
 ## 📄 许可证
 
