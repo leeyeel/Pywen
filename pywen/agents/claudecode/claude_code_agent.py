@@ -62,7 +62,7 @@ class ClaudeCodeAgent(BaseAgent):
         # Initialize system reminder service
         self.todo_items = []  # Track current todo items
         reset_reminder_session()  # Reset on agent initialization
-
+        self.file_metrics = {}
 
     def _setup_claude_code_tools(self):
         """Setup Claude Code specific tools and configure them."""
@@ -103,7 +103,8 @@ class ClaudeCodeAgent(BaseAgent):
         """Return list of enabled tool names for Claude Code Agent."""
         return [
             'read_file', 'write_file', 'edit_file', 'read_many_files',
-            'ls', 'grep', 'glob', 'bash', 'web_fetch', 'web_search','task_tool','architect_tool','todo_write'
+            'ls', 'grep', 'glob', 'bash', 'web_fetch', 'web_search',
+            'task_tool','architect_tool','todo_write','think_tool',
         ]
 
     def _build_system_prompt(self) -> str:

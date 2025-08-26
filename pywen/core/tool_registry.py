@@ -72,6 +72,7 @@ class ToolRegistry:
             'task_tool': lambda config=None: self._import_and_create('pywen.agents.claudecode.tools.task_tool', 'TaskTool', config),
             'architect_tool': lambda config=None: self._import_and_create('pywen.agents.claudecode.tools.architect_tool', 'ArchitectTool', config),
             'todo_write': lambda config=None: self._import_and_create('pywen.agents.claudecode.tools.todo_tool', 'TodoTool', config),
+            'think_tool': lambda config=None: self._import_and_create('pywen.agents.claudecode.tools.think_tool', 'ThinkTool', config),
         }
 
     def _import_and_create(self, module_name: str, class_name: str, *args):
