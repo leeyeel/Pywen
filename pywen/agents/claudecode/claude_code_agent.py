@@ -771,6 +771,7 @@ class ClaudeCodeAgent(BaseAgent):
                     "data": {
                         "call_id": tool_call.get("id", "unknown"),
                         "name": tool_call["name"],
+                        "arguments": tool_call.get("arguments", {}),
                         "result": tool_result.result if tool_result.success and isinstance(tool_result.result, dict) else str(tool_result.result or tool_result.error),
                         "success": tool_result.success
                     }
