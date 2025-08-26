@@ -5,18 +5,19 @@ from openai import AsyncOpenAI
 from .prompt import compression_prompt, keyword_continuity_score_prompt, first_downgrade_prompt, second_downgrade_prompt
 from pywen.utils.llm_basics import LLMMessage
 from typing import Dict, Any
-from rich import print
 
 
 class Memorymonitor:
 
-    def __init__(self, config):
+    def __init__(self, config,console, verbose=True):
         self.config = config
         self.check_interval = self.config.memory_monitor.check_interval
         self.max_tokens = self.config.memory_monitor.maximum_capacity
         self.rules = self.config.memory_monitor.rules
         self.model = self.config.memory_monitor.model
         self.last_checkd_turn = 0
+        self.console = console
+        self.verbose = verbose
 
 
     async def call_llm(self, prompt) -> str:
@@ -35,11 +36,13 @@ class Memorymonitor:
             return response
 
         except Exception as e:
-            print(f"[bold red]Error calling LLM for memory compression: {e}[/]")
+            if self.verbose:
+                self.console.print(f"Error calling LLM for memory compression: {e}", "red", True)
 
 
     async def run_monitored(self, turn, conversation_history, usage):
-        print(f"\n[bold magenta]Monitoring[/] on turn [underline cyan]{turn}[/] :rocket:")
+        if self.verbose:
+            self.console.print(f"\nMonitoring on turn {turn} 🚀", "magenta", True)
 
         if (turn - self.last_checkd_turn) % self.check_interval == 0:
             alert = self.maybe_compress(usage)
@@ -49,31 +52,37 @@ class Memorymonitor:
             return None
 
         if alert is not None and alert["level"] == "compress":
-            print(alert["suggestion"])
+            if self.verbose:
+                self.console.print(alert["suggestion"], "red", True)
             summary, original = await self.do_compress(conversation_history)
             quality = await self.quality_validation(summary, original, usage)
             if quality["valid"]:
-                print("[bold green]🚀 Memory compression success![/]")
+                if self.verbose:
+                    self.console.print("🚀 Memory compression success!", "green", True)
                 summary_content = summary.choices[0].message.content
                 return summary_content
             else:
-                print("[bold green]⚠️ Memory compression fail, downgrade strategy will be executed.![/]")
+                if self.verbose:
+                    self.console.print("⚠️ Memory compression fail, downgrade strategy will be executed!", "green", True)
                 summary = await self.downgrade_compression(summary, original)
                 if summary is not None:
                     summary_content = summary.choices[0].message.content
                     return summary_content
                 else:
-                    print("[yellow]⚠️ All downgrade attempts failed, using 30% latest messages strategy...[/]")
+                    if self.verbose:
+                        self.console.print("⚠️ All downgrade attempts failed, using 30% latest messages strategy...", "yellow", False)
                     summary_content = self.retain_latest_messages(conversation_history)
                     return summary_content
             
         elif alert is not None and alert["level"] != "compress":
-            print(alert["suggestion"])
+            if self.verbose:
+                self.console.print(alert["suggestion"], "yellow", False)
 
 
     def maybe_compress(self, token_usage) -> Dict[str, Any] | None:
         ratio = token_usage / self.max_tokens
-        print(f"Token usage: [bold cyan]{token_usage}[/], ratio: [bold magenta]{ratio:.2%}[/]")
+        if self.verbose:
+            self.console.print(f"Token usage: {token_usage}, ratio: {ratio:.2%}", "cyan", True)
 
         if ratio >= 0.92:
             return self.warning("compress", ratio)
@@ -96,13 +105,13 @@ class Memorymonitor:
 
         match ratio:
             case r if r >= 0.92:
-                suggestion = f"[bold red]Memory usage – threshold reached! [/][red]Executing compression![/]"
+                suggestion = "Memory usage – threshold reached! Executing compression!"
             case r if r >= 0.80:
-                suggestion = f"[orange1]Memory usage – high, checking every {check_interval} turn(s).[/] [yellow]You can restart a new conversation![/]"
+                suggestion = f"Memory usage – high, checking every {check_interval} turn(s). You can restart a new conversation!"
             case r if r >= 0.60:
-                suggestion = f"[bright_green]Memory usage – moderate, checking every {check_interval} turn(s).[/]"
+                suggestion = f"Memory usage – moderate, checking every {check_interval} turn(s)."
             case _:
-                suggestion = f"[dim bright_blue]Memory usage – low, checking every {check_interval} turn(s).[/]"
+                suggestion = f"Memory usage – low, checking every {check_interval} turn(s)."
                 
         return {
             "level": level,
@@ -173,13 +182,13 @@ class Memorymonitor:
         suggestions = []
 
         if section_ratio < 0.875:
-            suggestions.append(f"[red]⚠️  {section_ratio:.2%}[/red] Missing required sections; please include all 8.")
+            suggestions.append(f"⚠️  {section_ratio:.2%} Missing required sections; please include all 8.")
         if keyword_ratio < 0.8:
-            suggestions.append(f"[orange1]⚠️  {keyword_ratio:.2%}[/orange1] Key information loss detected; compress less aggressively.")
+            suggestions.append(f"⚠️  {keyword_ratio:.2%} Key information loss detected; compress less aggressively.")
         if ratio_score > 0.15:
-            suggestions.append(f"[bright_magenta]⚠️  {ratio_score:.2%}[/bright_magenta] Compression ratio too low; consider deeper summarization.")
+            suggestions.append(f"⚠️  {ratio_score:.2%} Compression ratio too low; consider deeper summarization.")
         if continuity_ratio < 0.6:
-            suggestions.append(f"[yellow]⚠️  {continuity_ratio:.2%}[/yellow] Context flow broken; add transition phrases.")
+            suggestions.append(f"⚠️  {continuity_ratio:.2%} Context flow broken; add transition phrases.")
 
         return {
             "fidelity": fidelity,
@@ -206,16 +215,19 @@ class Memorymonitor:
         ]
 
         for attempt in attempts:
-            print(f"[cyan]{attempt['emoji']} {attempt['label']}: recompress the conversation history...[/]")
+            if self.verbose:
+                self.console.print(f"{attempt['emoji']} {attempt['label']}: recompress the conversation history...", "cyan", False)
             prompt = attempt["prompt"].format(summary_content, original)
             downgrade_summary = await self.call_llm(prompt)
             quality = await self.quality_validation(downgrade_summary, original)
 
             if quality["fidelity"] >= attempt["threshold"]:
-                print(f"[green]✅ {attempt['label']} successful, fidelity: {quality['fidelity']}%[/]")
+                if self.verbose:
+                    self.console.print(f"✅ {attempt['label']} successful, fidelity: {quality['fidelity']}%", "green", False)
                 return downgrade_summary
             else:
-                print(f"[red]❌ {attempt['label']} fail.[/]")
+                if self.verbose:
+                    self.console.print(f"❌ {attempt['label']} fail.", "red", False)
                 return None
         
 
@@ -289,7 +301,7 @@ class Memorymonitor:
         #     tokens = self.tokenizer.encode(content)
         #     actual_retained_tokens += len(tokens)
         
-        # print(f"[green]✅ Retained {actual_retained_tokens} out of {total_tokens} tokens "
+        # self.console.print(f"[green]✅ Retained {actual_retained_tokens} out of {total_tokens} tokens "
         #       f"({actual_retained_tokens/total_tokens:.1%}), {len(adjusted_messages)} messages")
         
         # summary = "\n".join(f"{message.role}: {message.content}" for message in adjusted_messages)

@@ -3,7 +3,7 @@ import math
 from pathlib import Path
 
 
-class IntelligentFileRestorer:
+class IntelligentFileRestorer():
 
     def __init__(self):
         self.max_files = 20
@@ -110,14 +110,14 @@ class IntelligentFileRestorer:
         while i < len(sorted_files):
             file = sorted_files[i]
             if file_count >= self.max_files:
-                print(f"📊 达到文件数量限制: {self.max_files}")
+                #print(f"📊 达到文件数量限制: {self.max_files}")
                 break
             if file["estimatedTokens"] > self.max_tokens_per_file:
-                print(f"⚠️ 文件 {file['path']} 超出单文件限制，跳过")
+                #print(f"⚠️ 文件 {file['path']} 超出单文件限制，跳过")
                 i += 1
                 continue
             if total_tokens + file["estimatedTokens"] > self.total_token_limit:
-                print(f"📊 添加 {file['path']} 将超出总Token限制")
+                #print(f"📊 添加 {file['path']} 将超出总Token限制")
                 remaining_tokens = self.total_token_limit - total_tokens
                 alternative_file = self.find_best_fit_file(sorted_files[i+1:], remaining_tokens)
                 if alternative_file:
@@ -141,7 +141,7 @@ class IntelligentFileRestorer:
  
     def file_recover(self, file_counter) -> str:
         if not file_counter:
-            print("⚠️ 暂无文件记录，无法恢复。")
+            #print("⚠️ 暂无文件记录，无法恢复。")
             return None
 
         # 1. 计算每条记录的 importance score

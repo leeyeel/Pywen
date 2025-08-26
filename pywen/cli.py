@@ -108,7 +108,7 @@ async def main():
     agent.set_cli_console(console)
 
     # Create memory monitor and file restorer
-    memory_monitor = Memorymonitor(config)
+    memory_monitor = Memorymonitor(config,console,verbose=False)
     file_restorer = IntelligentFileRestorer()
 
     # Display current mode
