@@ -63,8 +63,6 @@ class ClaudeCodeAgent(BaseAgent):
         self.todo_items = []  # Track current todo items
         reset_reminder_session()  # Reset on agent initialization
 
-        # Initialize file metrics
-        self.file_metrics = dict()
 
     def _setup_claude_code_tools(self):
         """Setup Claude Code specific tools and configure them."""
@@ -234,13 +232,27 @@ class ClaudeCodeAgent(BaseAgent):
         Following official Claude Code quota check flow
         """
         try:
+            # Import GenerateContentConfig
+            from pywen.utils.llm_config import GenerateContentConfig
+            
             # Send simple quota check message
             quota_messages = [LLMMessage(role="user", content="quota")]
 
-            response_result = await self.llm_client.generate_response(
+            # Create config based on original config from pywen_config.json,
+            # but override max_output_tokens to 1 for quota check
+            # Note: Exclude top_k as Qwen API doesn't support it
+            quota_config = GenerateContentConfig(
+                temperature=self.config.model_config.temperature,
+                max_output_tokens=1,  # Only change this to minimize usage
+                top_p=self.config.model_config.top_p
+            )
+
+            # Use the underlying utils client directly for config support
+            response_result = await self.llm_client.client.generate_response(
                 messages=quota_messages,
                 tools=None,  # No tools for quota check
-                stream=False  # Use non-streaming for quota check
+                stream=False,  # Use non-streaming for quota check
+                config=quota_config  # Use config with max_output_tokens=1
             )
 
             # Handle non-streaming response
