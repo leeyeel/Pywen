@@ -69,8 +69,12 @@ class QuitCommand(BaseCommand):
         self.console.print("\n")
         self.console.print(stats_panel)
         self.console.print(goodbye_panel)
-        
-        sys.exit(0)
+        context["control"] = "EXIT"
+        context["exit_code"] = 0
+
+        return True
+
+
     
     def get_help(self) -> str:
         """Get help text for the quit command."""
