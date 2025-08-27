@@ -371,13 +371,13 @@ class ConfigWizard:
                 "isolated": True,
                 "servers": [
                     {
-                      "name": "playwright",
-                      "command": "npx",
-                      "args": ["@playwright/mcp@latest"],
+                      "name": "browser_use",
+                      "command": "uvx",
+                      "args": ["-p","3.11","browser-use[cli]","--mcp"],
                       "enabled": False,
                       "include": ["browser_*"],
                       "save_images_dir": "./outputs/playwright",
-                      "isolated": True 
+                      "isolated": False 
                     }
                 ]
             }
