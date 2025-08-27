@@ -209,7 +209,10 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
             if command_result and 'agent' in context and context['agent'] != current_agent:
                 dialogue_counter = 0
                 current_agent = context['agent']
-            
+
+            if context.get("control") == "EXIT":
+                break 
+
             if command_result:
                 continue
             
@@ -351,6 +354,7 @@ async def single_prompt_mode_streaming(agent, console: CLIConsole, prompt_text: 
     async for event in agent.run(prompt_text):
         # Handle streaming events
         await console.handle_streaming_event(event, agent)
+    await agent.aclose()
 
 if __name__ == "__main__":
     main_sync()
