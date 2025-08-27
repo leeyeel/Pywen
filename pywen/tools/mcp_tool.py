@@ -92,7 +92,7 @@ class MCPServerManager:
             self._tasks[name] = task 
 
             try:
-                await asyncio.wait_for(ready.wait(), timeout=5.0)
+                await asyncio.wait_for(ready.wait(), timeout=30.0)
             except asyncio.TimeoutError:
                 task.cancel()
                 try:
@@ -105,7 +105,7 @@ class MCPServerManager:
                 self._ready.pop(name, None)
                 raise MCPServerLaunchError(
                     f"Timed out waiting for MCP server '{name}' to become ready "
-                    f"(command='{command}', args={list(args)}, timeout={5}s). "
+                    f"(command='{command}', args={list(args)}, timeout={30}s). "
                     "Check that the command is valid and can start without prompts."
                 )
 
@@ -138,7 +138,7 @@ class MCPServerManager:
     async def call_tool(self, server: str, tool_name: str, args: Dict[str, Any]):
         return await self._sessions[server].call_tool(tool_name, args or {})
 
-    async def close(self, *, timeout: float = 5.0) -> None:
+    async def close(self, *, timeout: float = 10.0) -> None:
         """
         关闭所有已启动的 MCP server 连接。
         - 先向每个 owner task 发送 stop 信号（通过 Event）

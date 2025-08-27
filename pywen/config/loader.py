@@ -82,13 +82,13 @@ def load_config_from_file(config_path: str = None) -> Config:
             "isolated": True,
             "servers": [
                 {
-                  "name": "playwright",
-                  "command": "npx",
-                  "args": ["@playwright/mcp@latest"],
+                  "name": "browser_use",
+                  "command": "uvx",
+                  "args": ["-p","3.11","browser-use[cli]","--mcp"],
                   "enabled": False,
                   "include": ["browser_*"],
                   "save_images_dir": "./outputs/playwright",
-                  "isolated": True
+                  "isolated": False 
                 }
             ]
         }
@@ -295,9 +295,9 @@ def create_default_config(output_path: str = None) -> None:
             "isolated": True,
             "servers": [
                 {
-                  "name": "playwright",
-                  "command": "npx",
-                  "args": ["@playwright/mcp@latest"],
+                  "name": "browser_use",
+                  "command": "uvx",
+                  "args": ["-p","3.11","browser-use[cli]","--mcp"],
                   "enabled": False,
                   "include": ["browser_*"],
                   "save_images_dir": "./outputs/playwright",
