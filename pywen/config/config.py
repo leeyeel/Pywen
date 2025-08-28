@@ -3,7 +3,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Dict, Any, List
-import os
 from pywen.core.permission_manager import PermissionLevel, PermissionManager
 
 
@@ -136,57 +135,3 @@ class Config:
             self.set_permission_level(PermissionLevel.YOLO)
         else:
             self.set_permission_level(PermissionLevel.LOCKED)
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Config':
-        """Create Config from dictionary."""
-        # Load tool API keys
-        serper_api_key = data.get('serper_api_key') or os.getenv('SERPER_API_KEY')
-        jina_api_key = data.get('jina_api_key') or os.getenv('JINA_API_KEY')
-
-        # Build ModelConfig with passthrough
-        mc_raw = data.get('model_config', {})
-        model_config = ModelConfig(
-            provider=ModelProvider(mc_raw['provider']),
-            model=mc_raw['model'],
-            api_key=mc_raw['api_key'],
-            base_url=mc_raw.get('base_url'),
-            temperature=mc_raw.get('temperature', 0.7),
-            max_tokens=mc_raw.get('max_tokens', 4096),
-            top_p=mc_raw.get('top_p', 0.95),
-            top_k=mc_raw.get('top_k', 50),
-        )
-        known_mc = {'provider','model','api_key','base_url','temperature','max_tokens','top_p','top_k'}
-        model_config.extras = {k: v for k, v in mc_raw.items() if k not in known_mc}
-
-        cfg = cls(
-            model_config=model_config,
-            max_iterations=data.get('max_iterations', 10),
-            enable_logging=data.get('enable_logging', True),
-            log_level=data.get('log_level', "INFO"),
-            save_trajectories=data.get('save_trajectories', False),
-            trajectories_dir=data.get('trajectories_dir', None),
-
-            # 新的权限系统
-            permission_level=PermissionLevel(data.get('permission_level', 'locked')),
-
-            # 向后兼容旧的 approval_mode
-            approval_mode=ApprovalMode(data.get('approval_mode', "default")),
-
-            serper_api_key=serper_api_key,
-            jina_api_key=jina_api_key,
-        )
-
-        # Passthrough (top-level extras)
-        known_top = {
-            'default_provider',
-            'model_providers',
-            'max_steps',
-            'enable_lakeview',
-            'approval_mode',
-            'serper_api_key',
-            'jina_api_key',
-            'mcp',
-        }
-        cfg.extras = {k: v for k, v in data.items() if k not in known_top}
-        return cfg

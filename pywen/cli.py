@@ -6,9 +6,7 @@ import os
 import sys
 import uuid
 import threading
-from pathlib import Path
 
-from rich import style
 from rich.console import Console
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
@@ -52,50 +50,41 @@ async def main():
     
     args = parser.parse_args()
     
-    # Generate or use specified session ID
     session_id = args.session_id or generate_session_id()
     
-    # Handle config creation
     if args.create_config:
         create_default_config(args.config)
         return
 
-    # Import here to avoid circular imports
     from pywen.config.loader import get_default_config_path
 
-    # Determine config path
     config_path = args.config if args.config else get_default_config_path()
 
-    # Check if config exists and is valid
     if not os.path.exists(config_path):
         from pywen.ui.config_wizard import ConfigWizard
         wizard = ConfigWizard()
         wizard.run()
 
-        # After wizard completes, check if config was created
         if not os.path.exists(config_path):
+            #TODO,这里不应该直接使用Console()
             console = Console()
-            console.print("Configuration was not created. Exiting.", color="red")
+            console.print("Configuration was not created. Exiting.", style = "red")
             sys.exit(1)
     
-    # Load configuration
     try:
-        config = load_config_with_cli_overrides(config_path, args)
-        config.session_id = session_id
+        config = load_config_with_cli_overrides(str(config_path), args)
     except Exception as e:
+        #TODO,这里不应该直接使用Console()
         console = Console()
-        console.print(f"Error loading configuration: {e}", color="red")
-        console.print("Configuration may be invalid. Starting configuration wizard...", color="yellow")
+        console.print(f"Error loading configuration: {e}", style="red")
+        console.print("Configuration may be invalid. Starting configuration wizard...", style="red")
 
-        # Import and run config wizard
         from pywen.ui.config_wizard import ConfigWizard
         wizard = ConfigWizard()
         wizard.run()
 
-        # Try loading config again
         try:
-            config = load_config_with_cli_overrides(config_path, args)
-            config.session_id = session_id
+            config = load_config_with_cli_overrides(str(config_path), args)
         except Exception as e2:
             console.print(f"Still unable to load configuration: {e2}", style="red")
             sys.exit(1)
@@ -111,7 +100,7 @@ async def main():
     memory_monitor = Memorymonitor(config,console,verbose=False)
     file_restorer = IntelligentFileRestorer()
 
-    # Display current mode
+    # TODO.  剥离
     mode_status = "🚀 YOLO" if config.get_approval_mode() == ApprovalMode.YOLO else "🔒 CONFIRM"
     console.print(f"Mode: {mode_status} (Ctrl+Y to toggle)")
 
@@ -216,15 +205,9 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
             if command_result:
                 continue
             
-            # Reset display tracking and enter task execution
-            console.reset_display_tracking()
-            # Reset Claude agent start flag for new conversation
-            if hasattr(console, '_claude_started'):
-                delattr(console, '_claude_started')
             in_task_execution = True
             cancel_event.clear()
             
-            # Execute user request
             try:
                 current_task = asyncio.create_task(
                     execute_streaming_with_cancellation(current_agent, user_input, console, cancel_event, memory_monitor, file_restorer, dialogue_counter)  
@@ -232,9 +215,7 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
                 
                 result = await current_task
                 
-                # Handle result and update task execution state
                 if result == "waiting_for_user":
-                    # Keep task execution state, wait for user input
                     continue
                 elif result in ["task_complete", "max_turns_reached", "completed"]:
                     # Task completed, exit task execution state
@@ -327,7 +308,6 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
                 
                 return result
             
-            # Handle errors
             if event.get("type") == "error":
                 return "error"
         
@@ -343,16 +323,7 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
 
 async def single_prompt_mode_streaming(agent, console: CLIConsole, prompt_text: str):
     """Run agent in single prompt mode with streaming."""
-
-    # Reset display tracking
-    console.reset_display_tracking()
-    # Reset Claude agent start flag for new conversation
-    if hasattr(console, '_claude_started'):
-        delattr(console, '_claude_started')
-
-    # Execute user request
     async for event in agent.run(prompt_text):
-        # Handle streaming events
         await console.handle_streaming_event(event, agent)
     await agent.aclose()
 

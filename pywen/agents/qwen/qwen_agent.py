@@ -110,6 +110,7 @@ class QwenAgent(BaseAgent):
         model_name = self.llm_client.utils_config.model_params.model
         # Get token limit from TokenLimits class
         max_tokens = TokenLimits.get_limit(ModelProvider.QWEN, model_name)
+        #TODO，从console剥离
         self.cli_console.set_max_context_tokens(max_tokens)
         
         # Reset task tracking for new user input
@@ -129,10 +130,6 @@ class QwenAgent(BaseAgent):
             model=self.config.model_config.model,
             max_steps=self.max_iterations
         )
-        
-        # reset CLI tracking
-        if self.cli_console:
-            self.cli_console.reset_display_tracking()
         
         # Execute task with continuation logic in streaming mode
         current_message = user_message
@@ -719,6 +716,7 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 # 2. 流结束后处理
                 if final_response:
                     turn.add_assistant_response(final_response)
+                    #TODO，从console剥离
                     self.cli_console.update_token_usage(final_response.usage.input_tokens)
                     # 记录LLM交互 (session stats 会在 trajectory_recorder 中自动记录)
                     self.trajectory_recorder.record_llm_interaction(
@@ -875,6 +873,7 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 if tool:
                     confirmation_details = await tool.get_confirmation_details(**tool_call.arguments)
                     if confirmation_details:  # 只有需要确认的工具才询问用户
+                        #TODO，从console剥离
                         confirmed = await self.cli_console.confirm_tool_call(tool_call, tool)
                         if not confirmed:
                                 # 用户拒绝，跳过这个工具
