@@ -51,6 +51,8 @@ async def main():
     args = parser.parse_args()
     
     session_id = args.session_id or generate_session_id()
+
+    console = CLIConsole()
     
     if args.create_config:
         create_default_config(args.config)
@@ -66,18 +68,14 @@ async def main():
         wizard.run()
 
         if not os.path.exists(config_path):
-            #TODO,这里不应该直接使用Console()
-            console = Console()
-            console.print("Configuration was not created. Exiting.", style = "red")
+            console.print("Configuration was not created. Exiting.", color= "red")
             sys.exit(1)
     
     try:
         config = load_config_with_cli_overrides(str(config_path), args)
     except Exception as e:
-        #TODO,这里不应该直接使用Console()
-        console = Console()
-        console.print(f"Error loading configuration: {e}", style="red")
-        console.print("Configuration may be invalid. Starting configuration wizard...", style="red")
+        console.print(f"Error loading configuration: {e}", color="red")
+        console.print("Configuration may be invalid. Starting configuration wizard...", color="red")
 
         from pywen.ui.config_wizard import ConfigWizard
         wizard = ConfigWizard()
@@ -86,17 +84,12 @@ async def main():
         try:
             config = load_config_with_cli_overrides(str(config_path), args)
         except Exception as e2:
-            console.print(f"Still unable to load configuration: {e2}", style="red")
+            console.print(f"Still unable to load configuration: {e2}", color="red")
             sys.exit(1)
     
-    # Create console and agent
-    console = CLIConsole(config)
-    console.config = config
-
     agent = QwenAgent(config)
     agent.set_cli_console(console)
 
-    # Create memory monitor and file restorer
     memory_monitor = Memorymonitor(config,console,verbose=False)
     file_restorer = IntelligentFileRestorer()
 
@@ -104,10 +97,8 @@ async def main():
     mode_status = "🚀 YOLO" if config.get_approval_mode() == ApprovalMode.YOLO else "🔒 CONFIRM"
     console.print(f"Mode: {mode_status} (Ctrl+Y to toggle)")
 
-    # Start interactive interface
     console.start_interactive_mode()
 
-    # Run in appropriate mode
     if args.interactive or not args.prompt:
         await interactive_mode_streaming(agent, console, session_id, memory_monitor, file_restorer)
     else:
@@ -291,6 +282,7 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
             if result in ["task_complete", "max_turns_reached", "waiting_for_user"]:
                 
                 # Running Memory monitor and File Restorer
+                #TODO, 这里total_tokens有风险
                 compression = await memory_monitor.run_monitored(
                     dialogue_counter,
                     agent.conversation_history,
