@@ -4,13 +4,14 @@ import threading
 from typing import Callable, Optional
 
 from prompt_toolkit.key_binding import KeyBindings
-from pywen.config.config import ApprovalMode
+from pywen.config.config import Config
 from pywen.ui.cli_console import CLIConsole
 from pywen.core.permission_manager import PermissionLevel
 
 
 def create_key_bindings(
     console_getter: Callable[[], CLIConsole], 
+    config_getter: Callable[[], Config], 
     cancel_event_getter: Optional[Callable[[], Optional[threading.Event]]] = None, 
     current_task_getter: Optional[Callable] = None
 ) -> KeyBindings:
@@ -33,59 +34,45 @@ def create_key_bindings(
     @bindings.add('c-y')
     def _(event):
         """Cycle through permission levels: LOCKED -> EDIT_ONLY -> PLANNING -> YOLO -> LOCKED"""
+        config = config_getter()
         console = console_getter()
-        if hasattr(console, 'config') and console.config:
+        try:
+            permission_manager = config.get_permission_manager()
+            current_level = permission_manager.get_permission_level()
+
+            # Define the cycle order
+            cycle_order = [
+                PermissionLevel.LOCKED,
+                PermissionLevel.EDIT_ONLY,
+                PermissionLevel.PLANNING,
+                PermissionLevel.YOLO
+            ]
+
+            # Find current index and get next level
             try:
-                # Use new permission system if available
-                if hasattr(console.config, 'get_permission_manager'):
-                    permission_manager = console.config.get_permission_manager()
-                    current_level = permission_manager.get_permission_level()
+                current_index = cycle_order.index(current_level)
+                next_index = (current_index + 1) % len(cycle_order)
+                next_level = cycle_order[next_index]
+            except ValueError:
+                # If current level not in cycle, start from LOCKED
+                next_level = PermissionLevel.LOCKED
 
-                    # Define the cycle order
-                    cycle_order = [
-                        PermissionLevel.LOCKED,
-                        PermissionLevel.EDIT_ONLY,
-                        PermissionLevel.PLANNING,
-                        PermissionLevel.YOLO
-                    ]
+            # Set new permission level
+            config.set_permission_level(next_level)
 
-                    # Find current index and get next level
-                    try:
-                        current_index = cycle_order.index(current_level)
-                        next_index = (current_index + 1) % len(cycle_order)
-                        next_level = cycle_order[next_index]
-                    except ValueError:
-                        # If current level not in cycle, start from LOCKED
-                        next_level = PermissionLevel.LOCKED
+            # Display status with appropriate color and icon
+            level_info = {
+                PermissionLevel.LOCKED: ("🔒 LOCKED", "全锁状态：所有操作都需要确认","red"),
+                PermissionLevel.EDIT_ONLY: ("✏️ EDIT_ONLY", "编辑权限：自动确认文件编辑，其他需要确认","yellow"),
+                PermissionLevel.PLANNING: ("📝 PLANNING", "规划权限：自动确认非编辑操作，编辑需要确认","blue"),
+                PermissionLevel.YOLO: ("🚀 YOLO", "锁开状态：自动确认所有操作","green")
+            }
 
-                    # Set new permission level
-                    console.config.set_permission_level(next_level)
+            icon_text, description , color= level_info[next_level]
+            console.print(f"{icon_text} - {description}",color)
 
-                    # Display status with appropriate color and icon
-                    level_info = {
-                        PermissionLevel.LOCKED: ("🔒 LOCKED", "全锁状态：所有操作都需要确认","red"),
-                        PermissionLevel.EDIT_ONLY: ("✏️ EDIT_ONLY", "编辑权限：自动确认文件编辑，其他需要确认","yellow"),
-                        PermissionLevel.PLANNING: ("📝 PLANNING", "规划权限：自动确认非编辑操作，编辑需要确认","blue"),
-                        PermissionLevel.YOLO: ("🚀 YOLO", "锁开状态：自动确认所有操作","green")
-                    }
-
-                    icon_text, description , color= level_info[next_level]
-                    console.print(f"{icon_text} - {description}",color)
-
-                else:
-                    # Fallback to old YOLO/DEFAULT toggle for backward compatibility
-                    current_mode = console.config.get_approval_mode()
-                    if current_mode == ApprovalMode.YOLO:
-                        console.config.set_approval_mode(ApprovalMode.DEFAULT)
-                        console.print("\n🔒 DEFAULT mode - tool confirmation required","yellow")
-                    else:
-                        console.config.set_approval_mode(ApprovalMode.YOLO)
-                        console.print("\n🚀 YOLO mode - auto-approving all tools","green")
-
-            except Exception as e:
-                console.print(f"Error switching permission level: {e}","red")
-        else:
-            console.print("Configuration not available","red")
+        except Exception as e:
+            console.print(f"Error switching permission level: {e}","red")
     
     # Shift+Tab - Toggle auto-accepting edits (placeholder)
     @bindings.add('s-tab')

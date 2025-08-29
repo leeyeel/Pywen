@@ -181,7 +181,7 @@ class StatusBar:
 
         permission_status = ""
         if permission_level:
-            level = str(permission_level).lower()
+            level = permission_level.lower()
             icon = self._ICON_BY_LEVEL.get(level, "❓")
             permission_status = f"  {icon} {level.upper()}"
 
@@ -261,261 +261,192 @@ class ToolCallView:
         panel = Panel(content, title=f"🔧 {tool_name}", title_align="left", border_style="yellow", padding=(0, 1))
         self.p.print_raw(panel)
 
-class ToolResultRenderer(Protocol):
-    def can_handle(self, tool_name: str, result: Any) -> bool: ...
-    def build_panel(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]: ...
+class ToolResultRendererRegistry:
+    def __init__(self, printer: "Printer"):
+        self.renderer = UnifiedToolResultRenderer(printer)
 
+    def render_success(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]:
+        return self.renderer.render_success(tool_name, result, arguments)
 
-class GenericRenderer:
-    def __init__(self, printer: Printer):
+    def render_error(self, tool_name: str, error: Any) -> Panel:
+        return self.renderer.render_error(tool_name, error)
+
+class UnifiedToolResultRenderer:
+    """单类处理全部工具结果的渲染；内部做分发与兜底。"""
+    def __init__(self, printer: "Printer"):
         self.p = printer
 
-    def can_handle(self, _tool_name: str, _result: Any) -> bool:
-        return True
+    def render_success(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]:
+        if isinstance(result, dict) and result.get("operation") in {"write_file", "edit_file"}:
+            try:
+                return create_enhanced_tool_result_display(result, tool_name)
+            except Exception:
+                pass
 
-    def build_panel(self, tool_name: str, result: Any, _arguments: Dict) -> Optional[Panel]:
-        result_str = str(result) if result else "Operation completed successfully"
-
+        if tool_name in {"edit", "edit_file"} and isinstance(result, dict):
+            return self._render_file_edit(result)
+        if tool_name == "write_file" and isinstance(result, dict):
+            return self._render_file_write(result)
+        if tool_name == "bash":
+            return self._render_bash(result, arguments)
+        if tool_name in {"read_file", "read_many_files"}:
+            return self._render_file_read(result, arguments)
+        if tool_name in {"ls", "glob"}:
+            return self._render_list(result, arguments)
+        if tool_name == "grep":
+            return self._render_grep(result, arguments)
         if tool_name == "think_tool":
-            self.p.print_raw(Text(result_str, style="dim italic"))
+            self.p.print_raw(Text(str(result if result is not None else ""), style="dim italic"))
             return None
 
-        if len(result_str) > 500:
-            display_result = result_str[:500] + "\n... (truncated)"
-        else:
-            display_result = result_str
+        return self._render_generic(tool_name, result)
 
-        return Panel(Text(display_result), title=f"✓ {tool_name}", title_align="left",
+    def render_error(self, tool_name: str, error: Any) -> Panel:
+        err = str(error)
+        low = err.lower()
+        if "permission denied" in low:
+            err += "\n💡 Try running with appropriate permissions"
+        elif "file not found" in low:
+            err += "\n💡 Check if the file path is correct"
+        elif "command not found" in low:
+            err += "\n💡 Check if the command is installed and in PATH"
+        return Panel(Text(err, style="red"), title=f"✗ {tool_name}",
+                     title_align="left", border_style="red", padding=(0, 1))
+
+    def _render_generic(self, tool_name: str, result: Any) -> Panel:
+        s = "Operation completed successfully" if (result is None or result == "") else str(result)
+        if len(s) > 500:
+            s = s[:500] + "\n... (truncated)"
+        return Panel(Text(s), title=f"✓ {tool_name}", title_align="left",
                      border_style="green", padding=(0, 1))
 
-
-class BashRenderer:
-    def can_handle(self, tool_name: str, _result: Any) -> bool:
-        return tool_name == "bash"
-
-    def build_panel(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]:
-        result_str = str(result)
+    def _render_bash(self, result: Any, arguments: Dict) -> Panel:
         from rich.syntax import Syntax
-        if len(result_str) > 100:
-            content = Syntax(result_str, "bash", theme="monokai", line_numbers=False)
-        else:
-            content = Text(result_str, style="green")
-
+        output = "" if result is None else str(result)
+        content = Syntax(output, "bash", theme="monokai", line_numbers=False) if len(output) > 100 else Text(output, style="green")
         title = "✓ bash"
         cmd = arguments.get("command", "")
         if cmd:
             short = (cmd[:37] + "...") if len(cmd) > 40 else cmd
             title = f"✓ bash: {short}"
-
         return Panel(content, title=title, title_align="left", border_style="green", padding=(0, 1))
 
-
-class FileReadRenderer:
-    def can_handle(self, tool_name: str, _result: Any) -> bool:
-        return tool_name in ("read_file", "read_many_files")
-
-    def build_panel(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]:
-        result_str = str(result)
-        lines = result_str.splitlines()
+    def _render_file_read(self, result: Any, arguments: Dict) -> Panel:
+        text = "" if result is None else str(result)
+        lines = text.splitlines()
         max_lines = 50
-        truncated = False
-        if len(lines) > max_lines:
-            lines = lines[:max_lines]
-            truncated = True
-
-        from rich.syntax import Syntax
-        try:
-            low = result_str.lower()
-            if any(k in low for k in ['def ', 'class ', 'import ']):
-                language = "python"
-            elif any(k in low for k in ['function', 'var ', 'const ', 'let ']):
-                language = "javascript"
-            elif any(k in low for k in ['#include', 'int main', 'printf']):
-                language = "c"
-            elif result_str.strip().startswith('<!DOCTYPE') or '<html' in low:
-                language = "html"
-            elif result_str.strip().startswith('{') or result_str.strip().startswith('['):
-                language = "json"
-            else:
-                language = "text"
-
-            truncated_content = '\n'.join(lines)
-            if len(lines) > 3 and language != "text":
-                content = Syntax(truncated_content, language, theme="monokai", line_numbers=True, word_wrap=True)
-            else:
-                content_lines = [f"{i:3d} │ {line}" for i, line in enumerate(lines, 1)]
-                content = Text('\n'.join(content_lines))
-        except Exception:
-            content_lines = [f"{i:3d} │ {line}" for i, line in enumerate(lines, 1)]
-            content = Text('\n'.join(content_lines))
-
+        truncated = len(lines) > max_lines
         if truncated:
+            lines = lines[:max_lines]
+        shown = "\n".join(lines)
+
+        content = self._maybe_syntax(shown)
+        if truncated:
+            notice = Text(f"... (truncated after {max_lines} lines)", style="dim yellow")
             if isinstance(content, Text):
-                content.append(f"\n... (truncated after {max_lines} lines)", style="dim yellow")
+                content.append("\n")
+                content.append(notice)
             else:
-                truncation_notice = Text(f"... (truncated after {max_lines} lines)", style="dim yellow")
-                content = Group(content, truncation_notice)
+                content = Group(content, notice)
 
-        file_path = arguments.get('file_path', '') or arguments.get('path', '')
-        title = f"✓ {tool_name}"
-        if file_path:
-            short = ("..." + file_path[-47:]) if len(file_path) > 50 else file_path
-            title = f"✓ {tool_name}: {short}"
-
+        path = arguments.get("file_path") or arguments.get("path") or ""
+        title = f"✓ read_file"
+        if path:
+            short = ("..." + path[-47:]) if len(path) > 50 else path
+            title = f"✓ read_file: {short}"
         return Panel(content, title=title, title_align="left", border_style="blue", padding=(0, 1))
 
-
-class ListRenderer:
-    def can_handle(self, tool_name: str, _result: Any) -> bool:
-        return tool_name in ("ls", "glob")
-
-    def build_panel(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]:
-        result_str = str(result)
-        if '\n' in result_str:
-            lines = [ln for ln in result_str.split('\n') if ln.strip()]
-            display = [f"📄 {ln.strip()}" for ln in lines[:20]]
-            if len(lines) > 20:
-                display.append(f"... and {len(lines) - 20} more items")
-            content = Text('\n'.join(display))
+    def _render_list(self, result: Any, arguments: Dict) -> Panel:
+        text = "" if result is None else str(result)
+        if "\n" in text:
+            items = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            display = [f"📄 {x}" for x in items[:20]]
+            if len(items) > 20:
+                display.append(f"... and {len(items) - 20} more items")
+            content = Text("\n".join(display))
         else:
-            content = Text(result_str)
+            content = Text(text)
 
-        path = arguments.get('path', '') or arguments.get('pattern', '')
-        title = f"✓ {tool_name}"
-        if path:
-            short = ("..." + path[-37:]) if len(path) > 40 else path
-            title = f"✓ {tool_name}: {short}"
-
+        p = arguments.get("path") or arguments.get("pattern") or ""
+        title = f"✓ {'ls' if 'ls' in arguments.get('name','') else 'list'}"
+        if p:
+            short = ("..." + p[-37:]) if len(p) > 40 else p
+            title = f"✓ list: {short}"
         return Panel(content, title=title, title_align="left", border_style="cyan", padding=(0, 1))
 
-class GrepRenderer:
-    def can_handle(self, tool_name: str, _result: Any) -> bool:
-        return tool_name == "grep"
-
-    def build_panel(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]:
-        result_str = str(result)
-        lines = [ln for ln in result_str.split('\n') if ln.strip()]
-        display = [f"🔍 {ln.strip()}" for ln in lines[:15]]
+    def _render_grep(self, result: Any, arguments: Dict) -> Panel:
+        text = "" if result is None else str(result)
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        shown = [f"🔍 {ln}" for ln in lines[:15]]
         if len(lines) > 15:
-            display.append(f"... and {len(lines) - 15} more matches")
-        content = Text('\n'.join(display), style="yellow")
+            shown.append(f"... and {len(lines) - 15} more matches")
+        content = Text("\n".join(shown), style="yellow")
 
         parts = []
-        pattern = arguments.get('pattern', '')
-        if pattern:
-            parts.append(f"'{(pattern[:17] + '...') if len(pattern) > 20 else pattern}'")
-        path = arguments.get('path', '')
+        pat = arguments.get("pattern", "")
+        if pat:
+            parts.append(f"'{(pat[:17] + '...') if len(pat) > 20 else pat}'")
+        path = arguments.get("path", "")
         if path:
             parts.append(f"in {('...' + path[-27:]) if len(path) > 30 else path}")
-
-        title = f"✓ {tool_name}: {' '.join(parts)}" if parts else f"✓ {tool_name}"
+        title = f"✓ grep: {' '.join(parts)}" if parts else "✓ grep"
         return Panel(content, title=title, title_align="left", border_style="yellow", padding=(0, 1))
 
-
-class FileWriteRenderer:
-    def can_handle(self, tool_name: str, result: Any) -> bool:
-        if tool_name != "write_file":
-            return False
-        return isinstance(result, dict)
-
-    def build_panel(self, tool_name: str, result: Dict, _arguments: Dict) -> Optional[Panel]:
-        file_path = result.get('file_path', 'unknown')
-        content = result.get('content', '')
-        old_content = result.get('old_content', '')
-        is_new_file = result.get('is_new_file', False)
-        lines_count = result.get('lines_count', 0)
-        chars_count = result.get('chars_count', 0)
-
+    def _render_file_write(self, result: Dict) -> Panel:
+        file_path = result.get("file_path", "unknown")
+        content = result.get("content", "")
+        old_content = result.get("old_content", "")
+        is_new_file = result.get("is_new_file", False)
         try:
             return HighlightedContentDisplay.create_write_file_result_display(
                 content, file_path, is_new_file, old_content
             )
         except Exception:
-            # Fallback 简易显示
             lines = content.splitlines()
-            content_with_lines = '\n'.join(f"{i:3d} │ {ln}" for i, ln in enumerate(lines, 1))
-            info = (
-                f"{'📄 Created' if is_new_file else '📝 Updated'}: {file_path}\n"
-                f"📊 {lines_count} lines, {chars_count} characters\n"
-                f"{'─'*50}\n"
-            )
-            return Panel(Text(info + content_with_lines, style="green"),
+            body = "\n".join(f"{i:3d} │ {ln}" for i, ln in enumerate(lines, 1))
+            info = (f"{'📄 Created' if is_new_file else '📝 Updated'}: {file_path}\n"
+                    f"📊 {result.get('lines_count', 0)} lines, {result.get('chars_count', 0)} characters\n"
+                    + "─" * 50 + "\n")
+            return Panel(Text(info + body, style="green"),
                          title=f"✓ write_file: {file_path}", title_align="left",
                          border_style="green", padding=(0, 1))
 
-class FileEditRenderer:
-    def can_handle(self, tool_name: str, result: Any) -> bool:
-        if tool_name not in ("edit", "edit_file"):
-            return False
-        return isinstance(result, dict)
-
-    def build_panel(self, tool_name: str, result: Dict, _arguments: Dict) -> Optional[Panel]:
-        file_path = result.get('file_path', 'unknown')
-        new_content = result.get('new_content', '')
-        old_content = result.get('old_content', '')
-        old_text = result.get('old_text', '')
-        new_text = result.get('new_text', '')
-
+    def _render_file_edit(self, result: Dict) -> Panel:
+        file_path = result.get("file_path", "unknown")
+        new_content = result.get("new_content", "")
+        old_content = result.get("old_content", "")
+        old_text = result.get("old_text", "")
+        new_text = result.get("new_text", "")
         try:
             return HighlightedContentDisplay.create_edit_result_display(
                 old_content, new_content, old_text, new_text, file_path
             )
         except Exception:
             lines = new_content.splitlines()
-            content_with_lines = '\n'.join(f"{i:3d} │ {ln}" for i, ln in enumerate(lines, 1))
-            return Panel(Text(content_with_lines, style="green"),
+            body = "\n".join(f"{i:3d} │ {ln}" for i, ln in enumerate(lines, 1))
+            return Panel(Text(body, style="green"),
                          title=f"✓ edit_file: {file_path}", title_align="left",
                          border_style="green", padding=(0, 1))
 
-class EnhancedWriteEditPassRenderer:
-    """当 result 是 enhanced 结构（operation in write_file/edit_file）"""
-    def can_handle(self, _tool_name: str, result: Any) -> bool:
-        return isinstance(result, dict) and result.get('operation') in ['write_file', 'edit_file']
+    def _maybe_syntax(self, text: str):
+        from rich.syntax import Syntax
+        low = text.lower()
+        lang = "text"
+        if any(k in low for k in ["def ", "class ", "import "]):
+            lang = "python"
+        elif any(k in low for k in ["function", "var ", "const ", "let "]):
+            lang = "javascript"
+        elif any(k in low for k in ["#include", "int main", "printf"]):
+            lang = "c"
+        elif text.strip().startswith("<!DOCTYPE") or "<html" in low:
+            lang = "html"
+        elif text.strip().startswith("{") or text.strip().startswith("["):
+            lang = "json"
 
-    def build_panel(self, tool_name: str, result: Dict, _arguments: Dict) -> Optional[Panel]:
-        return create_enhanced_tool_result_display(result, tool_name)
-
-class ErrorRenderer:
-    def can_handle(self, tool_name: str, _result: Any) -> bool:
-        return False
-
-    def build_panel(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]:
-        return None
-
-
-class ToolResultRendererRegistry:
-    """注册表 + 分发"""
-    def __init__(self, printer: Printer):
-        self.p = printer
-        self.renderers: list[ToolResultRenderer] = [
-            EnhancedWriteEditPassRenderer(),
-            FileEditRenderer(),
-            FileWriteRenderer(),
-            BashRenderer(),
-            FileReadRenderer(),
-            ListRenderer(),
-            GrepRenderer(),
-            GenericRenderer(printer),
-        ]
-
-    def render_success(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]:
-        for r in self.renderers:
-            if r.can_handle(tool_name, result):
-                return r.build_panel(tool_name, result, arguments)
-        # 理论不会到达
-        return Panel(Text(str(result) if result else ""), title=f"✓ {tool_name}")
-
-    def render_error(self, tool_name: str, error: Any) -> Panel:
-        error_str = str(error)
-        low = error_str.lower()
-        if "permission denied" in low:
-            error_str += "\n💡 Try running with appropriate permissions"
-        elif "file not found" in low:
-            error_str += "\n💡 Check if the file path is correct"
-        elif "command not found" in low:
-            error_str += "\n💡 Check if the command is installed and in PATH"
-        return Panel(Text(error_str, style="red"), title=f"✗ {tool_name}",
-                     title_align="left", border_style="red", padding=(0, 1))
+        if lang == "text":
+            lines = text.splitlines() or [text]
+            return Text("\n".join(f"{i:3d} │ {ln}" for i, ln in enumerate(lines, 1)))
+        return Syntax(text, lang, theme="monokai", line_numbers=(lang != "text"), word_wrap=True)
 
 class ApprovalService:
     def __init__(self, *, permission_manager: PermissionManager, printer: Printer, tool_call_view: ToolCallView):
@@ -529,7 +460,6 @@ class ApprovalService:
         if self.pm and self.pm.should_auto_approve(name, **args):
             return True
 
-        # 低风险工具自动通过
         if tool:
             from pywen.tools.base import ToolRiskLevel
             args = getattr(tool_call, 'arguments', None) or tool_call.get('arguments', {})
@@ -537,7 +467,6 @@ class ApprovalService:
             if risk_level == ToolRiskLevel.SAFE:
                 return True
 
-        # 统一展示（带增强预览回退）
         if isinstance(tool_call, dict):
             tool_name = tool_call.get('name', 'Unknown Tool')
             arguments = tool_call.get('arguments', {})
@@ -599,7 +528,6 @@ class ApprovalService:
                     self.p.print_raw(f"  [cyan]{key}[/cyan]: {value}")
         else:
             self.p.print_raw("No arguments")
-
 
 class EventRouter:
     """将不同 agent 的事件分发到输出/渲染逻辑"""

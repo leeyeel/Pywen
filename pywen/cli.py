@@ -7,13 +7,12 @@ import sys
 import uuid
 import threading
 
-from rich.console import Console
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
-from pywen.config.config import ApprovalMode
+from pywen.config.config import PermissionLevel 
 from pywen.config.loader import create_default_config, load_config_with_cli_overrides
 from pywen.agents.qwen.qwen_agent import QwenAgent
 from pywen.agents.claudecode.claude_code_agent import ClaudeCodeAgent   
@@ -93,39 +92,35 @@ async def main():
     memory_monitor = Memorymonitor(config,console,verbose=False)
     file_restorer = IntelligentFileRestorer()
 
-    # TODO.  剥离
-    mode_status = "🚀 YOLO" if config.get_approval_mode() == ApprovalMode.YOLO else "🔒 CONFIRM"
+    mode_status = "🚀 YOLO" if config.get_permission_level() == PermissionLevel.YOLO else "🔒 CONFIRM"
     console.print(f"Mode: {mode_status} (Ctrl+Y to toggle)")
 
     console.start_interactive_mode()
 
     if args.interactive or not args.prompt:
-        await interactive_mode_streaming(agent, console, session_id, memory_monitor, file_restorer)
+        await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, file_restorer)
     else:
         await single_prompt_mode_streaming(agent, console, args.prompt)
 
 
-async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, session_id: str, memory_monitor: Memorymonitor, file_restorer: IntelligentFileRestorer):
+async def interactive_mode_streaming(agent: QwenAgent, config, console: CLIConsole, session_id: str, memory_monitor: Memorymonitor, file_restorer: IntelligentFileRestorer):
     """Run agent in interactive mode with streaming using prompt_toolkit."""
     
-    # Create command processor and history
     command_processor = CommandProcessor()
     history = InMemoryHistory()
     
-    # Track task execution state
     in_task_execution = False
     cancel_event = threading.Event()
     current_task = None
-    current_agent = agent  # 添加这行：跟踪当前agent
+    current_agent = agent
     
-    # Create key bindings
     bindings = create_key_bindings(
         lambda: console, 
+        lambda: config, 
         lambda: cancel_event, 
         lambda: current_task
     )
     
-    # Create prompt session
     session = PromptSession(
         history=history,
         auto_suggest=AutoSuggestFromHistory(),
@@ -134,10 +129,8 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
         wrap_lines=True,
     )
 
-    # Record current dialogue turn
     dialogue_counter = 0
 
-    # Main interaction loop
     while True:
         try:
             # Add dialogue turn
@@ -145,7 +138,8 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
 
             # Show status bar only when not in task execution
             if not in_task_execution:
-                console.show_status_bar()
+                perm_level = config.get_permission_level() 
+                console.show_status_bar(permission_level= perm_level.value)
             
             # Get user input with session ID
             try:
@@ -160,14 +154,12 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
                 console.print("\nUse Ctrl+C twice to quit, or type 'exit'", "yellow")
                 continue
             
-            # Check if user_input is None (app exit)
             if user_input is None:
                 console.print("\nGoodbye!", "yellow")
                 break
                 
             user_input = user_input.strip()
             
-            # Check exit commands
             if user_input.lower() in ['exit', 'quit', 'q']:
                 console.print("Goodbye!", "yellow")
                 break
@@ -175,17 +167,14 @@ async def interactive_mode_streaming(agent: QwenAgent, console: CLIConsole, sess
             if not user_input:
                 continue
             
-            # Handle shell commands (!)
             if user_input.startswith('!'):
                 context = {'console': console, 'agent': current_agent}
                 await command_processor._handle_shell_command(user_input, context)
                 continue
             
-            # Handle slash commands (/)
-            context = {'console': console, 'agent': current_agent, 'config': console.config} 
+            context = {'console': console, 'agent': current_agent, 'config': config} 
             command_result = await command_processor.process_command(user_input, context)
             
-            # 添加这段：检查agent是否被切换
             if command_result and 'agent' in context and context['agent'] != current_agent:
                 dialogue_counter = 0
                 current_agent = context['agent']

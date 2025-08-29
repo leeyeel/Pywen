@@ -12,12 +12,6 @@ class ModelProvider(Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
 
-
-# 保留 ApprovalMode 用于向后兼容，但标记为废弃
-class ApprovalMode(Enum):
-    DEFAULT = "default"  # 需要用户确认 -> 映射到 PermissionLevel.LOCKED
-    YOLO = "yolo"       # 自动确认所有操作 -> 映射到 PermissionLevel.YOLO
-
 @dataclass
 class MCPServerConfig:
     """Single MCP server config item."""
@@ -79,11 +73,7 @@ class Config:
     save_trajectories: bool = False
     trajectories_dir: str = None  # Will be set to ~/.pywen/trajectories by default
 
-    # 新的权限管理系统
     permission_level: PermissionLevel = PermissionLevel.LOCKED
-
-    # 保留旧的 approval_mode 用于向后兼容
-    approval_mode: ApprovalMode = ApprovalMode.DEFAULT
 
     # Tool API Keys
     serper_api_key: Optional[str] = None
@@ -111,27 +101,6 @@ class Config:
         self.permission_level = level
         self._permission_manager.set_permission_level(level)
 
-        # 同步更新旧的 approval_mode 以保持兼容性
-        if level == PermissionLevel.YOLO:
-            self.approval_mode = ApprovalMode.YOLO
-        else:
-            self.approval_mode = ApprovalMode.DEFAULT
-
     def get_permission_level(self) -> PermissionLevel:
         """Get current permission level."""
         return self.permission_level
-
-    # 保留旧方法用于向后兼容
-    def get_approval_mode(self) -> ApprovalMode:
-        """Get current approval mode (deprecated, use get_permission_level)."""
-        return self.approval_mode
-
-    def set_approval_mode(self, mode: ApprovalMode):
-        """Set approval mode (deprecated, use set_permission_level)."""
-        self.approval_mode = mode
-
-        # 映射到新的权限系统
-        if mode == ApprovalMode.YOLO:
-            self.set_permission_level(PermissionLevel.YOLO)
-        else:
-            self.set_permission_level(PermissionLevel.LOCKED)
