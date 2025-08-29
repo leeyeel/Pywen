@@ -264,14 +264,10 @@ async def execute_streaming_with_cancellation(agent, user_input, console, cancel
                     file_restorer.update_file_metrics(arguments, result, agent.file_metrics, tool_name)
                 
             # Get total tokens in one dialogue turn
-            if result == "turn_token_usage":
-                total_tokens = event["data"]
+            total_tokens = event["data"] if result == "turn_token_usage" else 0
 
             # Return specific states to main loop
             if result in ["task_complete", "max_turns_reached", "waiting_for_user"]:
-                
-                # Running Memory monitor and File Restorer
-                #TODO, 这里total_tokens有风险
                 compression = await memory_monitor.run_monitored(
                     dialogue_counter,
                     agent.conversation_history,
