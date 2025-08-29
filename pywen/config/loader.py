@@ -83,8 +83,8 @@ def load_config_from_file(config_path: str = None) -> Config:
             "servers": [
                 {
                   "name": "browser_use",
-                  "command": "uvx",
-                  "args": ["-p","3.11","browser-use[cli]","--mcp"],
+                  "command": "browser-use",
+                  "args": ["--mcp"],
                   "enabled": False,
                   "include": ["browser_*"],
                   "save_images_dir": "./outputs/playwright",
@@ -296,8 +296,8 @@ def create_default_config(output_path: str = None) -> None:
             "servers": [
                 {
                   "name": "browser_use",
-                  "command": "uvx",
-                  "args": ["-p","3.11","browser-use[cli]","--mcp"],
+                  "command": "browser-use",
+                  "args": ["--mcp"],
                   "enabled": False,
                   "include": ["browser_*"],
                   "save_images_dir": "./outputs/playwright",
