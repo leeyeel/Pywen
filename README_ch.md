@@ -207,6 +207,42 @@ Pywen 为软件开发提供了全面的工具包：
 
 有关所有可用工具及其功能的详细信息，请参阅 [docs/tools.md](docs/tools.md)。
 
+## 🔌 MCP（Model Context Protocol）集成
+
+Pywen 还支持 **MCP（Model Context Protocol）**，可用于连接外部工具和服务，例如浏览器。
+
+### 启用 MCP
+1. 打开配置文件：
+   ```bash
+   ~/.pywen/pywen_config.json
+   ```
+2. 找到 `mcp` 配置并启用：
+   ```json
+   "mcp": {
+     "enabled": true,
+     "isolated": true,
+     "servers": [
+       {
+         "name": "browser_use",
+         "command": "browser-use",
+         "args": ["--mcp"],
+         "enabled": true,
+         "include": ["browser_*"],
+         "save_images_dir": "./outputs/playwright",
+         "isolated": false
+       }
+     ]
+   }
+   ```
+
+### 浏览器依赖
+如果您的设备没有安装浏览器，可以使用以下命令安装 Chromium（供 Playwright 使用）：
+
+```bash
+uvx playwright install chromium --with-deps
+```
+启用 MCP 并安装所需浏览器后，Pywen 就可以调用 `browser_use` MCP 服务端来执行浏览器自动化、截图和网页交互等任务。
+
 ## 📊 轨迹记录
 
 Pywen 自动记录详细的执行轨迹以供调试和分析：

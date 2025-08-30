@@ -372,8 +372,8 @@ class ConfigWizard:
                 "servers": [
                     {
                       "name": "browser_use",
-                      "command": "uvx",
-                      "args": ["-p","3.11","browser-use[cli]","--mcp"],
+                      "command": "browser-use",
+                      "args": ["--mcp"],
                       "enabled": False,
                       "include": ["browser_*"],
                       "save_images_dir": "./outputs/playwright",
