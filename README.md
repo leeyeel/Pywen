@@ -225,7 +225,7 @@ For detailed information about all available tools and their capabilities, see [
 
 ## 🔌 MCP (Model Context Protocol) Integration
 
-Pywen also supports **MCP (Model Context Protocol)** to connect external tools and services such as browsers.
+Pywen also supports **MCP (Model Context Protocol)** to connect external tools and services such as playwright.
 
 ### Enabling MCP
 1. Open your configuration file:
@@ -270,7 +270,7 @@ If your device does not have a browser installed, install browser for Playwright
 npx playwright install --with-deps
 ```
 
-After enabling MCP and installing the required browser, Pywen will be able to call the `browser_use` MCP server for tasks like browser automation, screenshot capture, and web interaction.
+After enabling MCP and installing the required browser, Pywen will be able to call the `playwright` MCP server for tasks like browser automation, screenshot capture, and web interaction.
 
 ## 📊 Trajectory Recording
 
