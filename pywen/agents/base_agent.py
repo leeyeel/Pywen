@@ -2,7 +2,7 @@
 
 import asyncio
 import fnmatch
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, AsyncGenerator
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
@@ -75,7 +75,7 @@ class BaseAgent(ABC):
         self.cli_console = console
     
     @abstractmethod
-    async def run(self, user_message: str):
+    def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run the agent - must be implemented by subclasses."""
         pass
     
