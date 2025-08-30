@@ -223,25 +223,34 @@ Pywen 还支持 **MCP（Model Context Protocol）**，可用于连接外部工�
      "isolated": true,
      "servers": [
        {
-         "name": "browser_use",
-         "command": "browser-use",
-         "args": ["--mcp"],
+         "name": "playwright",
+         "command": "npx",
+         "args": ["@playwright/mcp@latest"],
          "enabled": true,
          "include": ["browser_*"],
          "save_images_dir": "./outputs/playwright",
-         "isolated": false
+         "isolated": true 
        }
      ]
    }
    ```
+### 安装 Node.js 环境
+
+确保你的设备已安装 Node.js。你可以通过以下命令验证：
+```bash
+node -v 
+```
+如果没有安装，请按照 [Node.js 安装指南](https://nodejs.org)安装
 
 ### 浏览器依赖
-如果您的设备没有安装浏览器，可以使用以下命令安装 Chromium（供 Playwright 使用）：
 
+如果你的设备没有安装浏览器，可以使用以下命令为 Playwright 安装浏览器：
 ```bash
-uvx playwright install chromium --with-deps
+npx playwright install --with-deps
 ```
-启用 MCP 并安装所需浏览器后，Pywen 就可以调用 `browser_use` MCP 服务端来执行浏览器自动化、截图和网页交互等任务。
+这将安装 Chromium 浏览器并解决所有 Playwright 所需的系统依赖。
+启用 MCP 并安装所需浏览器后，Pywen 将能够调用 playwright MCP 服务端来执行浏览器自动化、截图捕获以及网页交互等任务。
+
 
 ## 📊 轨迹记录
 

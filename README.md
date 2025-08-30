@@ -235,27 +235,39 @@ Pywen also supports **MCP (Model Context Protocol)** to connect external tools a
 2. Locate the `mcp` section and enable it:
    ```json
    "mcp": {
-     "enabled": true,
-     "isolated": true,
-     "servers": [
-       {
-         "name": "browser_use",
-         "command": "browser-use",
-         "args": ["--mcp"],
-         "enabled": true,
-         "include": ["browser_*"],
-         "save_images_dir": "./outputs/playwright",
-         "isolated": false
-       }
-     ]
+       "enabled": true,
+           "isolated": true,
+           "servers": [
+           {
+               "name": "playwright",
+               "command": "npx",
+               "args": [
+                   "@playwright/mcp@latest"
+               ],
+               "enabled": true,
+               "include": [
+                   "browser_*"
+               ],
+               "save_images_dir": "./outputs/playwright",
+               "isolated": false
+           }
+           ]
    }
-   ```
 
-### Browser Dependency
-If your device does not have a browser installed, install Chromium for Playwright with:
+   ```
+### Node.js 
+Ensure that you have Node.js installed. You can verify it with the following command:
 
 ```bash
-uvx playwright install chromium --with-deps 
+node -v
+```
+If you don’t have it installed, please follow the [Node.js installation guide](https://nodejs.org/).
+
+### Browser Dependency
+If your device does not have a browser installed, install browser for Playwright with:
+
+```bash
+npx playwright install --with-deps
 ```
 
 After enabling MCP and installing the required browser, Pywen will be able to call the `browser_use` MCP server for tasks like browser automation, screenshot capture, and web interaction.
