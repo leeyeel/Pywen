@@ -249,7 +249,7 @@ Pywen also supports **MCP (Model Context Protocol)** to connect external tools a
                    "browser_*"
                ],
                "save_images_dir": "./outputs/playwright",
-               "isolated": false
+               "isolated": true 
            }
            ]
    }
