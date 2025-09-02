@@ -1,8 +1,9 @@
 """CLI Console for displaying agent progress."""
 from __future__ import annotations
 
-from typing import Optional, Any, Dict, Protocol
-from rich.console import Console, Group
+from typing import Optional, Any, Dict 
+from rich.console import Group
+from rich import get_console
 from rich.panel import Panel
 from rich.text import Text
 
@@ -14,7 +15,7 @@ class CLIConsole:
     """Console for displaying agent progress and handling user interactions."""
 
     def __init__(self):
-        self.console: Console = Console()
+        self.console = get_console()
         self.printer = Printer(self.console)
         self.tokens = TokenTracker(32768)
         self.banner = BannerView(self.printer)
@@ -83,8 +84,8 @@ class CLIConsole:
 
 class Printer:
     """仅负责输出（统一入口，隔离 rich 细节）"""
-    def __init__(self, console: Optional[Console] = None):
-        self.console = console or Console()
+    def __init__(self, console  = None):
+        self.console = console or get_console()
 
     def print_text(self, message: str, color: str = "blue", bold: bool = False):
         text = Text(message, style=color)

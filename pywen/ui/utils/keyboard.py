@@ -4,14 +4,14 @@ import threading
 from typing import Callable, Optional
 
 from prompt_toolkit.key_binding import KeyBindings
-from pywen.config.config import Config
+from pywen.config.manager import  ConfigManager
 from pywen.ui.cli_console import CLIConsole
-from pywen.core.permission_manager import PermissionLevel
+from pywen.core.permission_manager import PermissionLevel,PermissionManager
 
 
 def create_key_bindings(
     console_getter: Callable[[], CLIConsole], 
-    config_getter: Callable[[], Config], 
+    perm_mgr_getter: Callable[[], PermissionManager], 
     cancel_event_getter: Optional[Callable[[], Optional[threading.Event]]] = None, 
     current_task_getter: Optional[Callable] = None
 ) -> KeyBindings:
@@ -34,11 +34,10 @@ def create_key_bindings(
     @bindings.add('c-y')
     def _(event):
         """Cycle through permission levels: LOCKED -> EDIT_ONLY -> PLANNING -> YOLO -> LOCKED"""
-        config = config_getter()
+        perm_mgr = perm_mgr_getter()
         console = console_getter()
         try:
-            permission_manager = config.get_permission_manager()
-            current_level = permission_manager.get_permission_level()
+            current_level = perm_mgr.get_permission_level()
 
             # Define the cycle order
             cycle_order = [
@@ -58,7 +57,7 @@ def create_key_bindings(
                 next_level = PermissionLevel.LOCKED
 
             # Set new permission level
-            config.set_permission_level(next_level)
+            perm_mgr.set_permission_level(next_level)
 
             # Display status with appropriate color and icon
             level_info = {

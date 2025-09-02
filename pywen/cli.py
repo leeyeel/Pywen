@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
-import sys
 import uuid
 import threading
 from typing import Any
@@ -15,12 +13,8 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
-from pywen.config.config import PermissionLevel
-from pywen.config.loader import (
-    create_default_config,
-    load_config_with_cli_overrides,
-    get_default_config_path,
-)
+from pywen.core.permission_manager import PermissionLevel, PermissionManager
+from pywen.config.manager import ConfigManager
 from pywen.agents.qwen.qwen_agent import QwenAgent
 from pywen.agents.claudecode.claude_code_agent import ClaudeCodeAgent
 from pywen.ui.cli_console import CLIConsole
@@ -130,6 +124,7 @@ async def interactive_mode_streaming(
     session_id: str,
     memory_monitor: Memorymonitor,
     file_restorer: IntelligentFileRestorer,
+    perm_mgr: PermissionManager,
 ) -> None:
     """交互式模式，基于 prompt_toolkit + 统一流式执行器。"""
 
@@ -142,7 +137,7 @@ async def interactive_mode_streaming(
 
     bindings = create_key_bindings(
         lambda: console,
-        lambda: config,
+        lambda: perm_mgr,
         lambda: state.cancel_event,
         lambda: state.current_task,
     )
@@ -173,7 +168,7 @@ async def interactive_mode_streaming(
                 dialogue_counter += 1
 
                 if not state.in_task:
-                    perm_level = config.get_permission_level()
+                    perm_level = perm_mgr.get_permission_level()
                     console.show_status_bar(permission_level=perm_level.value)
 
                 try:
@@ -266,26 +261,19 @@ async def main() -> None:
     parser.add_argument("prompt", nargs="?", help="Prompt to execute")
     args = parser.parse_args()
 
-    session_id = args.session_id or str(uuid.uuid4())[:8]
-
+    cfg_mgr =  ConfigManager(args.config)
     if args.create_config:
-        create_default_config(args.config)
+        cfg_mgr.create_default_config()
         return
 
-    config_path = args.config if args.config else get_default_config_path()
+    config = cfg_mgr.load(interactive_bootstrap=True)
+    cfg_mgr.load_with_cli_overrides(args)
+
     console = CLIConsole()
 
-    if not os.path.exists(config_path):
-        from pywen.ui.config_wizard import ConfigWizard
-
-        wizard = ConfigWizard()
-        wizard.run()
-        if not os.path.exists(config_path):
-            console.print("Configuration was not created. Exiting.", color="red")
-            sys.exit(1)
-
-    config = load_config_with_cli_overrides(str(config_path), args)
-    mode_status = "🚀 YOLO" if config.get_permission_level() == PermissionLevel.YOLO else "🔒 CONFIRM"
+    perm_level = cfg_mgr.get_permission_level()
+    mode_status = "🚀 YOLO" if perm_level == PermissionLevel.YOLO else "🔒 CONFIRM"
+    perm_mgr = PermissionManager(perm_level)
     console.print(f"Mode: {mode_status} (Ctrl+Y to toggle)")
 
     memory_monitor = Memorymonitor(config, console, verbose=False)
@@ -297,7 +285,8 @@ async def main() -> None:
     console.start_interactive_mode()
 
     if args.interactive or not args.prompt:
-        await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, file_restorer)
+        session_id = args.session_id or str(uuid.uuid4())[:8]
+        await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, file_restorer, perm_mgr)
     else:
         await single_prompt_mode_streaming(agent, console, args.prompt)
 

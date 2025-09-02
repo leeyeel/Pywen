@@ -14,10 +14,10 @@ from .context_manager import ClaudeCodeContextManager
 from pywen.core.session_stats import session_stats
 
 from pywen.agents.claudecode.tools.tool_adapter import ToolAdapterFactory
-from pywen.config.loader import get_trajectories_dir
+from pywen.config.manager import ConfigManager
 from pywen.agents.claudecode.system_reminder import (
     generate_system_reminders, emit_reminder_event, reset_reminder_session,
-    ReminderMessage, system_reminder_service, get_system_reminder_start
+    get_system_reminder_start
 )
 
 
@@ -39,7 +39,7 @@ class ClaudeCodeAgent(BaseAgent):
         self.conversation_history: List[LLMMessage] = []
 
         # Ensure trajectories directory exists
-        trajectories_dir = get_trajectories_dir()
+        trajectories_dir = ConfigManager.get_trajectories_dir()
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         trajectory_path = trajectories_dir / f"claude_code_trajectory_{timestamp}.json"

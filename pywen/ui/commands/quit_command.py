@@ -1,9 +1,8 @@
 """Quit command implementation."""
 
-import sys
 from typing import Dict, Any
 from rich.panel import Panel
-from rich.console import Console
+from rich import get_console
 from rich.align import Align
 from .base_command import BaseCommand
 from pywen.core.session_stats import session_stats
@@ -18,7 +17,7 @@ class QuitCommand(BaseCommand):
             description="Exit Pywen with session statistics",
             alt_name="exit"
         )
-        self.console = Console()
+        self.console = get_console()
     
     async def execute(self, context: Dict[str, Any], args: str) -> bool:
         """Execute the quit command."""

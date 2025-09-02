@@ -6,8 +6,6 @@ from typing import Callable, Iterable, Optional, AsyncGenerator
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
-from pydantic import functional_serializers
-
 from pywen.config.config import Config
 from pywen.core.client import LLMClient
 from pywen.core.trajectory_recorder import TrajectoryRecorder

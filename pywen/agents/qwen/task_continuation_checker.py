@@ -3,7 +3,6 @@
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Optional, List
 from dataclasses import dataclass
 
@@ -66,8 +65,8 @@ Respond in JSON format:
     def _setup_logger(self):
         """Setup logger for task continuation decisions."""
         # Create logs directory if it doesn't exist
-        from pywen.config.loader import get_logs_dir
-        log_dir = get_logs_dir()
+        from pywen.config.manager import ConfigManager
+        log_dir = ConfigManager.get_logs_dir()
         
         # Setup logger
         self.logger = logging.getLogger("task_continuation")
