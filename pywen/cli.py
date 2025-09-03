@@ -286,6 +286,7 @@ async def main() -> None:
 
     if args.interactive or not args.prompt:
         session_id = args.session_id or str(uuid.uuid4())[:8]
+        setattr(config, "session_id", session_id)
         await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, file_restorer, perm_mgr)
     else:
         await single_prompt_mode_streaming(agent, console, args.prompt)

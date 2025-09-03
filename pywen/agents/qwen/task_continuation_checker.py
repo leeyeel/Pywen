@@ -8,16 +8,15 @@ from dataclasses import dataclass
 
 from pywen.utils.llm_basics import LLMMessage
 from pywen.utils.llm_client import LLMClient
-from pywen.utils.llm_config import Config
 
 
 @dataclass
 class TaskContinuationResponse:
     """Response from task continuation check."""
-    reasoning: str
-    should_continue: bool
-    next_speaker: str  # 'user' or 'model'
-    next_action: Optional[str] = None
+    reasoning: str | None = None
+    should_continue: bool = False
+    next_speaker: str | None = None # 'user' or 'model'
+    next_action: str | None = None
 
 
 class TaskContinuationChecker:
@@ -46,9 +45,8 @@ Respond in JSON format:
 }}
 ```"""
     
-    def __init__(self, llm_client: LLMClient, config: Config):
+    def __init__(self, llm_client: LLMClient):
         self.llm_client = llm_client
-        self.config = config
         self.cli_console = None  # 添加cli_console引用
         
         # Setup logger for task continuation decisions
@@ -119,9 +117,8 @@ Respond in JSON format:
         # Remove the length-based check - let LLM decide based on content quality
         if not last_response:
             return TaskContinuationResponse(
-                reasoning=None,
                 should_continue=True,
-                next_action=None
+                next_action=None,
             )
         
         try:
@@ -329,22 +326,4 @@ Respond in JSON format:
         self.logger.info(json.dumps(log_data, ensure_ascii=False))
         
         return should_continue
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

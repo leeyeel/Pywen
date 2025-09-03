@@ -65,17 +65,13 @@ class Config:
     model_config: ModelConfig
     max_iterations: int = 10
     enable_logging: bool = True
+    session_id: str | None = None
     log_level: str = "INFO"
     save_trajectories: bool = False
     trajectories_dir: str | None = None
-
     permission_level: PermissionLevel = PermissionLevel.LOCKED
-
     serper_api_key: Optional[str] = None
     jina_api_key: Optional[str] = None
-
     mcp: Optional[MCPConfig] = None
-
     memory_monitor: Optional[MemorymonitorConfig] = None
-
     extras: Dict[str, Any] = field(default_factory=dict)

@@ -22,11 +22,10 @@ class ConfigWizard:
         self,
         *,
         config_path: Optional[Path] = None,
-        console,
         env_path: Optional[Path] = None,
         save_callback: Optional[Callable[[Dict[str, Any]], Path]] = None,
     ):
-        self.console = console or get_console()
+        self.console = get_console()
         self.config_file = Path(config_path) if config_path else (Path.home() / ".pywen" / "pywen_config.json")
         self.env_file = Path(env_path) if env_path else (Path.home() / ".pywen" / ".env")
         self._save_callback = save_callback 
