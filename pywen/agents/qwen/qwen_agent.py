@@ -56,7 +56,7 @@ class QwenAgent(BaseAgent):
         self.loop_detector = AgentLoopDetectionService()
         
         # Initialize task continuation checker after llm_client is available
-        self.task_continuation_checker = TaskContinuationChecker(self.llm_client, config)
+        self.task_continuation_checker = TaskContinuationChecker(self.llm_client)
         
         # Conversation state
         self.turns: List[Turn] = []
@@ -111,7 +111,8 @@ class QwenAgent(BaseAgent):
         # Get token limit from TokenLimits class
         max_tokens = TokenLimits.get_limit(ModelProvider.QWEN, model_name)
         #TODO，从console剥离
-        self.cli_console.set_max_context_tokens(max_tokens)
+        if self.cli_console:
+            self.cli_console.set_max_context_tokens(max_tokens)
         
         # Reset task tracking for new user input
         self.original_user_task = user_message
@@ -716,7 +717,6 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 # 2. 流结束后处理
                 if final_response:
                     turn.add_assistant_response(final_response)
-                    #TODO，从console剥离
                     self.cli_console.update_token_usage(final_response.usage.input_tokens)
                     # 记录LLM交互 (session stats 会在 trajectory_recorder 中自动记录)
                     self.trajectory_recorder.record_llm_interaction(
