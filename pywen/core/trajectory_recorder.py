@@ -13,14 +13,14 @@ from .session_stats import session_stats
 class TrajectoryRecorder:
     """Records trajectory data for agent execution and LLM interactions."""
 
-    def __init__(self, trajectory_path: Optional[str] = None):
+    def __init__(self, trajectory_path: Optional[Path] = None):
         """Initialize trajectory recorder."""
         if trajectory_path is None:
-            from pywen.config.loader import get_trajectories_dir
+            from pywen.config.manager import ConfigManager 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            trajectory_path = get_trajectories_dir() / f"trajectory_{timestamp}.json"
+            trajectory_path = ConfigManager.get_trajectories_dir() / f"trajectory_{timestamp}.json"
 
-        self.trajectory_path: Path = Path(trajectory_path)
+        self.trajectory_path: Path = trajectory_path
         self.trajectory_data: Dict[str, Any] = {
             "start_time": "",
             "end_time": "",

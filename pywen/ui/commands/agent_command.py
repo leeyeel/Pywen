@@ -1,6 +1,6 @@
 """Agent切换命令实现"""
 
-from rich.console import Console
+from rich import get_console
 from .base_command import BaseCommand
 from pywen.core.session_stats import session_stats
 from typing import Dict, Any
@@ -24,7 +24,7 @@ AVAILABLE_AGENTS = {
 class AgentCommand(BaseCommand):
     def __init__(self):
         super().__init__("agent", "switch between different agents")
-        self.console = Console()
+        self.console = get_console()
     
     async def execute(self, context: Dict[str, Any], args: str) -> bool:
         """处理agent切换命令"""

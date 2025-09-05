@@ -5,13 +5,13 @@ import os
 import sys
 import platform
 from typing import Dict, Any
-from rich.console import Console
+from rich import get_console
 from .base_command import BaseCommand
 
 class BugCommand(BaseCommand):
     def __init__(self):
         super().__init__("bug", "create a GitHub issue for bug reports")
-        self.console = Console()
+        self.console = get_console()
     
     async def execute(self, context: Dict[str, Any], args: str) -> bool:
         """创建 GitHub issue"""

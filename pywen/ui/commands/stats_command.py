@@ -2,7 +2,7 @@
 
 from typing import Dict, Any
 from rich.panel import Panel
-from rich.console import Console
+from rich import get_console
 from rich.table import Table
 from .base_command import BaseCommand
 from pywen.core.session_stats import session_stats
@@ -17,7 +17,7 @@ class StatsCommand(BaseCommand):
             description="Display session statistics including token usage, API calls, and tool usage",
             alt_name="statistics"
         )
-        self.console = Console()
+        self.console = get_console()
     
     async def execute(self, context: Dict[str, Any], args: str) -> bool:
         """Execute the stats command."""

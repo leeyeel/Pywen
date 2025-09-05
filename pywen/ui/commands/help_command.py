@@ -1,13 +1,13 @@
 """帮助命令实现"""
 
 from rich.panel import Panel
-from rich.console import Console
+from rich import get_console
 from .base_command import BaseCommand
 
 class HelpCommand(BaseCommand):
     def __init__(self):
         super().__init__("help", "show this help message", "h")
-        self.console = Console()
+        self.console = get_console()
     
     async def execute(self, context, args: str) -> bool:
         """显示帮助信息"""

@@ -1,7 +1,7 @@
 """关于命令实现"""
 
 from rich.panel import Panel
-from rich.console import Console
+from rich import get_console
 from .base_command import BaseCommand
 import sys
 import platform
@@ -9,7 +9,7 @@ import platform
 class AboutCommand(BaseCommand):
     def __init__(self):
         super().__init__("about", "show version info")
-        self.console = Console()
+        self.console = get_console()
     
     async def execute(self, context, args: str) -> bool:
         """显示版本信息"""
