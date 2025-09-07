@@ -237,7 +237,7 @@ class ConfigManager:
             raise ValueError(f"API key is required for provider '{default_provider}'")
 
         perm_level = config_data.get("permission_level", "locked")
-        perm_level = PermissionLevel.YOLO if perm_level == "yolo" else PermissionLevel.LOCKED
+        perm_level = PermissionLevel.YOLO if perm_level == "yolo" else PermissionLevel.YOLO
 
         cfg = Config(
             model_config=model_cfg,

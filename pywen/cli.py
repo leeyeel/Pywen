@@ -24,6 +24,8 @@ from pywen.memory.memory_monitor import Memorymonitor
 from pywen.memory.file_restorer import IntelligentFileRestorer
 from pywen.utils.llm_basics import LLMMessage
 
+from pywen.utils.pywen_done_notify import notify_pywen_done
+
 class ExecutionState:
     """集中管理一次用户请求的执行状态与取消信号。"""
 
@@ -31,6 +33,7 @@ class ExecutionState:
         self.in_task: bool = False
         self.cancel_event: threading.Event = threading.Event()
         self.current_task: asyncio.Task | None = None
+        self.case_id: str = ''
 
     def start(self) -> None:
         self.in_task = True
@@ -63,12 +66,10 @@ async def run_streaming(
     """
     try:
         async for event in agent.run(user_input):
-            # 取消
             if state.cancel_event.is_set():
                 console.print("\n⚠️ Operation cancelled by user", color="yellow")
                 return "cancelled"
 
-            # 消费事件
             result = await console.handle_streaming_event(event, agent)
 
             # 工具结果 → 文件恢复指标更新
@@ -86,6 +87,8 @@ async def run_streaming(
             if result in {"task_complete", "max_turns_reached", "waiting_for_user"}:
                 total_tokens = event["data"] if result == "turn_token_usage" else 0
                 summary = await memory_monitor.run_monitored(dialogue_counter, agent.conversation_history, total_tokens)
+
+                notify_pywen_done(state.case_id)
 
                 if summary:
                     recovered = file_restorer.file_recover(agent.file_metrics)
@@ -192,6 +195,10 @@ async def interactive_mode_streaming(
                     await command_processor._handle_shell_command(user_input, context)
                     continue
 
+                if user_input.startswith("CASE_ID="):
+                    state.case_id = user_input.split("=", 1)[1]
+                    continue
+
                 context = {"console": console, "agent": current_agent, "config": config}
                 cmd_result = await command_processor.process_command(user_input, context)
 
@@ -221,6 +228,7 @@ async def interactive_mode_streaming(
                 result = await state.current_task
                 if result == "waiting_for_user":
                     continue
+
 
             except KeyboardInterrupt:
                 console.print("\nInterrupted by user. Press Ctrl+C again to quit.", "yellow")
@@ -279,7 +287,8 @@ async def main() -> None:
     memory_monitor = Memorymonitor(config, console, verbose=False)
     file_restorer = IntelligentFileRestorer()
 
-    agent = QwenAgent(config)
+    #agent = QwenAgent(config)
+    agent = ClaudeCodeAgent(config)
     agent.set_cli_console(console)
 
     console.start_interactive_mode()
