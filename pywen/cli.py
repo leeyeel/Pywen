@@ -266,8 +266,8 @@ async def main() -> None:
         cfg_mgr.create_default_config()
         return
 
-    config = cfg_mgr.load(interactive_bootstrap=True)
-    cfg_mgr.load_with_cli_overrides(args)
+    cfg_mgr.load(interactive_bootstrap=True)
+    config = cfg_mgr.load_with_cli_overrides(args)
 
     console = CLIConsole()
 
