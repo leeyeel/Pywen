@@ -42,7 +42,7 @@ class ClaudeCodeAgent(BaseAgent):
         trajectories_dir = ConfigManager.get_trajectories_dir()
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        trajectory_path = trajectories_dir / f"claude_code_trajectory_{timestamp}.json"
+        trajectory_path = trajectories_dir / f"pywen_claude_trajectory_{timestamp}.json"
         self.trajectory_recorder = TrajectoryRecorder(trajectory_path)
 
         # Setup Claude Code specific tools after base tools
