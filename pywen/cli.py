@@ -254,6 +254,8 @@ async def main() -> None:
     parser.add_argument("--config", type=str, default=None, help="Config file path (default: ~/.pywen/pywen/pywen_config.json)")
     parser.add_argument("--interactive", action="store_true", help="Interactive mode")
     parser.add_argument("--model", type=str, help="Override model name")
+    parser.add_argument("--api_key", help="Qwen API key", default=None)
+    parser.add_argument("--base_url", help="Qwen base URL", default=None)
     parser.add_argument("--temperature", type=float, help="Override temperature")
     parser.add_argument("--max-tokens", type=int, help="Override max tokens")
     parser.add_argument("--create-config", action="store_true", help="Create default config file")
@@ -263,7 +265,7 @@ async def main() -> None:
 
     cfg_mgr =  ConfigManager(args.config)
     if args.create_config:
-        cfg_mgr.create_default_config()
+        cfg_mgr.create_default_config(args)
         return
 
     cfg_mgr.load(interactive_bootstrap=True)
