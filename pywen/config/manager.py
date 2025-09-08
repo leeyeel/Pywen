@@ -140,6 +140,21 @@ class ConfigManager:
         self._update_env_file_from_data(data)
         return self.config_path
 
+    def __overwrite(self, config, cli_args):
+        """ overwrite config"""
+        if getattr(cli_args, "model", None):
+            config.model_config.model = cli_args.model
+        if getattr(cli_args, "temperature", None) is not None:
+            config.model_config.temperature = cli_args.temperature
+        if getattr(cli_args, "max_tokens", None):
+            config.model_config.max_tokens = cli_args.max_tokens
+        if getattr(cli_args, "api_key", None):
+            config.model_config.api_key = cli_args.api_key
+        if getattr(cli_args, "base_url", None):
+            config.model_config.base_url = cli_args.base_url
+
+        return config
+ 
     def create_default_config(self) -> Path:
         """Create default config (prefilled from env if available)."""
         data = self._prefill_from_env(DEFAULT_CONFIG_SCAFFOLD)
@@ -149,13 +164,7 @@ class ConfigManager:
 
     def load_with_cli_overrides(self, cli_args) -> Config:
         cfg = self.load(interactive_bootstrap=False)
-        if getattr(cli_args, "model", None):
-            cfg.model_config.model = cli_args.model
-        if getattr(cli_args, "temperature", None) is not None:
-            cfg.model_config.temperature = cli_args.temperature
-        if getattr(cli_args, "max_tokens", None):
-            cfg.model_config.max_tokens = cli_args.max_tokens
-        return cfg
+        return self.__overwrite(cfg, cli_args)
 
     @classmethod
     def find_config_file(cls, filename: str = "pywen_config.json") -> Optional[Path]:
