@@ -93,7 +93,11 @@ class ConfigManager:
 
     @staticmethod
     def get_trajectories_dir() -> Path:
-        d = ConfigManager.get_pywen_config_dir() / "trajectories"
+        env_dir = os.getenv("PYWEN_TRAJECTORY_DIR")
+        if env_dir:
+            d = Path(env_dir).expanduser().resolve()
+        else:
+            d = ConfigManager.get_pywen_config_dir() / "trajectories"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
