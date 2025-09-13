@@ -201,17 +201,6 @@ async def interactive_mode_streaming(
                         console.print("Usage: !resume <ckpt_path> [depth=N]", "yellow")
                         continue
                     state.start()
-                    state.current_task = asyncio.create_task(
-                        run_streaming(
-                            current_agent,
-                            user_input="",
-                            console=console,
-                            state=state,
-                            memory_monitor=memory_monitor,
-                            file_restorer=file_restorer,
-                            dialogue_counter=dialogue_counter,
-                        )
-                    )
                     async for event in current_agent.run_from_checkpoint(ckpt, depth):
                         await console.handle_streaming_event(event, current_agent)
                     state.reset()
@@ -302,6 +291,8 @@ async def main() -> None:
 
     cfg_mgr.load(interactive_bootstrap=True)
     config = cfg_mgr.load_with_cli_overrides(args)
+    session_id = args.session_id or str(uuid.uuid4())[:8]
+    setattr(config, "session_id", session_id)
 
     console = CLIConsole()
 
@@ -327,8 +318,6 @@ async def main() -> None:
         return
 
     if args.interactive or not args.prompt:
-        session_id = args.session_id or str(uuid.uuid4())[:8]
-        setattr(config, "session_id", session_id)
         await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, file_restorer, perm_mgr)
     else:
         await single_prompt_mode_streaming(agent, console, args.prompt)

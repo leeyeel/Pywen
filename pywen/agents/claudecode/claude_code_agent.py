@@ -1,7 +1,9 @@
 """
 Claude Code Agent - Python implementation of the Claude Code assistant
 """
-import os
+import os,time
+import json
+from pathlib import Path
 from typing import Dict, List, Optional, AsyncGenerator, Any
 import datetime
 from pywen.agents.base_agent import BaseAgent
@@ -12,7 +14,7 @@ from pywen.core.trajectory_recorder import TrajectoryRecorder
 from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
 from pywen.core.session_stats import session_stats
-
+from pywen.core.agent_registry import set_current_agent
 from pywen.agents.claudecode.tools.tool_adapter import ToolAdapterFactory
 from pywen.config.manager import ConfigManager
 from pywen.agents.claudecode.system_reminder import (
@@ -58,6 +60,7 @@ class ClaudeCodeAgent(BaseAgent):
         from pywen.core.agent_registry import get_agent_registry
         agent_registry = get_agent_registry()
 
+        # TODO
         task_tool = self.tool_registry.get_tool('task_tool')
         if task_tool and hasattr(task_tool, 'set_agent_registry'):
             task_tool.set_agent_registry(agent_registry)
@@ -281,7 +284,163 @@ class ClaudeCodeAgent(BaseAgent):
                 if isinstance(it, int) and isinstance(ot, int):
                     return it + ot
         return None
+
+    def _sanitize_history_for_provider(self) -> None:
+        """修正/移除会让 provider ‘空流’ 的历史消息（最小侵入）。"""
+        fixed: list[LLMMessage] = []
+        pending_tool_ids: set[str] = set()
     
+        for i, m in enumerate(self.conversation_history):
+            role = getattr(m, "role", None)
+            content = getattr(m, "content", "")
+    
+            if role == "system":
+                continue
+    
+            if role == "assistant" and getattr(m, "tool_calls", None):
+                norm_calls = []
+                for tc in m.tool_calls or []:
+                    tc_id = getattr(tc, "id", None) or getattr(tc, "call_id", None) \
+                            or (tc.get("id") if isinstance(tc, dict) else None) \
+                            or (tc.get("call_id") if isinstance(tc, dict) else None) \
+                            or f"tc_{i}_{len(norm_calls)}"
+                    name = getattr(tc, "name", None) or (tc.get("name") if isinstance(tc, dict) else None) or ""
+                    args = getattr(tc, "arguments", None) or getattr(tc, "args", None) \
+                            or (tc.get("arguments") if isinstance(tc, dict) else None) \
+                            or (tc.get("args") if isinstance(tc, dict) else None) or {}
+                    pending_tool_ids.add(tc_id)
+                    norm_calls.append(type(tc)(**getattr(tc, "__dict__", {})) if hasattr(tc, "__dict__")
+                                      else {"id": tc_id, "name": name, "arguments": args})
+                m.tool_calls = norm_calls
+    
+            if role == "tool":
+                tcid = getattr(m, "tool_call_id", None)
+                if not tcid:
+                    tcid = next(iter(pending_tool_ids), None)
+                    if not tcid:
+                        continue
+                    m.tool_call_id = tcid
+                if not isinstance(content, str):
+                    try:
+                        import json
+                        m.content = json.dumps(content, ensure_ascii=False)
+                    except Exception:
+                        m.content = str(content)
+                if tcid in pending_tool_ids:
+                    pending_tool_ids.remove(tcid)
+    
+            fixed.append(m)
+    
+        self.conversation_history = fixed
+
+
+    async def _get_assistant_response_streaming(
+        self,
+        messages: List[LLMMessage],
+        depth: int = 0,
+        **kwargs
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Get assistant response from LLM with fine-grained streaming events
+        Yields: llm_stream_start, llm_chunk, assistant_response events
+        """
+        try:
+            if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
+                yield {"type": "error","data": {"error": "Operation was cancelled"}}
+                return
+
+            response_stream = await self.llm_client.generate_response(
+                messages=messages,
+                tools=self.tools,
+                stream=True
+            )
+            yield {
+                "type": "llm_stream_start",
+                "data": {"depth": depth}
+            }
+
+            final_response = None
+            previous_content = ""
+            collected_tool_calls = []
+
+            async for response_chunk in response_stream:
+                if response_chunk.content:
+                    current_content = response_chunk.content
+                    if current_content != previous_content:
+                        new_content = current_content[len(previous_content):]
+                        if new_content:
+                            yield {
+                                "type": "llm_chunk",
+                                "data": {"content": new_content}
+                            }
+                        previous_content = current_content
+                if response_chunk.tool_calls:
+                    collected_tool_calls.extend(response_chunk.tool_calls)
+
+                if hasattr(response_chunk, "content") or hasattr(response_chunk, "tool_calls"):
+                    final_response = response_chunk
+                    continue
+
+            if final_response:
+                assistant_msg = LLMMessage(
+                    role="assistant",
+                    content=final_response.content,
+                    tool_calls=final_response.tool_calls
+                )
+
+                tool_calls = self._norm_tool_calls(getattr(final_response, "tool_calls", None))
+                yield {
+                    "type": "assistant_response",
+                    "assistant_message": assistant_msg,
+                    "tool_calls": None,
+                    "final_response": final_response  
+                }
+            else:
+                try:
+                    non_stream = await self.llm_client.generate_response(
+                        messages=messages,
+                        tools=self.tools,
+                        stream=False
+                    )
+        
+                    if hasattr(non_stream, "content") or hasattr(non_stream, "tool_calls"):
+                        ns_final = non_stream  # LLMResponse-like
+                    else:
+                        ns_final = None
+                        async for r in non_stream:
+                            ns_final = r
+        
+                    if not ns_final:
+                        yield {
+                            "type": "error",
+                            "data": {"error": "Empty stream and no non-streaming response from provider"}
+                        }
+                        return
+        
+                    assistant_msg = LLMMessage(
+                        role="assistant",
+                        content=getattr(ns_final, "content", "") or "",
+                        tool_calls=getattr(ns_final, "tool_calls", None)
+                    )
+                    tool_calls = self._norm_tool_calls(getattr(ns_final, "tool_calls", None))
+        
+                    yield {
+                        "type": "assistant_response",
+                        "assistant_message": assistant_msg,
+                        "tool_calls": tool_calls,
+                        "final_response": ns_final
+                    }
+                except Exception as e:
+                    yield {
+                        "type": "error",
+                        "data": {"error": f"Empty stream; non-streaming fallback failed: {e}"}
+                    }
+        except Exception as e:
+            yield {
+                "type": "error",
+                "data": {"error": f"Streaming failed, falling back to non-streaming: {str(e)}"}
+            }
+
     async def _query_recursive(
         self,
         messages: List[LLMMessage],
@@ -315,6 +474,9 @@ class ClaudeCodeAgent(BaseAgent):
                     assistant_message = response_event["assistant_message"]
                     tool_calls_raw = response_event.get("tool_calls") or []
                     final_response = response_event.get("final_response")
+                elif t == "error":
+                    yield response_event
+                    return
     
             if assistant_message is None:
                 yield {
@@ -428,96 +590,6 @@ class ClaudeCodeAgent(BaseAgent):
                 },
             }
     
-    async def _get_assistant_response_streaming(
-        self,
-        messages: List[LLMMessage],
-        depth: int = 0,
-        **kwargs
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        Get assistant response from LLM with fine-grained streaming events
-        Yields: llm_stream_start, llm_chunk, assistant_response events
-        """
-        try:
-            # Check for abort signal
-            if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
-                yield {
-                    "type": "error",
-                    "data": {"error": "Operation was cancelled"}
-                }
-                return
-            response_stream = await self.llm_client.generate_response(
-                messages=messages,
-                tools=self.tools,
-                stream=True
-            )
-
-            # Yield stream start event
-            yield {
-                "type": "llm_stream_start",
-                "data": {"depth": depth}
-            }
-
-            # 1. 流式处理响应，收集工具调用
-            final_response = None
-            previous_content = ""
-            collected_tool_calls = []
-
-            async for response_chunk in response_stream:
-                final_response = response_chunk
-
-                # 发送内容增量
-                if response_chunk.content:
-                    current_content = response_chunk.content
-                    if current_content != previous_content:
-                        new_content = current_content[len(previous_content):]
-                        if new_content:
-                            yield {
-                                "type": "llm_chunk",
-                                "data": {"content": new_content}
-                            }
-                        previous_content = current_content
-
-                # 收集工具调用（不立即执行）
-                if response_chunk.tool_calls:
-                    collected_tool_calls.extend(response_chunk.tool_calls)
-
-            # 2. 流结束后处理
-            if final_response:
-                # 添加到对话历史
-                assistant_msg = LLMMessage(
-                    role="assistant",
-                    content=final_response.content,
-                    tool_calls=final_response.tool_calls
-                )
-
-                # 简化的工具调用格式转换
-                tool_calls = []
-                if final_response.tool_calls:
-                    for tc in final_response.tool_calls:
-                        tool_calls.append({
-                            "id": tc.call_id,
-                            "name": tc.name,
-                            "arguments": tc.arguments
-                        })
-
-                # 返回最终的assistant_response事件，包含usage信息
-                yield {
-                    "type": "assistant_response",
-                    "assistant_message": assistant_msg,
-                    "tool_calls": tool_calls,
-                    "final_response": final_response  # 包含完整的响应对象，包括usage
-                }
-
-        except Exception as e:
-            yield {
-                "type": "error",
-                "data": {"error": f"Streaming failed, falling back to non-streaming: {str(e)}"}
-            }
-
-
-
-
     async def _execute_tools(
         self,
         tool_calls: List[Dict[str, Any]],
@@ -888,7 +960,7 @@ class ClaudeCodeAgent(BaseAgent):
                     agent_name="ClaudeCodeAgent"
                 )
 
-            return bool(content)  # Return True if we got any content
+            return bool(content)
         except Exception as e:
             if self.cli_console:
                 self.cli_console.print(f"Quota check failed: {e}", "yellow")
@@ -912,9 +984,7 @@ class ClaudeCodeAgent(BaseAgent):
         inject_reminders: bool = True, 
         **kwargs
     ):
-        import json
-        from pathlib import Path
-    
+   
         self._ensure_ckpt()
     
         snap = json.loads(Path(ckpt_path).read_text(encoding="utf-8"))
@@ -942,14 +1012,17 @@ class ClaudeCodeAgent(BaseAgent):
     
         if not appended and (not history or history[-1].role != "user"):
             history.append(LLMMessage(role="user", content="Continue execution: based on the context above, proceed with the next step of reasoning and action."))
+
+        self._sanitize_history_for_provider()
     
         messages = [
             LLMMessage(role="system", content=self.prompts.get_system_identity()),
             LLMMessage(role="system", content=f"{self.prompts.get_system_workflow()}\n\n{self.prompts.get_env_info(self.project_path)}"),
-            LLMMessage(role="system", content=get_system_reminder_start()),
+            LLMMessage(role="user", content=get_system_reminder_start()),
         ] + history.copy()
-    
+
         async for ev in self._query_recursive(messages, None, depth=start_depth, **kwargs):
+            print(ev)
             yield ev
     
     async def run(self, user_message: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
@@ -960,17 +1033,13 @@ class ClaudeCodeAgent(BaseAgent):
         3. Core Agent flow with official prompt structure
         """
         try:
-            # Set this agent as current in the registry for tool access
-            from pywen.core.agent_registry import set_current_agent
             set_current_agent(self)
-
-            # Start trajectory recording
             self.trajectory_recorder.start_recording(
-                    task=user_message,
-                    provider=self.config.model_config.provider.value,
-                    model=self.config.model_config.model,
-                    max_steps=self.max_iterations
-                    )
+                task=user_message,
+                provider=self.config.model_config.provider.value,
+                model=self.config.model_config.model,
+                max_steps=self.max_iterations
+            )
 
             # Record task start in session stats
             session_stats.record_task_start(self.type)
@@ -982,21 +1051,13 @@ class ClaudeCodeAgent(BaseAgent):
                 quota_ok = await self._check_quota()
                 self.quota_checked = True
                 if not quota_ok:
-                    yield {
-                            "type": "error",
-                            "data": {"error": "API quota check failed"}
-                            }
+                    yield {"type": "error", "data": {"error": "API quota check failed"}}
 
             # 2. Topic detection for each user input
             topic_info = await self._detect_new_topic(user_message)
             if topic_info and topic_info.get('isNewTopic'):
-                yield {
-                        "type": "new_topic_detected",
-                        "data": {
-                            "title": topic_info.get('title'),
-                            "isNewTopic": topic_info.get('isNewTopic')
-                            }
-                        }
+                yield { "type": "new_topic_detected",
+                        "data": { "title": topic_info.get('title'), "isNewTopic": topic_info.get('isNewTopic')} }
 
             # Update context before each run
             self._update_context()
@@ -1011,6 +1072,7 @@ class ClaudeCodeAgent(BaseAgent):
 
             # 3. Core Agent flow with official prompt structure
             llm_msg = LLMMessage(role="user", content=user_message)
+
             self.conversation_history.append(llm_msg)
 
             # Build official message sequence (merges reminders into user message)
@@ -1021,9 +1083,4 @@ class ClaudeCodeAgent(BaseAgent):
                 yield event
 
         except Exception as e:
-            yield {
-                    "type": "error",
-                    "data": {
-                        "error": f"Agent error: {str(e)}"
-                        },
-                    }
+            yield {"type": "error", "data": {"error": f"Agent error: {str(e)}"},}

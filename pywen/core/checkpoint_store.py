@@ -12,12 +12,19 @@ def _serialize_messages(msgs: List[LLMMessage]) -> List[Dict[str, Any]]:
     out = []
     for m in msgs:
         d: Dict[str, Any] = {"role": m.role, "content": m.content}
-        # 兼容工具相关字段
         if getattr(m, "tool_calls", None):
-            d["tool_calls"] = [
-                {"id": tc.call_id, "name": tc.name, "arguments": tc.arguments}
-                for tc in m.tool_calls
-            ]
+            tool_calls_out = []
+            for tc in m.tool_calls:
+                if isinstance(tc, dict):
+                    tc_id = tc.get("id") or tc.get("call_id")
+                    name = tc.get("name", "")
+                    args = tc.get("arguments", None) or tc.get("args", None)
+                else:
+                    tc_id = getattr(tc, "call_id", getattr(tc, "id", None))
+                    name = getattr(tc, "name", "")
+                    args = getattr(tc, "arguments", getattr(tc, "args", None))
+                tool_calls_out.append({"id": tc_id, "name": name, "arguments": args})
+            d["tool_calls"] = tool_calls_out
         if getattr(m, "tool_call_id", None):
             d["tool_call_id"] = m.tool_call_id
         out.append(d)
@@ -26,10 +33,11 @@ def _serialize_messages(msgs: List[LLMMessage]) -> List[Dict[str, Any]]:
 def _deserialize_messages(data: List[Dict[str, Any]]) -> List[LLMMessage]:
     msgs: List[LLMMessage] = []
     for d in data:
+        tool_calls = d.get("tool_calls")
         msgs.append(LLMMessage(
             role=d["role"],
             content=d.get("content", ""),
-            tool_calls=None,                 # 工具调用在恢复后由LLM重新生成
+            tool_calls= tool_calls, 
             tool_call_id=d.get("tool_call_id"),
         ))
     return msgs
@@ -40,7 +48,7 @@ class CheckpointStore:
     ~/.pywen/trajectories/checkpoints/{session_id}/{agent_type}/ckpt_{depth}.json
     """
     def __init__(self, session_id: str, agent_type: str):
-        base: Path = ConfigManager.get_trajectories_dir()  # ~/.pywen/trajectories
+        base: Path = ConfigManager.get_trajectories_dir() 
         self.dir = base / "checkpoints" / session_id / agent_type
         self.dir.mkdir(parents=True, exist_ok=True)
 
