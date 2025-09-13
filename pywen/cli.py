@@ -15,6 +15,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
 from pywen.core.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
+from pywen.agents.base_agent import BaseAgent
 from pywen.agents.qwen.qwen_agent import QwenAgent
 from pywen.agents.claudecode.claude_code_agent import ClaudeCodeAgent
 from pywen.ui.cli_console import CLIConsole
@@ -118,7 +119,7 @@ async def run_streaming(
         state.reset()
 
 async def interactive_mode_streaming(
-    agent: QwenAgent,
+    agent: BaseAgent,
     config: Any,
     console: CLIConsole,
     session_id: str,
@@ -187,6 +188,35 @@ async def interactive_mode_streaming(
                 if not user_input.strip():
                     continue
 
+                if user_input.startswith("!resume"):
+                    # 比如：!resume /path/to/ckpt_3.json [depth=4]
+                    parts = user_input.split()
+                    ckpt = parts[1] if len(parts) >= 2 else None
+                    depth = None
+                    for p in parts[2:]:
+                        if p.startswith("depth="):
+                            try: depth = int(p.split("=",1)[1])
+                            except: depth = None
+                    if not ckpt:
+                        console.print("Usage: !resume <ckpt_path> [depth=N]", "yellow")
+                        continue
+                    state.start()
+                    state.current_task = asyncio.create_task(
+                        run_streaming(
+                            current_agent,
+                            user_input="",
+                            console=console,
+                            state=state,
+                            memory_monitor=memory_monitor,
+                            file_restorer=file_restorer,
+                            dialogue_counter=dialogue_counter,
+                        )
+                    )
+                    async for event in current_agent.run_from_checkpoint(ckpt, depth):
+                        await console.handle_streaming_event(event, current_agent)
+                    state.reset()
+                    continue
+
                 if user_input.startswith("!"):
                     context = {"console": console, "agent": current_agent}
                     await command_processor._handle_shell_command(user_input, context)
@@ -238,7 +268,7 @@ async def interactive_mode_streaming(
     finally:
         await current_agent.aclose()
 
-async def single_prompt_mode_streaming(agent: QwenAgent, console: CLIConsole, prompt_text: str) -> None:
+async def single_prompt_mode_streaming(agent: BaseAgent, console: CLIConsole, prompt_text: str) -> None:
     """单次模式：与交互模式共享同一事件消费逻辑（但无需状态与记忆压缩）。"""
     async for event in agent.run(prompt_text):
         await console.handle_streaming_event(event, agent)
@@ -260,6 +290,8 @@ async def main() -> None:
     parser.add_argument("--max-tokens", type=int, help="Override max tokens")
     parser.add_argument("--create-config", action="store_true", help="Create default config file")
     parser.add_argument("--session-id", type=str, help="Use specific session ID")
+    parser.add_argument("--resume-ckpt", type=str, help="Path to checkpoint json")
+    parser.add_argument("--resume-depth", type=int, default=None, help="Override resume depth")
     parser.add_argument("prompt", nargs="?", help="Prompt to execute")
     args = parser.parse_args()
 
@@ -281,10 +313,18 @@ async def main() -> None:
     memory_monitor = Memorymonitor(config, console, verbose=False)
     file_restorer = IntelligentFileRestorer()
 
-    agent = QwenAgent(config)
+    #agent = QwenAgent(config)
+    agent = ClaudeCodeAgent(config)
     agent.set_cli_console(console)
 
     console.start_interactive_mode()
+
+    if args.resume_ckpt:
+        console.print(f"Resuming from checkpoint: {args.resume_ckpt}", "yellow")
+        async for event in agent.run_from_checkpoint(args.resume_ckpt, args.resume_depth):
+            await console.handle_streaming_event(event, agent)
+        await agent.aclose()
+        return
 
     if args.interactive or not args.prompt:
         session_id = args.session_id or str(uuid.uuid4())[:8]

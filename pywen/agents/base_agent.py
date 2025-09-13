@@ -4,7 +4,7 @@ import asyncio
 import fnmatch
 from typing import Callable, Iterable, Optional, AsyncGenerator
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, AsyncGenerator
 
 from pywen.config.config import Config
 from pywen.ui.cli_console import CLIConsole
@@ -71,6 +71,11 @@ class BaseAgent(ABC):
     def set_cli_console(self, console):
         """Set the CLI console for progress updates."""
         self.cli_console = console
+
+    def run_from_checkpoint(self, ckpt_path: str, resume_depth: Optional[int] = None, **kwargs: Any,) -> AsyncGenerator[Dict[str, Any], None]:
+        if False:
+            yield {}
+        return 
     
     @abstractmethod
     def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
