@@ -189,7 +189,6 @@ async def interactive_mode_streaming(
                     continue
 
                 if user_input.startswith("!resume"):
-                    # 比如：!resume /path/to/ckpt_3.json [depth=4]
                     parts = user_input.split()
                     ckpt = parts[1] if len(parts) >= 2 else None
                     depth = None
@@ -305,8 +304,8 @@ async def main() -> None:
     file_restorer = IntelligentFileRestorer()
 
     #agent = QwenAgent(config)
-    agent = ClaudeCodeAgent(config)
-    agent.set_cli_console(console)
+    agent = ClaudeCodeAgent(config, console)
+    #agent.set_cli_console(console)
 
     console.start_interactive_mode()
 

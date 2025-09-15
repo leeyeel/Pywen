@@ -2,42 +2,37 @@
 from __future__ import annotations
 import json, datetime, os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Union
 from pywen.utils.llm_basics import LLMMessage
 from pywen.config.manager import ConfigManager
+from pywen.utils.tool_basics import ToolCall
 
 SCHEMA_VERSION = 1
 
+def tool_calls_to_objects(calls: Optional[Iterable[Union[ToolCall, Dict[str, Any]]]]) -> List[ToolCall]:
+    return [] if not calls else [ToolCall.from_any(c) for c in calls]
+
+def tool_calls_to_dicts(calls: Optional[Iterable[Union[ToolCall, Dict[str, Any]]]], id_key: str = "id") -> List[Dict[str, Any]]:
+    return [] if not calls else [ToolCall.from_any(c).to_dict(id_key=id_key) for c in calls]
+
 def _serialize_messages(msgs: List[LLMMessage]) -> List[Dict[str, Any]]:
-    out = []
+    out: List[Dict[str, Any]] = []
     for m in msgs:
         d: Dict[str, Any] = {"role": m.role, "content": m.content}
         if getattr(m, "tool_calls", None):
-            tool_calls_out = []
-            for tc in m.tool_calls:
-                if isinstance(tc, dict):
-                    tc_id = tc.get("id") or tc.get("call_id")
-                    name = tc.get("name", "")
-                    args = tc.get("arguments", None) or tc.get("args", None)
-                else:
-                    tc_id = getattr(tc, "call_id", getattr(tc, "id", None))
-                    name = getattr(tc, "name", "")
-                    args = getattr(tc, "arguments", getattr(tc, "args", None))
-                tool_calls_out.append({"id": tc_id, "name": name, "arguments": args})
-            d["tool_calls"] = tool_calls_out
+            d["tool_calls"] = tool_calls_to_dicts(m.tool_calls, id_key="id")
         if getattr(m, "tool_call_id", None):
-            d["tool_call_id"] = m.tool_call_id
+            d["tool_call_id"] = str(m.tool_call_id)
         out.append(d)
     return out
 
 def _deserialize_messages(data: List[Dict[str, Any]]) -> List[LLMMessage]:
     msgs: List[LLMMessage] = []
     for d in data:
-        tool_calls = d.get("tool_calls")
         msgs.append(LLMMessage(
             role=d["role"],
             content=d.get("content", ""),
-            tool_calls= tool_calls, 
+            tool_calls=tool_calls_to_objects(d.get("tool_calls")),
             tool_call_id=d.get("tool_call_id"),
         ))
     return msgs
@@ -75,7 +70,6 @@ class CheckpointStore:
         p = self.path_for(depth)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
-        # 写一个latest指针便于快速恢复
         (self.dir / "latest.txt").write_text(str(p), encoding="utf-8")
         return p
 

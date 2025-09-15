@@ -144,7 +144,7 @@ class QwenContentGenerator(ContentGenerator):
         if message.tool_calls:
             for tool_call in message.tool_calls:
                 tc = ToolCall(
-                    call_id=tool_call.id,
+                    id=tool_call.id,
                     name=tool_call.function.name,
                     arguments=self._safe_json_parse(tool_call.function.arguments)
                 )
@@ -330,7 +330,7 @@ class QwenContentGenerator(ContentGenerator):
                     if buf["name"]:  # 只有当工具名存在时才添加
                         final_tool_calls.append(
                             ToolCall(
-                                call_id=buf["id"] or f"call_{index}",
+                                id=buf["id"] or f"call_{index}",
                                 name=buf["name"],
                                 arguments=args
                             )
