@@ -920,9 +920,7 @@ class ClaudeCodeAgent(BaseAgent):
             if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
                 cancelled_result = ToolResult(
                     call_id=tool_call.get("id", "unknown"),
-                    content="",
                     error="Operation was cancelled",
-                    success=False
                 )
                 cancelled_message = LLMMessage(
                     role="tool",
@@ -933,7 +931,7 @@ class ClaudeCodeAgent(BaseAgent):
 
             # Convert to ToolCall object
             tool_call_obj = ToolCall(
-                call_id=tool_call.get("id", "unknown"),
+                id=tool_call.get("id", "unknown"),
                 name=tool_call["name"],
                 arguments=tool_call.get("arguments", {})
             )
@@ -949,9 +947,7 @@ class ClaudeCodeAgent(BaseAgent):
                             # User cancelled
                             cancelled_result = ToolResult(
                                 call_id=tool_call.get("id", "unknown"),
-                                content="",
                                 error="Tool execution was cancelled by user",
-                                success=False
                             )
                             cancelled_message = LLMMessage(
                                 role="tool",
@@ -998,9 +994,7 @@ class ClaudeCodeAgent(BaseAgent):
             error_msg = f"Error executing tool '{tool_call['name']}': {str(e)}"
             error_result = ToolResult(
                 call_id=tool_call.get("id", "unknown"),
-                content="",
                 error=error_msg,
-                success=False
             )
             error_message = LLMMessage(
                 role="tool",
@@ -1043,12 +1037,6 @@ class ClaudeCodeAgent(BaseAgent):
                 tool_results.append(result)
 
         return tool_results
-
-
-
-
-
-
 
     async def _execute_single_tool(
         self,
