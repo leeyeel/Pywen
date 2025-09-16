@@ -48,12 +48,12 @@ class ConfigWizard:
     def _get_env_value(self, key: str, default: str = "") -> str:
         aliases = {
             "api_key": ["QWEN_API_KEY", "DASHSCOPE_API_KEY", "API_KEY"],
-            "serper_api_key": ["SERPER_API_KEY"],
-            "base_url": ["BASE_URL"],
-            "model": ["MODEL"],
-            "max_tokens": ["MAX_TOKENS"],
-            "temperature": ["TEMPERATURE"],
-            "max_steps": ["MAX_STEPS"],
+            "serper_api_key": ["QWEN_SERPER_API_KEY","SERPER_API_KEY"],
+            "base_url": ["QWEN_BASE_URL", "BASE_URL"],
+            "model": ["QWEN_MODEL", "MODEL"],
+            "max_tokens": ["QWEN_MAX_TOKENS", "MAX_TOKENS"],
+            "temperature": ["QWEN_TEMPERATURE", "TEMPERATURE"],
+            "max_steps": ["QWEN_MAX_STEPS", "MAX_STEPS"],
         }
         if key in aliases:
             for env_key in aliases[key]:

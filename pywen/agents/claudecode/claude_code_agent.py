@@ -468,7 +468,7 @@ class ClaudeCodeAgent(BaseAgent):
 
 
             # Get assistant response with fine-grained streaming events
-            assistant_message, tool_calls = None, []
+            assistant_message, tool_calls, final_response = None, [], None
             async for response_event in self._get_assistant_response_streaming(messages, depth=depth, **kwargs):
                 if response_event["type"] in ["llm_stream_start", "llm_chunk", "content"]:
                     # Forward streaming events to caller
@@ -518,8 +518,9 @@ class ClaudeCodeAgent(BaseAgent):
                 # if comression is not None:
                 #     self.conversation_history = comression
 
-                # Yield task completion event
-                yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
+                # Yield task completion event with safe usage check
+                if final_response and hasattr(final_response, 'usage') and final_response.usage:
+                    yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
                 yield {
                     "type": "task_complete",
                     "content": assistant_message.content if assistant_message else "",
