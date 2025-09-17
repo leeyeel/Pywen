@@ -37,6 +37,7 @@ dependencies = [
     "aiohttp>=3.12.13",
     "loguru>=0.7.3",
     "mcp>=1.13.0",
+    "pytest",
 ]
 
 [project.scripts]
