@@ -94,8 +94,6 @@ def truncate_to_last_consistent_turn(messages: List[Any]) -> List[Any]:
 
     return sanitized
 
-
-
 class ClaudeCodeAgent(BaseAgent):
     """Claude Code Agent implementation"""
 
@@ -1175,22 +1173,25 @@ class ClaudeCodeAgent(BaseAgent):
         inject_reminders: bool = True, 
         **kwargs
     ):
-   
         self._ensure_ckpt()
-    
-        snap = json.loads(Path(ckpt_path).read_text(encoding="utf-8"))
+
+        p = Path(ckpt_path)
+        if p.is_dir():
+            p = p / "checkpoint.json"
+
+        snap = CheckpointStore.load_from_path(p, depth=resume_depth)
         start_depth = CheckpointStore.apply_to_agent(self, snap)
         if resume_depth is not None:
             start_depth = resume_depth
-    
+
         history = truncate_to_last_consistent_turn(self.conversation_history)
-        hist_wo_system = [m for m in history if (m.get("role") if isinstance(m, dict) else m.role) != "system"]
+        hist_wo_system = [m for m in history if get_role(m) != "system"]
         appended = False
-    
+
         if inject_user:
             hist_wo_system.append(LLMMessage(role="user", content=inject_user))
             appended = True
-        elif inject_reminders and (not hist_wo_system or hist_wo_system[-1].role != "user"):
+        elif inject_reminders and (not hist_wo_system or get_role(hist_wo_system[-1]) != "user"):
             has_context = bool(self.context and len(hist_wo_system) > 1)
             reminders = generate_system_reminders(
                 has_context=has_context,
@@ -1201,8 +1202,8 @@ class ClaudeCodeAgent(BaseAgent):
                 for r in reminders:
                     hist_wo_system.append(LLMMessage(role="user", content=r.content))
                     appended = True
-    
-        if not appended and (not hist_wo_system or hist_wo_system[-1].role != "user"):
+
+        if not appended and (not hist_wo_system or get_role(hist_wo_system[-1]) != "user"):
             hist_wo_system.append(LLMMessage(role="user", content="Continue execution: based on the context above, proceed with the next step of reasoning and action."))
 
         messages = [
@@ -1216,4 +1217,4 @@ class ClaudeCodeAgent(BaseAgent):
 
         async for ev in self._query_recursive(messages, None, depth=start_depth, **kwargs):
             yield ev
- 
+
