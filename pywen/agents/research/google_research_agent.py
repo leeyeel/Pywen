@@ -1,8 +1,8 @@
 from typing import Dict, Any, List, AsyncGenerator, Optional
-from agents.base_agent import BaseAgent
-from utils.llm_basics import LLMMessage, LLMResponse
-from utils.tool_basics import ToolResult
-from agents.research.research_prompts import (
+from pywen.agents.base_agent import BaseAgent
+from pywen.utils.llm_basics import LLMMessage, LLMResponse
+from pywen.utils.tool_basics import ToolResult
+from pywen.agents.research.research_prompts import (
     get_current_date,
     query_writer_instructions,
     web_search_executor_instructions,
@@ -26,8 +26,12 @@ class GeminiResearchDemo(BaseAgent):
     
     def __init__(self, config, cli_console=None):
         super().__init__(config, cli_console)
-        
+
         self.type = "GeminiResearchDemo"
+
+        # Create concrete LLM client implementation
+        from pywen.utils.llm_client import LLMClient as UtilsLLMClient
+        self.llm_client = UtilsLLMClient.create(config.model_config)
         # Research state
         self.research_state = {
             "topic": "",

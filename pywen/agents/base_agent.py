@@ -8,7 +8,6 @@ from typing import List, Dict, Any
 
 from pywen.config.config import Config
 from pywen.ui.cli_console import CLIConsole
-from pywen.core.client import LLMClient
 from pywen.core.trajectory_recorder import TrajectoryRecorder
 from pywen.core.tool_registry import ToolRegistry
 from pywen.core.tool_executor import NonInteractiveToolExecutor
@@ -23,8 +22,6 @@ class BaseAgent(ABC):
         self.config = config
         self.cli_console = cli_console
         self.type = "BaseAgent"
-        
-        self.llm_client = LLMClient(config.model_config)
 
         self.conversation_history: List[LLMMessage] = []
         
@@ -94,12 +91,6 @@ class BaseAgent(ABC):
                 self.max_iterations = new_config.max_iterations
             if old_session_id:
                 self.config.session_id = old_session_id
-            self.llm_client = LLMClient(new_config.model_config)
-            
-            if hasattr(self, 'task_continuation_checker'):
-                from pywen.agents.qwen.task_continuation_checker import TaskContinuationChecker
-                #TODO
-                self.task_continuation_checker = TaskContinuationChecker(self.llm_client)
             
             # 重建系统提示 (如果子类实现了该方法)
             if hasattr(self, '_build_system_prompt'):

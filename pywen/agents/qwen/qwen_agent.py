@@ -44,6 +44,10 @@ class QwenAgent(BaseAgent):
         super().__init__(config, cli_console)
         self.type = "QwenAgent"
 
+        # Create concrete LLM client implementation
+        from pywen.utils.llm_client import LLMClient as UtilsLLMClient
+        self.llm_client = UtilsLLMClient.create(config.model_config)
+
         # Register this agent with session stats
         session_stats.set_current_agent(self.type)
         # QwenAgent specific initialization (before calling super)
@@ -107,7 +111,7 @@ class QwenAgent(BaseAgent):
     async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run agent with streaming output and task continuation."""
         await self.setup_tools_mcp()
-        model_name = self.llm_client.utils_config.model_params.model
+        model_name = self.config.model_config.model
         # Get token limit from TokenLimits class
         max_tokens = TokenLimits.get_limit(ModelProvider.QWEN, model_name)
         #TODO，从console剥离

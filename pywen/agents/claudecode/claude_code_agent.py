@@ -27,6 +27,10 @@ class ClaudeCodeAgent(BaseAgent):
     def __init__(self, config, cli_console=None):
         super().__init__(config, cli_console)
         self.type = "ClaudeCodeAgent"
+
+        # Create concrete LLM client implementation
+        from pywen.utils.llm_client import LLMClient as UtilsLLMClient
+        self.llm_client = UtilsLLMClient.create(config.model_config)
         self.prompts = ClaudeCodePrompts()
         self.project_path = os.getcwd()
         self.max_iterations = getattr(config, 'max_iterations', 10)
@@ -248,8 +252,8 @@ class ClaudeCodeAgent(BaseAgent):
                 top_p=self.config.model_config.top_p
             )
 
-            # Use the underlying utils client directly for config support
-            response_result = await self.llm_client.client.generate_response(
+            # Use the LLM client for quota check (config parameter not available in abstract interface)
+            response_result = await self.llm_client.generate_response(
                 messages=quota_messages,
                 tools=None,  # No tools for quota check
                 stream=False,  # Use non-streaming for quota check

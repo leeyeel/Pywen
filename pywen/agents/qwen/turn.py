@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any
 from enum import Enum
 
 
-from pywen.core.client import LLMMessage, LLMResponse
+from pywen.utils.llm_basics import LLMMessage, LLMResponse
 from pywen.utils.tool_basics import ToolCall, ToolResult
 
 
