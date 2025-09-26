@@ -142,7 +142,7 @@ class IntelligentFileRestorer():
     def file_recover(self, file_counter) -> str:
         if not file_counter:
             #print("⚠️ 暂无文件记录，无法恢复。")
-            return None
+            return '' 
 
         # 1. 计算每条记录的 importance score
         ranked_files = []

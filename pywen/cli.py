@@ -23,6 +23,9 @@ from pywen.ui.utils.keyboard import create_key_bindings
 from pywen.memory.memory_monitor import Memorymonitor
 from pywen.memory.file_restorer import IntelligentFileRestorer
 from pywen.utils.llm_basics import LLMMessage
+from pywen.hooks.config import load_hooks_config
+from pywen.hooks.manager import HookManager
+from pywen.hooks.models import HookEvent
 
 class ExecutionState:
     """集中管理一次用户请求的执行状态与取消信号。"""
@@ -125,6 +128,7 @@ async def interactive_mode_streaming(
     memory_monitor: Memorymonitor,
     file_restorer: IntelligentFileRestorer,
     perm_mgr: PermissionManager,
+    hook_mgr: HookManager,
 ) -> None:
     """交互式模式，基于 prompt_toolkit + 统一流式执行器。"""
 
@@ -192,6 +196,16 @@ async def interactive_mode_streaming(
                     await command_processor._handle_shell_command(user_input, context)
                     continue
 
+                ok, msg, extra = hook_mgr.emit(
+                        HookEvent.UserPromptSubmit,
+                        base_payload={"session_id": session_id, "prompt": user_input},
+                )
+                if not ok:
+                    console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+                    continue
+                if extra.get("additionalContext"):
+                    agent.conversation_history.append(LLMMessage(role="user", content=extra["additionalContext"]))
+
                 context = {"console": console, "agent": current_agent, "config": config}
                 cmd_result = await command_processor.process_command(user_input, context)
 
@@ -238,7 +252,8 @@ async def interactive_mode_streaming(
     finally:
         await current_agent.aclose()
 
-async def single_prompt_mode_streaming(agent: QwenAgent, console: CLIConsole, prompt_text: str) -> None:
+async def single_prompt_mode_streaming(agent: QwenAgent, console: CLIConsole, prompt_text: str,
+                                       session_id: str, hook_mgr: HookManager) -> None:
     """单次模式：与交互模式共享同一事件消费逻辑（但无需状态与记忆压缩）。"""
     async for event in agent.run(prompt_text):
         await console.handle_streaming_event(event, agent)
@@ -281,17 +296,26 @@ async def main() -> None:
     memory_monitor = Memorymonitor(config, console, verbose=False)
     file_restorer = IntelligentFileRestorer()
 
+    session_id = args.session_id or str(uuid.uuid4())[:8]
+    setattr(config, "session_id", session_id)
+
+    hooks_cfg = load_hooks_config(cfg_mgr.get_default_hooks_path())
+    hook_mgr = HookManager(hooks_cfg)
+    hook_mgr.emit(
+        HookEvent.SessionStart,
+        base_payload={"session_id": session_id, "source": "startup"},
+    )
+
     agent = QwenAgent(config)
     agent.set_cli_console(console)
 
     console.start_interactive_mode()
 
     if args.interactive or not args.prompt:
-        session_id = args.session_id or str(uuid.uuid4())[:8]
-        setattr(config, "session_id", session_id)
-        await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, file_restorer, perm_mgr)
+        await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, 
+                                         file_restorer, perm_mgr, hook_mgr)
     else:
-        await single_prompt_mode_streaming(agent, console, args.prompt)
+        await single_prompt_mode_streaming(agent, console, args.prompt, session_id, hook_mgr)
 
 if __name__ == "__main__":
     main_sync()

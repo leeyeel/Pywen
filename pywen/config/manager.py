@@ -88,6 +88,10 @@ class ConfigManager:
         return  ConfigManager.get_pywen_config_dir() / "pywen_config.json"
 
     @staticmethod
+    def get_default_hooks_path() -> Path:
+        return  ConfigManager.get_pywen_config_dir() / "pywen_hooks.json"
+
+    @staticmethod
     def get_default_env_path() -> Path:
         return ConfigManager.get_pywen_config_dir() / ".env"
 
