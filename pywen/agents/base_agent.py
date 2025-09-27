@@ -13,12 +13,13 @@ from pywen.core.tool_registry import ToolRegistry
 from pywen.core.tool_executor import NonInteractiveToolExecutor
 from pywen.utils.llm_basics import LLMMessage
 from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
+from pywen.hooks.manager import HookManager
 
 
 class BaseAgent(ABC):
     """Base class providing shared components for all agent implementations."""
     
-    def __init__(self, config: Config, cli_console: Optional[CLIConsole] =None):
+    def __init__(self, config: Config, hook_mgr:HookManager, cli_console: Optional[CLIConsole] =None):
         self.config = config
         self.cli_console = cli_console
         self.type = "BaseAgent"
@@ -37,6 +38,8 @@ class BaseAgent(ABC):
         self._closed = False 
         self._mcp_mgr = None
         self._mcp_init_lock = asyncio.Lock()
+
+        self.hook_mgr = hook_mgr
 
     def setup_tools(self):
         enabled_tools = self.get_enabled_tools()

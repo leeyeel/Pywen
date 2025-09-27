@@ -4,7 +4,6 @@ import os
 import subprocess
 from typing import Any, Dict, Optional 
 
-
 class HookResult:
     def __init__(
         self,
@@ -17,7 +16,6 @@ class HookResult:
         self.stdout = stdout
         self.stderr = stderr
         self.json_out = json_out
-
 
 def run_command_hook(
     cmd: str,

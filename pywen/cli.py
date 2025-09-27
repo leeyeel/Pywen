@@ -58,6 +58,8 @@ async def run_streaming(
     memory_monitor: Memorymonitor,
     file_restorer: IntelligentFileRestorer,
     dialogue_counter: int,
+    session_id:str,
+    hook_mgr: HookManager,
 ) -> str:
     """
     统一的流式执行器，支持取消、工具结果处理、记忆压缩与文件恢复。
@@ -95,6 +97,18 @@ async def run_streaming(
                     if recovered:
                         summary += "\nHere is the potentially important file content:\n" + recovered
                     agent.conversation_history = [LLMMessage(role="user", content=summary)]
+
+                ok, msg, extra = hook_mgr.emit(
+                        HookEvent.Stop,
+                        base_payload={"session_id": session_id, "prompt": user_input},
+                )
+                if msg: 
+                    console.print(msg, "yellow")
+                if not ok:
+                    console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+                    continue
+                if extra.get("additionalContext"):
+                    agent.conversation_history.append(LLMMessage(role="user", content=extra["additionalContext"]))
 
                 return result
 
@@ -154,9 +168,6 @@ async def interactive_mode_streaming(
         wrap_lines=True,
     )
 
-    def _print_goodbye(console: CLIConsole) -> None:
-        console.print("Goodbye!", "yellow")
-
     def _should_exit(user_input: str | None) -> bool:
         if user_input is None:
             return True
@@ -178,23 +189,18 @@ async def interactive_mode_streaming(
                 try:
                     user_input = await session.prompt_async(_prompt_prefix(session_id), multiline=False)
                 except EOFError:
-                    _print_goodbye(console)
+                    console.print("Goodbye!", "yellow")
                     break
                 except KeyboardInterrupt:
                     console.print("\nUse Ctrl+C twice to quit, or type 'exit'", "yellow")
                     continue
 
-                if _should_exit(user_input):
-                    _print_goodbye(console)
-                    break
-
                 if not user_input.strip():
                     continue
 
-                if user_input.startswith("!"):
-                    context = {"console": console, "agent": current_agent}
-                    await command_processor._handle_shell_command(user_input, context)
-                    continue
+                if _should_exit(user_input):
+                    console.print("Goodbye!", "yellow")
+                    break
 
                 ok, msg, extra = hook_mgr.emit(
                         HookEvent.UserPromptSubmit,
@@ -205,6 +211,11 @@ async def interactive_mode_streaming(
                     continue
                 if extra.get("additionalContext"):
                     agent.conversation_history.append(LLMMessage(role="user", content=extra["additionalContext"]))
+
+                if user_input.startswith("!"):
+                    context = {"console": console, "agent": current_agent}
+                    await command_processor._handle_shell_command(user_input, context)
+                    continue
 
                 context = {"console": console, "agent": current_agent, "config": config}
                 cmd_result = await command_processor.process_command(user_input, context)
@@ -221,14 +232,9 @@ async def interactive_mode_streaming(
 
                 state.start()
                 state.current_task = asyncio.create_task(
-                    run_streaming(
-                        current_agent,
-                        user_input,
-                        console,
-                        state,
-                        memory_monitor=memory_monitor,
-                        file_restorer=file_restorer,
-                        dialogue_counter=dialogue_counter,
+                    run_streaming( current_agent, user_input, console, state,
+                        memory_monitor=memory_monitor, file_restorer=file_restorer, dialogue_counter=dialogue_counter, 
+                        session_id = session_id, hook_mgr = hook_mgr,
                     )
                 )
 
@@ -240,7 +246,7 @@ async def interactive_mode_streaming(
                 console.print("\nInterrupted by user. Press Ctrl+C again to quit.", "yellow")
                 state.reset()
             except EOFError:
-                _print_goodbye(console)
+                console.print("Goodbye!", "yellow")
                 break
             except UnicodeError as e:
                 console.print(f"Unicode 错误: {e}", "red")
@@ -255,6 +261,14 @@ async def interactive_mode_streaming(
 async def single_prompt_mode_streaming(agent: QwenAgent, console: CLIConsole, prompt_text: str,
                                        session_id: str, hook_mgr: HookManager) -> None:
     """单次模式：与交互模式共享同一事件消费逻辑（但无需状态与记忆压缩）。"""
+    ok, msg, _ = hook_mgr.emit(
+            HookEvent.UserPromptSubmit,
+            base_payload={"session_id": session_id, "prompt": prompt_text},
+    )
+    if not ok:
+        console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+        return 
+
     async for event in agent.run(prompt_text):
         await console.handle_streaming_event(event, agent)
     await agent.aclose()
@@ -306,7 +320,7 @@ async def main() -> None:
         base_payload={"session_id": session_id, "source": "startup"},
     )
 
-    agent = QwenAgent(config)
+    agent = QwenAgent(config, hook_mgr)
     agent.set_cli_console(console)
 
     console.start_interactive_mode()
