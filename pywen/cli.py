@@ -217,7 +217,7 @@ async def interactive_mode_streaming(
                     await command_processor._handle_shell_command(user_input, context)
                     continue
 
-                context = {"console": console, "agent": current_agent, "config": config}
+                context = {"console": console, "agent": current_agent, "config": config, "hook_mgr": hook_mgr}
                 cmd_result = await command_processor.process_command(user_input, context)
 
                 if context and "agent" in context and context["agent"] is not current_agent:
