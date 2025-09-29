@@ -69,7 +69,7 @@ class AgentCommand(BaseCommand):
         
         try:
             # 创建新agent
-            new_agent = self._create_agent(context.get('config'), new_agent_type)
+            new_agent = self._create_agent(context.get('config'), context.get('hook_mgr'), new_agent_type)
             new_agent.set_cli_console(context.get('console'))
             
             # 更新context中的agent
@@ -107,16 +107,16 @@ class AgentCommand(BaseCommand):
 
         return "unknown"
     
-    def _create_agent(self, config, agent_type: str):
+    def _create_agent(self, config, hook_mgr, agent_type: str):
         """创建agent实例"""
         if agent_type == "qwen":
             from pywen.agents.qwen.qwen_agent import QwenAgent
-            return QwenAgent(config)
+            return QwenAgent(config, hook_mgr)
         elif agent_type == "research":
             from pywen.agents.research.google_research_agent import GeminiResearchDemo
             return GeminiResearchDemo(config)
         elif agent_type == "claude":
             from pywen.agents.claudecode.claude_code_agent import ClaudeCodeAgent
-            return ClaudeCodeAgent(config)
+            return ClaudeCodeAgent(config, hook_mgr)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")

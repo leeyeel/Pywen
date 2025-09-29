@@ -16,7 +16,7 @@ from pywen.agents.qwen.task_continuation_checker import TaskContinuationChecker,
 from pywen.agents.qwen.loop_detection_service import AgentLoopDetectionService
 from pywen.utils.token_limits import TokenLimits, ModelProvider
 from pywen.core.session_stats import session_stats
-
+from pywen.hooks.models import HookEvent
 
 class EventType(Enum):
     """Types of events during agent execution."""
@@ -27,7 +27,6 @@ class EventType(Enum):
     ITERATION_START = "iteration_start"
     TURN_COMPLETE = "turn_complete"
 
-
 @dataclass
 class AgentEvent:
     """Event emitted during agent execution."""
@@ -35,13 +34,12 @@ class AgentEvent:
     data: Any
     timestamp: datetime = field(default_factory=datetime.now)
 
-
 class QwenAgent(BaseAgent):
     """Qwen Agent with streaming iterative tool calling logic."""
     
-    def __init__(self, config, cli_console=None):
+    def __init__(self, config, hook_mgr, cli_console=None):
         # Initialize shared components via base class (includes tool setup)
-        super().__init__(config, cli_console)
+        super().__init__(config, hook_mgr, cli_console)
         self.type = "QwenAgent"
 
         # Create concrete LLM client implementation
@@ -899,9 +897,37 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                                 continue
             
             try:
-                # 工具执行 (session stats 会在 tool_scheduler 中自动记录)
+                if self.hook_mgr:
+                    pre_ok, pre_msg, _ = self.hook_mgr.emit(
+                        HookEvent.PreToolUse,
+                        base_payload={
+                            "session_id": getattr(self.config, "session_id", ""),
+                        },
+                        tool_name=tool_call.name,
+                        tool_input=dict(tool_call.arguments or {}),
+                    )
+                    if pre_msg and self.cli_console:
+                        self.cli_console.print(pre_msg, "yellow")
+                    if not pre_ok:
+                        blocked_reason = pre_msg or "Tool call blocked by PreToolUse hook"
+                        yield {"type": "tool_result", "data": {
+                            "call_id": tool_call.call_id,
+                            "name": tool_call.name,
+                            "result": blocked_reason,
+                            "success": False,
+                            "error": blocked_reason,
+                            "arguments": tool_call.arguments
+                        }}
+                        self.conversation_history.append(LLMMessage(
+                            role="tool",
+                            content=blocked_reason,
+                            tool_call_id=tool_call.call_id
+                        ))
+                        continue
+
                 results = await self.tool_executor.execute_tools([tool_call], self.type)
                 result = results[0]
+
 
                 # 立即发送工具结果（补充 arguments 以便后续路径解析回退）
                 yield {"type": "tool_result", "data": {
@@ -928,6 +954,36 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                     tool_call_id=tool_call.call_id
                 )
                 self.conversation_history.append(tool_msg)
+
+                if self.hook_mgr:
+                    post_ok, post_msg, post_extra = self.hook_mgr.emit(
+                        HookEvent.PostToolUse,
+                        base_payload={
+                            "session_id": getattr(self.config, "session_id", ""),
+                            "cwd": str(Path.cwd()),
+                        },
+                        tool_name=tool_call.name,
+                        tool_input=dict(tool_call.arguments or {}),
+                        tool_response={
+                            "result": result.result,
+                            "success": result.success,
+                            "error": result.error,
+                        },
+                    )
+                    if post_msg and self.cli_console:
+                        self.cli_console.print(post_msg, "yellow")
+                    if not post_ok:
+                        blocked_reason = post_msg or "PostToolUse hook blocked further processing"
+                        yield {"type": "tool_error", "data": {
+                            "call_id": tool_call.call_id,
+                            "name": tool_call.name,
+                            "error": blocked_reason
+                        }}
+                    if post_extra.get("additionalContext"):
+                        self.conversation_history.append(LLMMessage(
+                            role="system",
+                            content=post_extra["additionalContext"]
+                        ))
                 
             except Exception as e:
                 error_msg = f"Tool execution failed: {str(e)}"

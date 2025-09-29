@@ -1,14 +1,10 @@
 """Non-interactive tool executor."""
 
-import sys
-from pathlib import Path
 from typing import List, Dict, Any
 
 from pywen.utils.tool_basics import ToolCall, ToolResult
 from pywen.core.tool_registry import ToolRegistry
 from pywen.core.tool_scheduler import CoreToolScheduler
-from pywen.core.session_stats import session_stats
-
 
 class NonInteractiveToolExecutor:
     """Non-interactive tool executor for batch processing."""
@@ -17,7 +13,7 @@ class NonInteractiveToolExecutor:
         self.tool_registry = tool_registry
         self.scheduler = CoreToolScheduler(tool_registry)
     
-    async def execute_tools(self, tool_calls: List[ToolCall], agent_name: str = None) -> List[ToolResult]:
+    async def execute_tools(self, tool_calls: List[ToolCall], agent_name: str = '') -> List[ToolResult]:
         """Execute multiple tool calls non-interactively."""
         if not tool_calls:
             return []
@@ -29,13 +25,13 @@ class NonInteractiveToolExecutor:
     
     def get_available_tools(self) -> List[str]:
         """Get list of available tool names."""
-        return [tool.name for tool in self.tool_registry.get_all_tools()]
+        return [tool.name for tool in self.tool_registry.list_tools()]
     
     def get_tool_declarations(self) -> List[Dict[str, Any]]:
         """Get function declarations for all available tools."""
         return self.tool_registry.get_function_declarations()
     
-    async def execute_tool_call(self, tool_call: ToolCall, console=None, agent_name: str = None) -> ToolResult:
+    async def execute_tool_call(self, tool_call: ToolCall, console=None, agent_name: str = '') -> ToolResult:
         """Execute a tool call with confirmation if needed."""
         try:
             # 获取工具实例
@@ -57,8 +53,6 @@ class NonInteractiveToolExecutor:
             
             # 执行工具
             result = await tool.execute(**tool_call.arguments)
-
-            # Tool call statistics are recorded in tool_scheduler
 
             return result
         

@@ -23,6 +23,9 @@ from pywen.ui.utils.keyboard import create_key_bindings
 from pywen.memory.memory_monitor import Memorymonitor
 from pywen.memory.file_restorer import IntelligentFileRestorer
 from pywen.utils.llm_basics import LLMMessage
+from pywen.hooks.config import load_hooks_config
+from pywen.hooks.manager import HookManager
+from pywen.hooks.models import HookEvent
 
 class ExecutionState:
     """集中管理一次用户请求的执行状态与取消信号。"""
@@ -55,6 +58,8 @@ async def run_streaming(
     memory_monitor: Memorymonitor,
     file_restorer: IntelligentFileRestorer,
     dialogue_counter: int,
+    session_id:str,
+    hook_mgr: HookManager,
 ) -> str:
     """
     统一的流式执行器，支持取消、工具结果处理、记忆压缩与文件恢复。
@@ -93,6 +98,18 @@ async def run_streaming(
                         summary += "\nHere is the potentially important file content:\n" + recovered
                     agent.conversation_history = [LLMMessage(role="user", content=summary)]
 
+                ok, msg, extra = hook_mgr.emit(
+                        HookEvent.Stop,
+                        base_payload={"session_id": session_id, "prompt": user_input},
+                )
+                if msg: 
+                    console.print(msg, "yellow")
+                if not ok:
+                    console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+                    continue
+                if extra.get("additionalContext"):
+                    agent.conversation_history.append(LLMMessage(role="user", content=extra["additionalContext"]))
+
                 return result
 
             if result == "tool_cancelled":
@@ -125,6 +142,7 @@ async def interactive_mode_streaming(
     memory_monitor: Memorymonitor,
     file_restorer: IntelligentFileRestorer,
     perm_mgr: PermissionManager,
+    hook_mgr: HookManager,
 ) -> None:
     """交互式模式，基于 prompt_toolkit + 统一流式执行器。"""
 
@@ -150,9 +168,6 @@ async def interactive_mode_streaming(
         wrap_lines=True,
     )
 
-    def _print_goodbye(console: CLIConsole) -> None:
-        console.print("Goodbye!", "yellow")
-
     def _should_exit(user_input: str | None) -> bool:
         if user_input is None:
             return True
@@ -174,25 +189,35 @@ async def interactive_mode_streaming(
                 try:
                     user_input = await session.prompt_async(_prompt_prefix(session_id), multiline=False)
                 except EOFError:
-                    _print_goodbye(console)
+                    console.print("Goodbye!", "yellow")
                     break
                 except KeyboardInterrupt:
                     console.print("\nUse Ctrl+C twice to quit, or type 'exit'", "yellow")
                     continue
 
-                if _should_exit(user_input):
-                    _print_goodbye(console)
-                    break
-
                 if not user_input.strip():
                     continue
+
+                if _should_exit(user_input):
+                    console.print("Goodbye!", "yellow")
+                    break
+
+                ok, msg, extra = hook_mgr.emit(
+                        HookEvent.UserPromptSubmit,
+                        base_payload={"session_id": session_id, "prompt": user_input},
+                )
+                if not ok:
+                    console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+                    continue
+                if extra.get("additionalContext"):
+                    agent.conversation_history.append(LLMMessage(role="user", content=extra["additionalContext"]))
 
                 if user_input.startswith("!"):
                     context = {"console": console, "agent": current_agent}
                     await command_processor._handle_shell_command(user_input, context)
                     continue
 
-                context = {"console": console, "agent": current_agent, "config": config}
+                context = {"console": console, "agent": current_agent, "config": config, "hook_mgr": hook_mgr}
                 cmd_result = await command_processor.process_command(user_input, context)
 
                 if context and "agent" in context and context["agent"] is not current_agent:
@@ -207,14 +232,9 @@ async def interactive_mode_streaming(
 
                 state.start()
                 state.current_task = asyncio.create_task(
-                    run_streaming(
-                        current_agent,
-                        user_input,
-                        console,
-                        state,
-                        memory_monitor=memory_monitor,
-                        file_restorer=file_restorer,
-                        dialogue_counter=dialogue_counter,
+                    run_streaming( current_agent, user_input, console, state,
+                        memory_monitor=memory_monitor, file_restorer=file_restorer, dialogue_counter=dialogue_counter, 
+                        session_id = session_id, hook_mgr = hook_mgr,
                     )
                 )
 
@@ -226,7 +246,7 @@ async def interactive_mode_streaming(
                 console.print("\nInterrupted by user. Press Ctrl+C again to quit.", "yellow")
                 state.reset()
             except EOFError:
-                _print_goodbye(console)
+                console.print("Goodbye!", "yellow")
                 break
             except UnicodeError as e:
                 console.print(f"Unicode 错误: {e}", "red")
@@ -238,8 +258,17 @@ async def interactive_mode_streaming(
     finally:
         await current_agent.aclose()
 
-async def single_prompt_mode_streaming(agent: QwenAgent, console: CLIConsole, prompt_text: str) -> None:
+async def single_prompt_mode_streaming(agent: QwenAgent, console: CLIConsole, prompt_text: str,
+                                       session_id: str, hook_mgr: HookManager) -> None:
     """单次模式：与交互模式共享同一事件消费逻辑（但无需状态与记忆压缩）。"""
+    ok, msg, _ = hook_mgr.emit(
+            HookEvent.UserPromptSubmit,
+            base_payload={"session_id": session_id, "prompt": prompt_text},
+    )
+    if not ok:
+        console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+        return 
+
     async for event in agent.run(prompt_text):
         await console.handle_streaming_event(event, agent)
     await agent.aclose()
@@ -281,17 +310,26 @@ async def main() -> None:
     memory_monitor = Memorymonitor(config, console, verbose=False)
     file_restorer = IntelligentFileRestorer()
 
-    agent = QwenAgent(config)
+    session_id = args.session_id or str(uuid.uuid4())[:8]
+    setattr(config, "session_id", session_id)
+
+    hooks_cfg = load_hooks_config(cfg_mgr.get_default_hooks_path())
+    hook_mgr = HookManager(hooks_cfg)
+    hook_mgr.emit(
+        HookEvent.SessionStart,
+        base_payload={"session_id": session_id, "source": "startup"},
+    )
+
+    agent = QwenAgent(config, hook_mgr)
     agent.set_cli_console(console)
 
     console.start_interactive_mode()
 
     if args.interactive or not args.prompt:
-        session_id = args.session_id or str(uuid.uuid4())[:8]
-        setattr(config, "session_id", session_id)
-        await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, file_restorer, perm_mgr)
+        await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, 
+                                         file_restorer, perm_mgr, hook_mgr)
     else:
-        await single_prompt_mode_streaming(agent, console, args.prompt)
+        await single_prompt_mode_streaming(agent, console, args.prompt, session_id, hook_mgr)
 
 if __name__ == "__main__":
     main_sync()
