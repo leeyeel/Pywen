@@ -28,13 +28,13 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Write|Edit",
+        "matcher": "bash|write_file|edit",
         "hooks": [ { "type": "command", "command": "./.pywen/hooks/pre_check.py", "timeout": 5 } ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|Bash",
+        "matcher": "write_file|edit|bash",
         "hooks": [ { "type": "command", "command": "./.pywen/hooks/post_audit.py" } ]
       }
     ],
@@ -257,11 +257,11 @@ sys.exit(1)
 * 仅用于 `PreToolUse`/`PostToolUse`：与 `tool_name` 全匹配（大小写敏感）
 * 支持：
 
-  * 精确：`"Write"`
-  * 正则：`"Edit|Write"`, `"Notebook.*"`
+  * 精确：`"write_file"`
+  * 正则：`"edit|write_file"`
   * 全匹配：`"*"`、`""`、或省略
 
-确保与你工具注册名一致（例如 `"Bash"`, `"Write"`, `"Edit"` …）。
+确保与你工具注册名一致（例如 `"bash"`, `"write_file"`, `"edit"` …）。
 
 ---
 
@@ -294,7 +294,7 @@ sys.exit(1)
 ok, msg, extra = hook_mgr.emit(
     HookEvent.PreToolUse,
     base_payload={"session_id":"test","cwd":os.getcwd()},
-    tool_name="Bash",
+    tool_name="bash",
     tool_input={"command":"echo ok"}
 )
 print("PRE:", ok, msg)
@@ -302,7 +302,7 @@ print("PRE:", ok, msg)
 ok, msg, extra = hook_mgr.emit(
     HookEvent.PostToolUse,
     base_payload={"session_id":"test","cwd":os.getcwd()},
-    tool_name="Bash",
+    tool_name="bash",
     tool_input={"command":"echo ok"},
     tool_response={"success": True, "result":"ok", "error": None}
 )
