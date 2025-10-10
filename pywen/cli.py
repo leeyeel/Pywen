@@ -98,7 +98,7 @@ async def run_streaming(
                         summary += "\nHere is the potentially important file content:\n" + recovered
                     agent.conversation_history = [LLMMessage(role="user", content=summary)]
 
-                ok, msg, extra = hook_mgr.emit(
+                ok, msg, extra = await hook_mgr.emit(
                         HookEvent.Stop,
                         base_payload={"session_id": session_id, "prompt": user_input},
                 )
@@ -195,14 +195,14 @@ async def interactive_mode_streaming(
                     console.print("\nUse Ctrl+C twice to quit, or type 'exit'", "yellow")
                     continue
 
-                if not user_input.strip():
-                    continue
-
                 if _should_exit(user_input):
                     console.print("Goodbye!", "yellow")
                     break
 
-                ok, msg, extra = hook_mgr.emit(
+                if not user_input.strip():
+                    continue
+
+                ok, msg, extra = await hook_mgr.emit(
                         HookEvent.UserPromptSubmit,
                         base_payload={"session_id": session_id, "prompt": user_input},
                 )
@@ -261,7 +261,7 @@ async def interactive_mode_streaming(
 async def single_prompt_mode_streaming(agent: QwenAgent, console: CLIConsole, prompt_text: str,
                                        session_id: str, hook_mgr: HookManager) -> None:
     """单次模式：与交互模式共享同一事件消费逻辑（但无需状态与记忆压缩）。"""
-    ok, msg, _ = hook_mgr.emit(
+    ok, msg, _ = await hook_mgr.emit(
             HookEvent.UserPromptSubmit,
             base_payload={"session_id": session_id, "prompt": prompt_text},
     )
@@ -315,7 +315,7 @@ async def main() -> None:
 
     hooks_cfg = load_hooks_config(cfg_mgr.get_default_hooks_path())
     hook_mgr = HookManager(hooks_cfg)
-    hook_mgr.emit(
+    await hook_mgr.emit(
         HookEvent.SessionStart,
         base_payload={"session_id": session_id, "source": "startup"},
     )

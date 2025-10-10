@@ -898,7 +898,7 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
             
             try:
                 if self.hook_mgr:
-                    pre_ok, pre_msg, _ = self.hook_mgr.emit(
+                    pre_ok, pre_msg, _ = await self.hook_mgr.emit(
                         HookEvent.PreToolUse,
                         base_payload={
                             "session_id": getattr(self.config, "session_id", ""),
@@ -956,7 +956,7 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
                 self.conversation_history.append(tool_msg)
 
                 if self.hook_mgr:
-                    post_ok, post_msg, post_extra = self.hook_mgr.emit(
+                    post_ok, post_msg, post_extra = await self.hook_mgr.emit(
                         HookEvent.PostToolUse,
                         base_payload={
                             "session_id": getattr(self.config, "session_id", ""),
