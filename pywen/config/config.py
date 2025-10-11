@@ -12,7 +12,6 @@ class ModelProvider(Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
 
-
 @dataclass
 class MCPServerConfig:
     name: str
@@ -36,8 +35,8 @@ class MCPConfig:
 @dataclass
 class ModelConfig:
     provider: ModelProvider
-    model: str
-    api_key: str
+    model: Optional[str] = None
+    api_key: Optional[str] = None
     base_url: Optional[str] = None
     temperature: float = 0.7
     max_tokens: int = 4096

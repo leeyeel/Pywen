@@ -296,9 +296,7 @@ async def main() -> None:
     if args.create_config:
         cfg_mgr.create_default_config(args)
         return
-
-    cfg_mgr.load(interactive_bootstrap=True)
-    config = cfg_mgr.load_with_cli_overrides(args)
+    config = cfg_mgr.resolve_effective_config(args, allow_prompt=args.interactive or not args.prompt)
 
     console = CLIConsole()
 

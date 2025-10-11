@@ -1,5 +1,5 @@
 # pywen/config/manager.py
-"""configuration manager for Pywen."""
+"""configuration manager for Pywen (no .env write, env only read)."""
 from __future__ import annotations
 
 import json
@@ -7,6 +7,7 @@ import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+from .wizard import ConfigWizard
 
 from .config import (
     Config,
@@ -70,12 +71,22 @@ DEFAULT_CONFIG_SCAFFOLD: Dict[str, Any] = {
     "memory_monitor": DEFAULT_MEMORY_MONITOR,
 }
 
+REQUIRED_KEYS = ("api_key", "base_url", "model")
+
+ENV_ALIASES = {
+    "api_key":   ["QWEN_API_KEY", "DASHSCOPE_API_KEY", "API_KEY"],
+    "base_url":  ["QWEN_BASE_URL", "BASE_URL"],
+    "model":     ["QWEN_MODEL", "MODEL"],
+}
+
+PLACEHOLDERS = {"your-qwen-api-key-here", "changeme", "placeholder"}
+
 class ConfigManager:
-    """Repository-style loader/saver for Pywen Config."""
+    """Repository-style loader/saver for Pywen Config (no .env write)."""
 
     def __init__(self, config_path: Optional[str | Path] = None):
         self.config_path: Path = Path(config_path) if config_path else self.get_default_config_path()
-        self.env_path: Path = self.get_default_env_path()
+        self._current_config: Optional[Config] = None
 
     @staticmethod
     def get_pywen_config_dir() -> Path:
@@ -85,15 +96,11 @@ class ConfigManager:
 
     @staticmethod
     def get_default_config_path() -> Path:
-        return  ConfigManager.get_pywen_config_dir() / "pywen_config.json"
+        return ConfigManager.get_pywen_config_dir() / "pywen_config.json"
 
     @staticmethod
     def get_default_hooks_path() -> Path:
-        return  ConfigManager.get_pywen_config_dir() / "pywen_hooks.json"
-
-    @staticmethod
-    def get_default_env_path() -> Path:
-        return ConfigManager.get_pywen_config_dir() / ".env"
+        return ConfigManager.get_pywen_config_dir() / "pywen_hooks.json"
 
     @staticmethod
     def get_trajectories_dir() -> Path:
@@ -115,37 +122,64 @@ class ConfigManager:
 
     def load(self, *, interactive_bootstrap: bool = False) -> Config:
         """Load Config. If missing and interactive_bootstrap=True, run wizard."""
-        self._load_dotenv_if_available()
-
         resolved = self._resolve_config_path(interactive_bootstrap=interactive_bootstrap)
         data = self._read_json(resolved)
         data = self._ensure_required_sections(data)
-
         cfg = self._parse_config_data(data)
-
         try:
             setattr(cfg, "_config_file", str(resolved))
         except Exception:
             pass
-
+        self._current_config = cfg
         return cfg
 
     def save(self, cfg: Config) -> Path:
-        """Serialize Config to JSON and write to self.config_path. Also sync .env."""
+        """Serialize Config to JSON (no .env write)."""
         data = self._config_to_dict(cfg)
         self._write_json(self.config_path, data)
-        self._update_env_file_from_data(data)
+        self._current_config = cfg
         return self.config_path
+
+    def save_as(self, cfg: Config, target_path: str | Path) -> Path:
+        """Serialize Config to a given JSON path (no .env write)."""
+        target = Path(target_path)
+        data = self._config_to_dict(cfg)
+        self._write_json(target, data)
+        self._current_config = cfg
+        return target
 
     def write_config_data(self, data: Dict[str, Any]) -> Path:
-        """Write raw dict config (caller负责正确结构)。也会刷新 .env。"""
+        """Write raw dict config to current JSON path (no .env write)."""
         data = self._ensure_required_sections(data)
         self._write_json(self.config_path, data)
-        self._update_env_file_from_data(data)
+        self._current_config = self._parse_config_data(data)
         return self.config_path
 
+    def get_config(self) -> Config:
+        if self._current_config is None:
+            if self.default_config_exists():
+                return self.load(interactive_bootstrap=False)
+            return self.create_runtime_empty_config()
+        return self._current_config
+
+    def load_config_file(self, path: str | Path) -> Config:
+        """Read specific config file as current config (no .env write)."""
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Config file not found: {p}")
+        self.config_path = p
+        data = self._read_json(p)
+        data = self._ensure_required_sections(data)
+        cfg = self._parse_config_data(data)
+        try:
+            setattr(cfg, "_config_file", str(p))
+        except Exception:
+            pass
+        self._current_config = cfg
+        return cfg
+
     def __overwrite(self, config, cli_args):
-        """ overwrite config"""
+        """Only override when CLI explicitly passes (no persist)."""
         if getattr(cli_args, "model", None):
             config.model_config.model = cli_args.model
         if getattr(cli_args, "temperature", None) is not None:
@@ -156,26 +190,26 @@ class ConfigManager:
             config.model_config.api_key = cli_args.api_key
         if getattr(cli_args, "base_url", None):
             config.model_config.base_url = cli_args.base_url
-
         return config
- 
+
     def create_default_config(self, cli_args) -> Path:
-        """Create default config (prefilled from env if available)."""
+        """Create default config JSON (prefill from existing env, no .env write)."""
         dft_data = self._prefill_from_env(DEFAULT_CONFIG_SCAFFOLD)
         config = {
-            "api_key": cli_args.api_key or os.getenv("QWEN_API_KEY"),
-            "base_url": cli_args.base_url or os.getenv("QWEN_BASE_URL"),
-            "model": cli_args.model or os.getenv("QWEN_MODEL"),
+            "api_key": cli_args.api_key or self._env_get("api_key"),
+            "base_url": cli_args.base_url or self._env_get("base_url"),
+            "model": cli_args.model or self._env_get("model"),
         }
         data = self._build_json_from_values(config)
         dft_data.update(data)
         self._write_json(self.config_path, dft_data)
-        self._update_env_file_from_data(dft_data)
+        self._current_config = self._parse_config_data(dft_data)
         return self.config_path
 
     def load_with_cli_overrides(self, cli_args) -> Config:
         cfg = self.load(interactive_bootstrap=False)
-        return self.__overwrite(cfg, cli_args)
+        self.__overwrite(cfg, cli_args)
+        return self.ensure_runtime_credentials(cfg, prompt_if_missing=True)
 
     @classmethod
     def find_config_file(cls, filename: str = "pywen_config.json") -> Optional[Path]:
@@ -187,9 +221,19 @@ class ConfigManager:
                 return p
         return None
 
+    def default_config_exists(self) -> bool:
+        return self.get_default_config_path().exists()
+
     def get_permission_level(self):
-        cfg = self.load(interactive_bootstrap=False)
-        return cfg.permission_level
+        if self._current_config is not None:
+            return self._current_config.permission_level
+
+        if self.default_config_exists():
+            self._current_config = self.load(interactive_bootstrap=False)
+            return self._current_config.permission_level
+
+        from .config import PermissionLevel
+        return PermissionLevel.LOCKED
 
     def _resolve_config_path(self, *, interactive_bootstrap: bool) -> Path:
         if self.config_path.exists():
@@ -204,27 +248,24 @@ class ConfigManager:
             f"Configuration file not found. Run with --create-config to create one at: {self.get_default_config_path()}"
         )
 
-
     def _bootstrap_if_missing(self) -> Path:
-        """First-run flow: env prefill -> optional wizard -> write file."""
+        """
+        First-run flow: prefill scaffold from existing env -> optional wizard -> write JSON.
+        No .env reading/writing here.
+        """
         data = self._prefill_from_env(DEFAULT_CONFIG_SCAFFOLD)
 
-        from .wizard import ConfigWizard  # type: ignore
-
-        if ConfigWizard is not None:
-            wiz = ConfigWizard(
-                    config_path=self.config_path, 
-                    env_path=self.env_path, 
-                    save_callback=self.write_config_data)
-            values = wiz.collect_pywen_config()
-            data = self._build_json_from_values(values)
+        wiz = ConfigWizard(
+                config_path=self.config_path,
+                save_callback=self.write_config_data,
+        )
+        values = wiz.collect_pywen_config()
+        data = self._build_json_from_values(values)
 
         self._write_json(self.config_path, data)
-        self._update_env_file_from_data(data)
         return self.config_path
 
     def _parse_config_data(self, config_data: Dict[str, Any]) -> Config:
-        """JSON dict => Config dataclasses. (pure, no I/O)"""
         default_provider = config_data.get("default_provider", "qwen")
         providers = config_data.get("model_providers", {})
         if default_provider not in providers:
@@ -249,13 +290,21 @@ class ConfigManager:
             max_tokens=int(provider_cfg.get("max_tokens", 4096)),
             top_p=float(provider_cfg.get("top_p", 0.95)),
             top_k=int(provider_cfg.get("top_k", 50)),
-            extras={k: v for k, v in provider_cfg.items() if k not in {
-                "model","api_key","base_url","temperature","max_tokens","top_p","top_k"
-            }},
+            extras={
+                k: v
+                for k, v in provider_cfg.items()
+                if k
+                not in {
+                    "model",
+                    "api_key",
+                    "base_url",
+                    "temperature",
+                    "max_tokens",
+                    "top_p",
+                    "top_k",
+                }
+            },
         )
-        if not model_cfg.api_key:
-            raise ValueError(f"API key is required for provider '{default_provider}'")
-
         perm_level = config_data.get("permission_level", "locked")
         perm_level = PermissionLevel.YOLO if perm_level == "yolo" else PermissionLevel.LOCKED
 
@@ -269,7 +318,6 @@ class ConfigManager:
             jina_api_key=config_data.get("jina_api_key") or os.getenv("JINA_API_KEY"),
         )
 
-        # MCP
         mcp_raw = config_data.get("mcp", {})
         if isinstance(mcp_raw, dict):
             mcp_cfg = MCPConfig(
@@ -278,30 +326,30 @@ class ConfigManager:
                 extras={},
             )
             servers: List[MCPServerConfig] = []
-            for s in mcp_raw.get("servers", []) if isinstance(mcp_raw.get("servers", []), list) else []:
-                if not isinstance(s, dict):
-                    continue
-                name, command = s.get("name"), s.get("command")
-                if not (name and command):
-                    continue
-                srv = MCPServerConfig(
-                    name=name,
-                    command=command,
-                    args=list(s.get("args", [])) if isinstance(s.get("args", []), list) else [],
-                    enabled=bool(s.get("enabled", True)),
-                    include=list(s.get("include", [])) if isinstance(s.get("include", []), list) else [],
-                    save_images_dir=s.get("save_images_dir"),
-                    isolated=bool(s.get("isolated", False)),
-                )
-                known_srv = {"name","command","args","enabled","include","save_images_dir","isolated"}
-                srv.extras = {k: v for k, v in s.items() if k not in known_srv}
-                servers.append(srv)
+            if isinstance(mcp_raw.get("servers", []), list):
+                for s in mcp_raw.get("servers", []):
+                    if not isinstance(s, dict):
+                        continue
+                    name, command = s.get("name"), s.get("command")
+                    if not (name and command):
+                        continue
+                    srv = MCPServerConfig(
+                        name=name,
+                        command=command,
+                        args=list(s.get("args", [])) if isinstance(s.get("args", []), list) else [],
+                        enabled=bool(s.get("enabled", True)),
+                        include=list(s.get("include", [])) if isinstance(s.get("include", []), list) else [],
+                        save_images_dir=s.get("save_images_dir"),
+                        isolated=bool(s.get("isolated", False)),
+                    )
+                    known_srv = {"name", "command", "args", "enabled", "include", "save_images_dir", "isolated"}
+                    srv.extras = {k: v for k, v in s.items() if k not in known_srv}
+                    servers.append(srv)
             mcp_cfg.servers = servers
-            known_mcp = {"enabled","isolated","servers"}
+            known_mcp = {"enabled", "isolated", "servers"}
             mcp_cfg.extras = {k: v for k, v in mcp_raw.items() if k not in known_mcp}
             cfg.mcp = mcp_cfg
 
-        # Memory monitor
         mem_raw = config_data.get("memory_monitor", {})
         if isinstance(mem_raw, dict) and mem_raw:
             mm = MemorymonitorConfig(
@@ -314,16 +362,21 @@ class ConfigManager:
             mm.extras = {k: v for k, v in mem_raw.items() if k not in known}
             cfg.memory_monitor = mm
 
-        # top-level extras passthrough
         used = {
-            "default_provider","model_providers","max_steps","enable_lakeview",
-            "permission_level","serper_api_key","jina_api_key","mcp","memory_monitor"
+            "default_provider",
+            "model_providers",
+            "max_steps",
+            "enable_lakeview",
+            "permission_level",
+            "serper_api_key",
+            "jina_api_key",
+            "mcp",
+            "memory_monitor",
         }
         cfg.extras = {k: v for k, v in config_data.items() if k not in used}
         return cfg
 
     def _config_to_dict(self, cfg: Config) -> Dict[str, Any]:
-        """Config dataclasses => JSON dict. (pure, no I/O)"""
         provider_key = cfg.model_config.provider.value
         providers_block = {
             provider_key: {
@@ -349,7 +402,6 @@ class ConfigManager:
         if cfg.jina_api_key:
             out["jina_api_key"] = cfg.jina_api_key
 
-        # MCP
         if cfg.mcp:
             out["mcp"] = {
                 "enabled": cfg.mcp.enabled,
@@ -364,12 +416,12 @@ class ConfigManager:
                         "save_images_dir": s.save_images_dir,
                         "isolated": s.isolated,
                         **(s.extras or {}),
-                    } for s in (cfg.mcp.servers or [])
+                    }
+                    for s in (cfg.mcp.servers or [])
                 ],
                 **(cfg.mcp.extras or {}),
             }
 
-        # Memory monitor
         if cfg.memory_monitor:
             out["memory_monitor"] = {
                 "check_interval": cfg.memory_monitor.check_interval,
@@ -395,14 +447,24 @@ class ConfigManager:
         return base
 
     def _prefill_from_env(self, scaffold: Dict[str, Any]) -> Dict[str, Any]:
+        """Prefill scaffold with existing environment (read-only)."""
         data = deepcopy(scaffold)
         qwen = data["model_providers"]["qwen"]
+
         api_key = self._env_get("api_key") or qwen.get("api_key", "")
+        base_url = self._env_get("base_url") or qwen.get("base_url", "")
+        model = self._env_get("model") or qwen.get("model", "")
+
         serper = self._env_get("serper_api_key") or data.get("serper_api_key", "")
+
         if api_key:
-            qwen["api_key"] = api_key
+            qwen["api_key"] = api_key.strip()
+        if base_url:
+            qwen["base_url"] = base_url.strip().rstrip("/")
+        if model:
+            qwen["model"] = model.strip()
         if serper:
-            data["serper_api_key"] = serper
+            data["serper_api_key"] = serper.strip()
         return data
 
     def _ensure_required_sections(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -415,52 +477,26 @@ class ConfigManager:
         aliases = {
             "api_key": ["QWEN_API_KEY", "DASHSCOPE_API_KEY", "API_KEY"],
             "serper_api_key": ["SERPER_API_KEY"],
+            "base_url": ["QWEN_BASE_URL", "BASE_URL"],
+            "model": ["QWEN_MODEL", "MODEL"],
         }
         if key in aliases:
             for k in aliases[key]:
                 v = os.getenv(k)
                 if v:
-                    return v
+                    return v.strip()
         return os.getenv(key.upper(), default)
 
-    @classmethod
-    def _load_dotenv_if_available(cls):
-        try:
-            from dotenv import load_dotenv  # type: ignore
-        except Exception:
-            return
-        for p in [
-            cls.get_default_env_path(),
-            Path.cwd() / ".env",
-            Path.home() / ".env",
-            Path.cwd() / ".pywen" / ".env",
-        ]:
-            if p.exists():
-                load_dotenv(p, override=False)
-                break
-
-    def _update_env_file_from_data(self, data: Dict[str, Any]) -> None:
-        env_file = self.env_path
-        env_file.parent.mkdir(parents=True, exist_ok=True)
-        current: Dict[str, str] = {}
-        if env_file.exists():
-            for line in env_file.read_text(encoding="utf-8").splitlines():
-                if not line or line.strip().startswith("#") or "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                current[k.strip()] = v
-
-        desired = {
-            "QWEN_API_KEY": data["model_providers"]["qwen"].get("api_key", ""),
-        }
-        if data.get("serper_api_key"):
-            desired["SERPER_API_KEY"] = data["serper_api_key"]
-        if data.get("jina_api_key"):
-            desired["JINA_API_KEY"] = data["jina_api_key"]
-
-        current.update({k: v for k, v in desired.items() if v})
-        lines = [f"{k}={v}" for k, v in current.items()]
-        env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    @staticmethod
+    def _normalize_field(key: str, val: str | None) -> str | None:
+        if val is None:
+            return None
+        s = val.strip()
+        if not s:
+            return None
+        if key == "base_url":
+            return s.rstrip("/")
+        return s
 
     @staticmethod
     def _read_json(path: Path) -> Dict[str, Any]:
@@ -493,3 +529,123 @@ class ConfigManager:
             data["jina_api_key"] = values["jina_api_key"]
         return data
 
+    def _is_missing(self, v: str | None) -> bool:
+        if v is None:
+            return True
+        s = str(v).strip()
+        if not s:
+            return True
+        return s.lower() in PLACEHOLDERS
+
+    def ensure_runtime_credentials(self, cfg: Config, *, prompt_if_missing: bool) -> Config:
+        """
+        先用 ENV 覆盖默认值/占位/缺失；若仍不完整，按需进入 Wizard。
+        """
+        self._merge_missing_from_env(cfg)
+        complete, missing = self._is_config_complete(cfg)
+        if complete:
+            return cfg
+    
+        if not prompt_if_missing:
+            raise ValueError(
+                f"Missing required config: {', '.join(missing)} and cannot prompt in non-interactive mode."
+            )
+        defaults = {
+            "api_key":  cfg.model_config.api_key or self._env_get("api_key")  or "",
+            "base_url": cfg.model_config.base_url or self._env_get("base_url") or "",
+            "model":    cfg.model_config.model or self._env_get("model")      or "",
+        }
+        wiz = ConfigWizard(config_path=self.config_path, save_callback=self.write_config_data)
+        try:
+            values = wiz.collect_pywen_config(defaults=defaults)
+        except TypeError:
+            values = wiz.collect_pywen_config()
+    
+        if self._is_missing(cfg.model_config.api_key) and values.get("api_key"):
+            cfg.model_config.api_key = values["api_key"].strip()
+        if self._is_missing(cfg.model_config.base_url) and values.get("base_url"):
+            cfg.model_config.base_url = values["base_url"].strip().rstrip("/")
+        if self._is_missing(cfg.model_config.model) and values.get("model"):
+            cfg.model_config.model = values["model"].strip()
+    
+        self.save(cfg)
+        return cfg
+
+    def resolve_effective_config(
+        self,
+        args,
+        *,
+        allow_prompt: bool,
+    ) -> Config:
+        explicit_cfg_path = getattr(args, "config", None)
+        if explicit_cfg_path:
+            cfg = self.load_config_file(explicit_cfg_path)
+            self._merge_missing_from_env(cfg)
+            self._merge_missing_from_cli(cfg, args)
+            complete, missing = self._is_config_complete(cfg)
+            if complete:
+                return cfg
+            return self.ensure_runtime_credentials(cfg, prompt_if_missing=allow_prompt)
+        if self.default_config_exists():
+            self.config_path = self.get_default_config_path()
+            cfg = self.load(interactive_bootstrap=False)
+            self._merge_missing_from_cli(cfg, args)
+            complete, missing = self._is_config_complete(cfg)
+            if complete:
+                return cfg
+            return self.ensure_runtime_credentials(cfg, prompt_if_missing=allow_prompt)
+
+        cfg = self.create_runtime_empty_config()
+        self._merge_missing_from_env(cfg)
+        self._merge_missing_from_cli(cfg, args)
+        complete, missing = self._is_config_complete(cfg)
+        if complete:
+            return cfg
+        if allow_prompt:
+            return self.ensure_runtime_credentials(cfg, prompt_if_missing=True)
+        raise ValueError(f"Missing required config: {', '.join(missing)} and cannot prompt.")
+
+    def _is_config_complete(self, cfg: Config) -> tuple[bool, List[str]]:
+        missing: List[str] = []
+        mc = cfg.model_config
+        if self._is_missing(mc.api_key):
+            missing.append("api_key")
+        if self._is_missing(mc.base_url):
+            missing.append("base_url")
+        if self._is_missing(mc.model):
+            missing.append("model")
+        return (len(missing) == 0, missing)
+
+    def create_runtime_empty_config(self) -> Config:
+        data = self._ensure_required_sections(DEFAULT_CONFIG_SCAFFOLD)
+        cfg = self._parse_config_data(data)
+        self._current_config = cfg
+        return cfg
+
+    def _merge_missing_from_cli(self, cfg: Config, args) -> None:
+        if hasattr(args, "api_key") and args.api_key is not None:
+            v = self._normalize_field("api_key", args.api_key)
+            if v is not None and v != "":
+                cfg.model_config.api_key = v
+
+        if hasattr(args, "base_url") and args.base_url is not None:
+            v = self._normalize_field("base_url", args.base_url)
+            if v is not None and v != "":
+                cfg.model_config.base_url = v
+
+        if hasattr(args, "model") and args.model is not None:
+            v = self._normalize_field("model", args.model)
+            if v is not None and v != "":
+                cfg.model_config.model = v
+
+    def _merge_missing_from_env(self, cfg: Config) -> None:
+       env_map = {
+            "api_key": self._env_get("api_key"),
+            "base_url": self._env_get("base_url"),
+            "model": self._env_get("model"),
+        }
+       for key,env_val in env_map.items():
+           if not env_val: continue
+           normalized = self._normalize_field(key, env_val)
+           if normalized is not None:
+               setattr(cfg.model_config, key, normalized)
