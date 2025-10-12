@@ -14,7 +14,7 @@ from pywen.ui.highlighted_content import HighlightedContentDisplay
 class CLIConsole:
     """Console for displaying agent progress and handling user interactions."""
 
-    def __init__(self):
+    def __init__(self, perm_mgr: Optional[PermissionManager] = None):
         self.console = get_console()
         self.printer = Printer(self.console)
         self.tokens = TokenTracker(32768)
@@ -22,9 +22,8 @@ class CLIConsole:
         self.status_bar = StatusBar(self.printer, self.tokens)
         self.tool_call_view = ToolCallView(self.printer)
         self.renderers = ToolResultRendererRegistry(self.printer)
-        self.permission_manager = PermissionManager(PermissionLevel.LOCKED) 
         self.approval = ApprovalService(
-                permission_manager=self.permission_manager, 
+                permission_manager= perm_mgr or PermissionManager(PermissionLevel.LOCKED), 
                 printer=self.printer, 
                 tool_call_view=self.tool_call_view
                 )

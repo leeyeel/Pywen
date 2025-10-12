@@ -289,6 +289,7 @@ async def main() -> None:
     parser.add_argument("--max-tokens", type=int, help="Override max tokens")
     parser.add_argument("--create-config", action="store_true", help="Create default config file")
     parser.add_argument("--session-id", type=str, help="Use specific session ID")
+    parser.add_argument("--permission-mode", type=str, help="Set permission mode (yolo, planning, edit-only, locked)", default="locked")
     parser.add_argument("prompt", nargs="?", help="Prompt to execute")
     args = parser.parse_args()
 
@@ -300,12 +301,14 @@ async def main() -> None:
     cfg_mgr.load(interactive_bootstrap=True)
     config = cfg_mgr.load_with_cli_overrides(args)
 
-    console = CLIConsole()
-
-    perm_level = cfg_mgr.get_permission_level()
-    mode_status = "🚀 YOLO" if perm_level == PermissionLevel.YOLO else "🔒 CONFIRM"
+    try:
+        _perm_level = PermissionLevel(args.permission_mode.lower().replace("-", "_"))
+    except Exception:
+        _perm_level = None
+    perm_level = _perm_level or cfg_mgr.get_permission_level()
     perm_mgr = PermissionManager(perm_level)
-    console.print(f"Mode: {mode_status} (Ctrl+Y to toggle)")
+
+    console = CLIConsole(perm_mgr)
 
     memory_monitor = Memorymonitor(config, console, verbose=False)
     file_restorer = IntelligentFileRestorer()
