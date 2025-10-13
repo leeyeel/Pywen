@@ -5,13 +5,13 @@ from typing import Any, Dict, Optional, Tuple
 
 from .models import HookEvent, HooksConfig
 from .matcher import matches_tool
-from .runner import run_command_hook 
+from .runner import run_command_hook, run_command_hook_async
 
 class HookManager:
     def __init__(self, config: HooksConfig):
         self.config = config
 
-    def emit(
+    async def emit(
         self,
         event: HookEvent,
         base_payload: Dict[str, Any],
@@ -44,7 +44,7 @@ class HookManager:
                     continue
 
             for cmd in group.hooks:
-                res = run_command_hook(
+                res = await run_command_hook_async(
                     cmd=cmd.command,
                     payload=payload,
                     timeout=cmd.timeout,

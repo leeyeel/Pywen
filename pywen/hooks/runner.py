@@ -1,7 +1,5 @@
 from __future__ import annotations
-import json
-import os
-import subprocess
+import json,os,subprocess,asyncio
 from typing import Any, Dict, Optional 
 
 class HookResult:
@@ -23,7 +21,6 @@ def run_command_hook(
     timeout: Optional[int],
 ) -> HookResult:
     env = os.environ.copy()
-
     shell_cmd = cmd if os.name == "posix" else f'cmd /S /C "{cmd}"'
 
     proc = subprocess.Popen(
@@ -34,6 +31,7 @@ def run_command_hook(
         stderr=subprocess.PIPE,
         env=env,
         text=True,
+        start_new_session=True,
     )
     try:
         stdout, stderr = proc.communicate(
@@ -52,3 +50,10 @@ def run_command_hook(
 
     return HookResult(proc.returncode, stdout, stderr, json_out)
 
+async def run_command_hook_async(
+    cmd: str,
+    payload: Dict[str, Any],
+    timeout: Optional[int],
+) -> HookResult:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, run_command_hook, cmd, payload, timeout)

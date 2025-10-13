@@ -249,23 +249,17 @@ class LLMClient():
             LLMClient instance
         """
         from pywen.utils.llm_config import Config as UtilsConfig, AuthType, ModelParameters
-        from pywen.config.config import Config, ModelConfig, ModelProvider
+        from pywen.config.config import ModelProvider
 
-        # Handle both Config and ModelConfig inputs
-        if hasattr(config, 'model_config'):
-            model_config = config.model_config
-        else:
-            model_config = config
+        model_config = config
 
-        # Convert to utils config format
         if model_config.provider == ModelProvider.QWEN:
             auth_type = AuthType.API_KEY
         elif model_config.provider == ModelProvider.OPENAI:
             auth_type = AuthType.OPENAI
         else:
-            auth_type = AuthType.API_KEY  # Default fallback
+            auth_type = AuthType.API_KEY
 
-        # Create model parameters
         model_params = ModelParameters(
             model=model_config.model,
             base_url=model_config.base_url,
@@ -273,7 +267,6 @@ class LLMClient():
             max_tokens=model_config.max_tokens
         )
 
-        # Create and return utils config
         utils_config = UtilsConfig(
             auth_type=auth_type,
             api_key=model_config.api_key,
