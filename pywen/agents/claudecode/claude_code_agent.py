@@ -14,19 +14,24 @@ from .context_manager import ClaudeCodeContextManager
 from pywen.core.session_stats import session_stats
 
 from pywen.agents.claudecode.tools.tool_adapter import ToolAdapterFactory
-from pywen.config.loader import get_trajectories_dir
+from pywen.config.manager import ConfigManager
 from pywen.agents.claudecode.system_reminder import (
     generate_system_reminders, emit_reminder_event, reset_reminder_session,
-    ReminderMessage, system_reminder_service, get_system_reminder_start
+    get_system_reminder_start
 )
+from pywen.hooks.models import HookEvent
 
 
 class ClaudeCodeAgent(BaseAgent):
     """Claude Code Agent implementation"""
 
-    def __init__(self, config, cli_console=None):
-        super().__init__(config, cli_console)
+    def __init__(self, config, hook_mgr, cli_console=None):
+        super().__init__(config, hook_mgr, cli_console)
         self.type = "ClaudeCodeAgent"
+
+        # Create concrete LLM client implementation
+        from pywen.utils.llm_client import LLMClient as UtilsLLMClient
+        self.llm_client = UtilsLLMClient.create(config.model_config)
         self.prompts = ClaudeCodePrompts()
         self.project_path = os.getcwd()
         self.max_iterations = getattr(config, 'max_iterations', 10)
@@ -39,7 +44,7 @@ class ClaudeCodeAgent(BaseAgent):
         self.conversation_history: List[LLMMessage] = []
 
         # Ensure trajectories directory exists
-        trajectories_dir = get_trajectories_dir()
+        trajectories_dir = ConfigManager.get_trajectories_dir()
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         trajectory_path = trajectories_dir / f"claude_code_trajectory_{timestamp}.json"
@@ -248,8 +253,8 @@ class ClaudeCodeAgent(BaseAgent):
                 top_p=self.config.model_config.top_p
             )
 
-            # Use the underlying utils client directly for config support
-            response_result = await self.llm_client.client.generate_response(
+            # Use the LLM client for quota check (config parameter not available in abstract interface)
+            response_result = await self.llm_client.generate_response(
                 messages=quota_messages,
                 tools=None,  # No tools for quota check
                 stream=False,  # Use non-streaming for quota check
@@ -427,8 +432,6 @@ class ClaudeCodeAgent(BaseAgent):
 
         return messages
 
-
-
     async def _query_recursive(
         self,
         messages: List[LLMMessage],
@@ -468,7 +471,7 @@ class ClaudeCodeAgent(BaseAgent):
 
 
             # Get assistant response with fine-grained streaming events
-            assistant_message, tool_calls = None, []
+            assistant_message, tool_calls, final_response = None, [], None
             async for response_event in self._get_assistant_response_streaming(messages, depth=depth, **kwargs):
                 if response_event["type"] in ["llm_stream_start", "llm_chunk", "content"]:
                     # Forward streaming events to caller
@@ -518,8 +521,9 @@ class ClaudeCodeAgent(BaseAgent):
                 # if comression is not None:
                 #     self.conversation_history = comression
 
-                # Yield task completion event
-                yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
+                # Yield task completion event with safe usage check
+                if final_response and hasattr(final_response, 'usage') and final_response.usage:
+                    yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
                 yield {
                     "type": "task_complete",
                     "content": assistant_message.content if assistant_message else "",
@@ -661,7 +665,6 @@ class ClaudeCodeAgent(BaseAgent):
 
             # 2. 流结束后处理
             if final_response:
-                # 添加到对话历史
                 assistant_msg = LLMMessage(
                     role="assistant",
                     content=final_response.content,
@@ -692,9 +695,6 @@ class ClaudeCodeAgent(BaseAgent):
                 "data": {"error": f"Streaming failed, falling back to non-streaming: {str(e)}"}
             }
 
-
-
-
     async def _execute_tools(
         self,
         tool_calls: List[Dict[str, Any]],
@@ -710,15 +710,12 @@ class ClaudeCodeAgent(BaseAgent):
             }
             return
 
-        # Determine if tools can run concurrently
         can_run_concurrently = all(self._is_tool_readonly(tc["name"]) for tc in tool_calls)
 
         if can_run_concurrently and len(tool_calls) > 1:
-            # Execute read-only tools concurrently
             yield {"type": "tool_execution", "strategy": "concurrent"}
             tool_results = await self._execute_concurrent_tools(tool_calls, **kwargs)
         else:
-            # Execute tools serially (safer for write operations)
             yield {"type": "tool_execution", "strategy": "serial"}
             tool_results = []
             async for result in self._execute_serial_tools(tool_calls, **kwargs):
@@ -726,14 +723,10 @@ class ClaudeCodeAgent(BaseAgent):
                     yield result
                 elif result["type"] == "tool_completed":
                     tool_results.append(result["llm_message"])
-
-        # Yield final results
         yield {
             "type": "tool_results",
             "results": tool_results
         }
-
-
 
     def _is_tool_readonly(self, tool_name: str) -> bool:
         """Check if a tool is read-only (safe for concurrent execution)"""
@@ -824,9 +817,7 @@ class ClaudeCodeAgent(BaseAgent):
             if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
                 cancelled_result = ToolResult(
                     call_id=tool_call.get("id", "unknown"),
-                    content="",
                     error="Operation was cancelled",
-                    success=False
                 )
                 cancelled_message = LLMMessage(
                     role="tool",
@@ -841,6 +832,29 @@ class ClaudeCodeAgent(BaseAgent):
                 name=tool_call["name"],
                 arguments=tool_call.get("arguments", {})
             )
+            if self.hook_mgr:
+                pre_ok, pre_msg, _ = self.hook_mgr.emit(
+                    HookEvent.PreToolUse,
+                    base_payload={
+                        "session_id": getattr(self.config, "session_id", ""),
+                    },
+                    tool_name=tool_call_obj.name,
+                    tool_input=dict(tool_call_obj.arguments or {}),
+                )
+                if pre_msg and self.cli_console:
+                    self.cli_console.print(pre_msg, "yellow")
+                if not pre_ok:
+                    blocked_reason = pre_msg or "Tool call blocked by PreToolUse hook"
+                    blocked_result = ToolResult(
+                        call_id=tool_call_obj.call_id,
+                        error=blocked_reason,
+                    )
+                    blocked_message = LLMMessage(
+                        role="tool",
+                        content=f"Blocked: {blocked_reason}",
+                        tool_call_id=tool_call_obj.call_id,
+                    )
+                    return blocked_result, blocked_message
 
             # Check for user confirmation if needed
             if hasattr(self, 'cli_console') and self.cli_console:
@@ -853,9 +867,7 @@ class ClaudeCodeAgent(BaseAgent):
                             # User cancelled
                             cancelled_result = ToolResult(
                                 call_id=tool_call.get("id", "unknown"),
-                                content="",
                                 error="Tool execution was cancelled by user",
-                                success=False
                             )
                             cancelled_message = LLMMessage(
                                 role="tool",
@@ -870,6 +882,32 @@ class ClaudeCodeAgent(BaseAgent):
             
             # Emit events for system reminders based on tool type
             self._emit_tool_events(tool_call_obj, tool_result)
+
+            if self.hook_mgr:
+                post_ok, post_msg, post_extra = self.hook_mgr.emit(
+                    HookEvent.PostToolUse,
+                    base_payload={
+                        "session_id": getattr(self.config, "session_id", ""),
+                    },
+                    tool_name=tool_call_obj.name,
+                    tool_input=dict(tool_call_obj.arguments or {}),
+                    tool_response={
+                        "result": tool_result.result,
+                        "success": tool_result.success,
+                        "error": tool_result.error,
+                    },
+                )
+                if post_msg and self.cli_console:
+                    self.cli_console.print(post_msg, "yellow")
+                if post_extra.get("additionalContext"):
+                    self.conversation_history.append(LLMMessage(
+                        role="system",
+                        content=post_extra["additionalContext"]
+                    ))
+                if not post_ok:
+                    reason = post_msg or "PostToolUse hook blocked further processing"
+                    tool_result.error = reason
+                    tool_result.result = None
 
             # Create LLM message with clear success info
             if tool_result.success:
@@ -902,9 +940,7 @@ class ClaudeCodeAgent(BaseAgent):
             error_msg = f"Error executing tool '{tool_call['name']}': {str(e)}"
             error_result = ToolResult(
                 call_id=tool_call.get("id", "unknown"),
-                content="",
                 error=error_msg,
-                success=False
             )
             error_message = LLMMessage(
                 role="tool",
@@ -948,12 +984,6 @@ class ClaudeCodeAgent(BaseAgent):
 
         return tool_results
 
-
-
-
-
-
-
     async def _execute_single_tool(
         self,
         tool_call: Dict[str, Any],
@@ -963,7 +993,9 @@ class ClaudeCodeAgent(BaseAgent):
         Execute a single tool and return only the LLMMessage
         This is a convenience wrapper around _execute_single_tool_with_result
         """
+        #pre 
         _, llm_message = await self._execute_single_tool_with_result(tool_call, **kwargs)
+        #post
         return llm_message
 
     async def _execute_tool_directly(
@@ -977,7 +1009,6 @@ class ClaudeCodeAgent(BaseAgent):
         """
         tool_result, _ = await self._execute_single_tool_with_result(tool_call, **kwargs)
         return tool_result
-
 
     
     def _find_tool(self, tool_name: str) -> Optional[BaseTool]:

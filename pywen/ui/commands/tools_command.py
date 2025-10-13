@@ -1,7 +1,7 @@
 """Tools command implementation"""
 
 from typing import Dict, Any
-from rich.console import Console
+from rich import get_console
 from rich.table import Table
 from .base_command import BaseCommand
 
@@ -9,7 +9,7 @@ from .base_command import BaseCommand
 class ToolsCommand(BaseCommand):
     def __init__(self):
         super().__init__("tools", "list available Pywen tools")
-        self.console = Console()
+        self.console = get_console()
     
     async def execute(self, context: Dict[str, Any], args: str) -> bool:
         """显示可用工具列表"""

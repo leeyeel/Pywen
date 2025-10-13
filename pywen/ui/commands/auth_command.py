@@ -1,33 +1,29 @@
 """认证命令实现"""
 
-from rich.console import Console
+from rich import get_console
+from pathlib import Path
 from .base_command import BaseCommand
-from ui.config_wizard import ConfigWizard
+from config.wizard import ConfigWizard
 
 class AuthCommand(BaseCommand):
     def __init__(self):
         super().__init__("auth", "change the auth method")
-        self.console = Console()
+        self.console = get_console()
     
     async def execute(self, context, args: str) -> bool:
         """重新配置认证方法"""
         self.console.print("Launching authentication configuration...", "yellow")
         
         try:
-            # 创建配置向导实例，传递现有配置文件路径
-            wizard = ConfigWizard(existing_config_file="pywen_config.json")
-            
-            # 运行配置向导
+            wizard = ConfigWizard(config_path=Path("pywen_config.json"))
             wizard.run()
             
-            # 配置完成后，需要重新加载配置
             agent = context.get('agent')
             console = context.get('console')
             
             if agent and hasattr(agent, 'reload_config'):
                 success = agent.reload_config()
                 if success:
-                    # 同时更新控制台的配置引用
                     if console:
                         console.config = agent.config
                         # 强制刷新控制台配置

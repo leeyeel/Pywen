@@ -1,6 +1,6 @@
 """占位符命令实现 - 待完善的命令"""
 
-from rich.console import Console
+from rich import get_console
 from .base_command import BaseCommand
 
 class PlaceholderCommand(BaseCommand):
@@ -8,7 +8,7 @@ class PlaceholderCommand(BaseCommand):
     
     def __init__(self, name: str, description: str, alt_name: str = None):
         super().__init__(name, description, alt_name)
-        self.console = Console()
+        self.console = get_console()
     
     async def execute(self, context, args: str) -> bool:
         """显示占位符信息"""

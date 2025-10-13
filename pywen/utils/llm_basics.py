@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from typing import List, Optional
 from pywen.utils.tool_basics import ToolCall
 
-
-
 @dataclass
 class LLMMessage:
     """Standard message format for LLM interactions."""
@@ -13,7 +11,6 @@ class LLMMessage:
     content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
     tool_call_id: Optional[str] = None  # For tool response messages
-
 
 @dataclass
 class LLMUsage:
@@ -28,7 +25,6 @@ class LLMUsage:
             output_tokens=self.output_tokens + other.output_tokens,
             total_tokens=self.total_tokens + other.total_tokens
         )
-
 
 @dataclass
 class LLMResponse:

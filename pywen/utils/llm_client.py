@@ -9,7 +9,7 @@ from .base_content_generator import ContentGenerator
 from pywen.tools.base import Tool
 
 
-class LLMClient:
+class LLMClient():
     """Enhanced LLM client with comprehensive provider support."""
     
     def __init__(self, config: Config):
@@ -237,4 +237,41 @@ class LLMClient:
             return "google"
         else:
             return "unknown"
-    
+
+    @classmethod
+    def create(cls, config) -> "LLMClient":
+        """Factory method to create LLM client instances with configuration conversion.
+
+        Args:
+            config: Either Config or ModelConfig instance
+
+        Returns:
+            LLMClient instance
+        """
+        from pywen.utils.llm_config import Config as UtilsConfig, AuthType, ModelParameters
+        from pywen.config.config import ModelProvider
+
+        model_config = config
+
+        if model_config.provider == ModelProvider.QWEN:
+            auth_type = AuthType.API_KEY
+        elif model_config.provider == ModelProvider.OPENAI:
+            auth_type = AuthType.OPENAI
+        else:
+            auth_type = AuthType.API_KEY
+
+        model_params = ModelParameters(
+            model=model_config.model,
+            base_url=model_config.base_url,
+            temperature=model_config.temperature,
+            max_tokens=model_config.max_tokens
+        )
+
+        utils_config = UtilsConfig(
+            auth_type=auth_type,
+            api_key=model_config.api_key,
+            model_params=model_params
+        )
+
+        return cls(utils_config)
+

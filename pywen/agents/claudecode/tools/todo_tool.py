@@ -84,8 +84,8 @@ class TodoStorage:
 
     def _get_storage_dir(self) -> Path:
         """Get the storage directory for todos"""
-        from pywen.config.loader import get_pywen_config_dir
-        todos_dir = get_pywen_config_dir() / "todos"
+        from pywen.config.manager import ConfigManager 
+        todos_dir = ConfigManager.get_pywen_config_dir() / "todos"
         todos_dir.mkdir(exist_ok=True)
         return todos_dir
     

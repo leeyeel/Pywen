@@ -1,7 +1,6 @@
 """Qwen Python Agent - AI-powered software development assistant."""
 
 from .agents.qwen.qwen_agent import QwenAgent
-from .core.client import LLMClient
 from .agents.qwen.turn import Turn
 from .core.tool_scheduler import CoreToolScheduler
 from .core.tool_executor import NonInteractiveToolExecutor
@@ -15,7 +14,6 @@ __author__ = "Qwen Python Agent"
 
 __all__ = [
     "QwenAgent",
-    "LLMClient", 
     "Logger",
     "Turn",
     "CoreToolScheduler",
