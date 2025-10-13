@@ -3,7 +3,7 @@
 from .agents.qwen.qwen_agent import QwenAgent
 from .agents.qwen.turn import Turn
 from .core.tool_scheduler import CoreToolScheduler
-from .core.tool_executor import NonInteractiveToolExecutor
+from .core.tool_executor import ToolExecutor
 from .config.config import Config, ModelConfig
 from .tools.base import Tool
 from .utils.tool_basics import ToolCall, ToolResult
@@ -14,10 +14,9 @@ __author__ = "Qwen Python Agent"
 
 __all__ = [
     "QwenAgent",
-    "Logger",
     "Turn",
     "CoreToolScheduler",
-    "NonInteractiveToolExecutor",
+    "ToolExecutor",
     "Config",
     "ModelConfig",
     "Tool",

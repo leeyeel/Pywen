@@ -12,6 +12,7 @@ from pywen.core.trajectory_recorder import TrajectoryRecorder
 from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
 from pywen.core.session_stats import session_stats
+from pywen.core.agent_registry import registry  as agent_registry
 
 from pywen.agents.claudecode.tools.tool_adapter import ToolAdapterFactory
 from pywen.config.manager import ConfigManager
@@ -21,7 +22,6 @@ from pywen.agents.claudecode.system_reminder import (
 )
 from pywen.hooks.models import HookEvent
 
-
 class ClaudeCodeAgent(BaseAgent):
     """Claude Code Agent implementation"""
 
@@ -29,72 +29,48 @@ class ClaudeCodeAgent(BaseAgent):
         super().__init__(config, hook_mgr, cli_console)
         self.type = "ClaudeCodeAgent"
 
-        # Create concrete LLM client implementation
         from pywen.utils.llm_client import LLMClient as UtilsLLMClient
         self.llm_client = UtilsLLMClient.create(config.model_config)
         self.prompts = ClaudeCodePrompts()
         self.project_path = os.getcwd()
         self.max_iterations = getattr(config, 'max_iterations', 10)
 
-        # Initialize context manager
         self.context_manager = ClaudeCodeContextManager(self.project_path)
         self.context = {}
 
-        # Initialize conversation history for session continuity
         self.conversation_history: List[LLMMessage] = []
 
-        # Ensure trajectories directory exists
         trajectories_dir = ConfigManager.get_trajectories_dir()
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         trajectory_path = trajectories_dir / f"claude_code_trajectory_{timestamp}.json"
         self.trajectory_recorder = TrajectoryRecorder(trajectory_path)
 
-        # Setup Claude Code specific tools after base tools
         self._setup_claude_code_tools()
-
-        # Apply Claude Code adapters to provide appropriate descriptions for LLM
         self._apply_claude_code_adapters()
-
-        #self._update_context()
-
-        # Register this agent with session stats
         session_stats.set_current_agent(self.type)
-
-        # Track quota check status
         self.quota_checked = False
         
-        # Initialize system reminder service
-        self.todo_items = []  # Track current todo items
-        reset_reminder_session()  # Reset on agent initialization
+        self.todo_items = []
+        reset_reminder_session()
         self.file_metrics = {}
 
     def _setup_claude_code_tools(self):
         """Setup Claude Code specific tools and configure them."""
-        # Import agent registry
-        from pywen.core.agent_registry import get_agent_registry
-        agent_registry = get_agent_registry()
 
-        # Configure task_tool and architect_tool with agent registry
         task_tool = self.tool_registry.get_tool('task_tool')
-        if task_tool and hasattr(task_tool, 'set_agent_registry'):
-            task_tool.set_agent_registry(agent_registry)
+        task_tool.set_agent_registry(agent_registry)
 
         architect_tool = self.tool_registry.get_tool('architect_tool')
-        if architect_tool and hasattr(architect_tool, 'set_agent_registry'):
-            architect_tool.set_agent_registry(agent_registry)
+        architect_tool.set_agent_registry(agent_registry)
 
     def _apply_claude_code_adapters(self):
         """Apply Claude Code specific tool adapters to provide appropriate descriptions for LLM."""
 
-        # Get current tools from registry
         current_tools = self.tool_registry.list_tools()
-
-        # Apply adapters to tools that have Claude Code specific descriptions
         adapted_tools = []
         for tool in current_tools:
             try:
-                # Try to create an adapter for this tool
                 adapter = ToolAdapterFactory.create_adapter(tool)
                 adapted_tools.append(adapter)
             except ValueError:
@@ -155,7 +131,7 @@ class ClaudeCodeAgent(BaseAgent):
 
         return f"Conversation: {user_messages} user, {assistant_messages} assistant, {tool_messages} tool messages"
 
-    async def run(self, query: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
+    async def run(self, user_message: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Main execution loop for Claude Code Agent following official flow:
         1. Quota check (if first run)
@@ -163,23 +139,19 @@ class ClaudeCodeAgent(BaseAgent):
         3. Core Agent flow with official prompt structure
         """
         try:
+            agent_registry.switch_to(self)
 
-            # Set this agent as current in the registry for tool access
-            from pywen.core.agent_registry import set_current_agent
-            set_current_agent(self)
-
-            # Start trajectory recording
             self.trajectory_recorder.start_recording(
-                task=query,
+                task=user_message,
                 provider=self.config.model_config.provider.value,
-                model=self.config.model_config.model,
+                model=self.config.model_config.model or "",
                 max_steps=self.max_iterations
             )
 
             # Record task start in session stats
             session_stats.record_task_start(self.type)
 
-            yield {"type": "user_message", "data": {"message": query}}
+            yield {"type": "user_message", "data": {"message": user_message}}
 
             # 1. Quota check (only on first run)
             if not self.quota_checked:
@@ -192,7 +164,7 @@ class ClaudeCodeAgent(BaseAgent):
                     }
 
             # 2. Topic detection for each user input
-            topic_info = await self._detect_new_topic(query)
+            topic_info = await self._detect_new_topic(user_message)
             if topic_info and topic_info.get('isNewTopic'):
                 yield {
                     "type": "new_topic_detected",
@@ -214,11 +186,11 @@ class ClaudeCodeAgent(BaseAgent):
             })
 
             # 3. Core Agent flow with official prompt structure
-            user_message = LLMMessage(role="user", content=query)
-            self.conversation_history.append(user_message)
+            llm_message = LLMMessage(role="user", content=user_message)
+            self.conversation_history.append(llm_message)
 
             # Build official message sequence (merges reminders into user message)
-            messages = await self._build_official_messages(query)
+            messages = await self._build_official_messages(user_message)
 
             # Start recursive query loop with depth control
             async for event in self._query_recursive(messages, None, depth=0, **kwargs):
@@ -606,7 +578,6 @@ class ClaudeCodeAgent(BaseAgent):
             yield {
                 "type": "error",
                 "data":{"error": f"Query error: {str(e)}"},
-                
             }
 
     async def _get_assistant_response_streaming(
@@ -833,7 +804,7 @@ class ClaudeCodeAgent(BaseAgent):
                 arguments=tool_call.get("arguments", {})
             )
             if self.hook_mgr:
-                pre_ok, pre_msg, _ = self.hook_mgr.emit(
+                pre_ok, pre_msg, _ = await self.hook_mgr.emit(
                     HookEvent.PreToolUse,
                     base_payload={
                         "session_id": getattr(self.config, "session_id", ""),
@@ -884,7 +855,7 @@ class ClaudeCodeAgent(BaseAgent):
             self._emit_tool_events(tool_call_obj, tool_result)
 
             if self.hook_mgr:
-                post_ok, post_msg, post_extra = self.hook_mgr.emit(
+                post_ok, post_msg, post_extra = await self.hook_mgr.emit(
                     HookEvent.PostToolUse,
                     base_payload={
                         "session_id": getattr(self.config, "session_id", ""),

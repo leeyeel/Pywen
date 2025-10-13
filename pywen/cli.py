@@ -15,6 +15,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
 from pywen.core.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
+from pywen.core.agent_registry import registry
 from pywen.agents.qwen.qwen_agent import QwenAgent
 from pywen.agents.claudecode.claude_code_agent import ClaudeCodeAgent
 from pywen.ui.cli_console import CLIConsole
@@ -212,11 +213,6 @@ async def interactive_mode_streaming(
                 if extra.get("additionalContext"):
                     agent.conversation_history.append(LLMMessage(role="user", content=extra["additionalContext"]))
 
-                if user_input.startswith("!"):
-                    context = {"console": console, "agent": current_agent}
-                    await command_processor._handle_shell_command(user_input, context)
-                    continue
-
                 context = {"console": console, "agent": current_agent, "config": config, "hook_mgr": hook_mgr}
                 cmd_result = await command_processor.process_command(user_input, context)
 
@@ -290,6 +286,7 @@ async def main() -> None:
     parser.add_argument("--create-config", action="store_true", help="Create default config file")
     parser.add_argument("--session-id", type=str, help="Use specific session ID")
     parser.add_argument("--permission-mode", type=str, help="Set permission mode (yolo, planning, edit-only, locked)", default="locked")
+    parser.add_argument("--agent", type=str, help="Use specific agent: qwen|claude", default="qwen")
     parser.add_argument("prompt", nargs="?", help="Prompt to execute")
     args = parser.parse_args()
 
@@ -321,8 +318,15 @@ async def main() -> None:
         base_payload={"session_id": session_id, "source": "startup"},
     )
 
-    agent = QwenAgent(config, hook_mgr)
-    agent.set_cli_console(console)
+    agent_classes = {
+        "qwen": QwenAgent,
+        "claude": ClaudeCodeAgent,
+    }
+    agent_cls = agent_classes.get(args.agent.lower() or "qwen")
+    if not agent_cls:
+        console.print(f"Unsupported agent type: {args.agent}", "red")
+        return
+    agent = registry.switch_by_cls(agent_cls, name=args.agent.lower(), config=config, hook_mgr=hook_mgr, cli_console=console)
 
     console.start_interactive_mode()
 
