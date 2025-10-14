@@ -91,7 +91,7 @@ Usage notes:
             start_time = time.time()
             
             # Get the current agent (Claude Code Agent)
-            current_agent = self._agent_registry.get_current_agent()
+            current_agent = self._agent_registry.current()
             if not current_agent or current_agent.type != "ClaudeCodeAgent":
                 return ToolResult(
                     call_id="task_tool",

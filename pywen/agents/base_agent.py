@@ -6,11 +6,11 @@ from typing import Callable, Iterable, Optional, AsyncGenerator
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
-from pywen.config.config import Config
+from pywen.config.config import Config, MCPConfig
 from pywen.ui.cli_console import CLIConsole
 from pywen.core.trajectory_recorder import TrajectoryRecorder
 from pywen.core.tool_registry import ToolRegistry
-from pywen.core.tool_executor import NonInteractiveToolExecutor
+from pywen.core.tool_executor import ToolExecutor
 from pywen.utils.llm_basics import LLMMessage
 from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
 from pywen.hooks.manager import HookManager
@@ -28,12 +28,10 @@ class BaseAgent(ABC):
         
         self.trajectory_recorder = TrajectoryRecorder()
         
-        # Initialize tools with agent-specific configuration
         self.tool_registry = ToolRegistry()
         self.setup_tools()
         
-        # Initialize tool executor
-        self.tool_executor = NonInteractiveToolExecutor(self.tool_registry)
+        self.tool_executor = ToolExecutor(self.tool_registry)
 
         self._closed = False 
         self._mcp_mgr = None
@@ -43,11 +41,7 @@ class BaseAgent(ABC):
 
     def setup_tools(self):
         enabled_tools = self.get_enabled_tools()
-
-        # Use the new ToolRegistry method to register tools by names
         registered_tools = self.tool_registry.register_tools_by_names(enabled_tools, self.config)
-
-        # Report any tools that failed to register
         failed_tools = set(enabled_tools) - set(registered_tools)
         if failed_tools and self.cli_console:
             for tool_name in failed_tools:
@@ -125,7 +119,7 @@ class BaseAgent(ABC):
             if self._mcp_mgr is not None:
                 return
 
-            mcp_cfg = self.config.mcp or []
+            mcp_cfg = self.config.mcp or MCPConfig()
             if not mcp_cfg.enabled:
                 self._mcp_mgr = MCPServerManager()
                 return
