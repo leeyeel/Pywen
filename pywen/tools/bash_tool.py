@@ -236,10 +236,18 @@ class BashTool(BaseTool):
                 except UnicodeDecodeError:
                     stdout_text = stdout.decode(self._encoding, errors='replace') if stdout else ""
                 
+                # 根据退出码和命令类型判断如何处理结果
                 if process.returncode == 0:
+                    # 成功执行
                     result_text = command_header + (stdout_text or "Command executed successfully")
                     return ToolResult(call_id="", result=result_text)
+                elif process.returncode == 1:
+                    # 退出码1通常表示"未成功"但不一定是错误
+                    # 对于某些命令（grep、diff等），这是正常的预期行为
+                    result_text = command_header + (stdout_text or "⚠️ Command exited with code 1")
+                    return ToolResult(call_id="", result=result_text)
                 else:
+                    # 退出码 >= 2 通常表示真正的错误（语法错误、文件不存在等）
                     error_text = command_header + f"Command failed with exit code {process.returncode}"
                     if stdout_text:
                         error_text += f"\nOutput:\n{stdout_text}"
