@@ -32,8 +32,8 @@ class LLMClient():
             from .qwen_content_generator import QwenContentGenerator
             return QwenContentGenerator(self.config)
         elif "gpt" in model_name or "openai" in model_name:
-            from .openai_content_generator import OpenAIContentGenerator
-            return OpenAIContentGenerator(self.config)
+            from .response_content_generator import ResponseContentGenerator
+            return ResponseContentGenerator(self.config)
         elif "gemini" in model_name or "google" in model_name:
             from .google_content_generator import GoogleContentGenerator
             return GoogleContentGenerator(self.config)
@@ -98,7 +98,7 @@ class LLMClient():
         # Update statistics with final usage
         if last_usage:
             self.total_tokens_used += last_usage.total_tokens
-            self.context_tokens = response.usage.input_tokens
+            self.context_tokens = last_usage.input_tokens
             self.input_tokens += last_usage.input_tokens
             self.output_tokens += last_usage.output_tokens
     
