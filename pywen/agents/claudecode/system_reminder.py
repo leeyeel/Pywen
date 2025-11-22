@@ -485,3 +485,72 @@ def reset_reminder_session() -> None:
 def get_reminder_session_state() -> SessionReminderState:
     """Get reminder session state"""
     return system_reminder_service.get_session_state()
+
+
+def emit_tool_execution_event(tool_call, agent_type: str, todo_items: List[Dict] = None) -> Optional[List]:
+    """
+    根据工具执行结果发送相应的事件
+    
+    Args:
+        tool_call: 工具调用对象，包含 name 和 arguments
+        agent_type: Agent 类型标识
+        todo_items: 当前的 TODO 项列表（仅在 todo_write 时需要）
+    
+    Returns:
+        如果是 todo_write 工具，返回新的 todo_items，否则返回 None
+    """
+    from pywen.utils.tool_basics import ToolCall
+    current_time = time.time()
+    
+    # 文件读取事件
+    if tool_call.name in ['read_file', 'read_many_files']:
+        emit_reminder_event('file:read', {
+            'filePath': tool_call.arguments.get('file_path', '') if tool_call.arguments else '',
+            'timestamp': current_time,
+            'agentId': agent_type
+        })
+    
+    # 文件编辑事件
+    elif tool_call.name in ['edit_file', 'write_file']:
+        emit_reminder_event('file:edited', {
+            'filePath': tool_call.arguments.get('file_path', '') if tool_call.arguments else '',
+            'timestamp': current_time,
+            'operation': 'update' if tool_call.name == 'edit_file' else 'create',
+            'agentId': agent_type
+        })
+    
+    # TODO 变更事件
+    elif tool_call.name == 'todo_write':
+        new_todos = tool_call.arguments.get('todos', []) if tool_call.arguments else []
+        previous_todos = todo_items.copy() if todo_items else []
+        
+        emit_reminder_event('todo:changed', {
+            'previousTodos': previous_todos,
+            'newTodos': new_todos,
+            'timestamp': current_time,
+            'agentId': agent_type,
+            'changeType': determine_todo_change_type(previous_todos, new_todos)
+        })
+        
+        return new_todos  # 返回新的 TODO 列表供 Agent 更新状态
+    
+    return None
+
+
+def determine_todo_change_type(previous_todos: List, new_todos: List) -> str:
+    """
+    判断 TODO 列表的变化类型
+    
+    Args:
+        previous_todos: 之前的 TODO 列表
+        new_todos: 新的 TODO 列表
+    
+    Returns:
+        变化类型：'added', 'removed', 或 'modified'
+    """
+    if len(new_todos) > len(previous_todos):
+        return 'added'
+    elif len(new_todos) < len(previous_todos):
+        return 'removed'
+    else:
+        return 'modified'

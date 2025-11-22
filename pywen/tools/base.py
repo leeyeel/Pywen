@@ -1,7 +1,7 @@
 """Enhanced base tool classes matching TypeScript version."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional,Mapping
 from enum import Enum
 from pywen.utils.tool_basics import ToolCallConfirmationDetails, ToolResult
 
@@ -26,7 +26,8 @@ class BaseTool(ABC):
         is_output_markdown: bool = False,
         can_update_output: bool = False,
         config: Optional[Any] = None,
-        risk_level: ToolRiskLevel = ToolRiskLevel.SAFE
+        risk_level: ToolRiskLevel = ToolRiskLevel.SAFE,
+        tool_type: str = "function",
     ):
         self.name = name
         self.display_name = display_name
@@ -37,6 +38,7 @@ class BaseTool(ABC):
         self.can_update_output = can_update_output
         self.config = config
         self.risk_level = risk_level
+        self.tool_type= tool_type,
     
     @abstractmethod
     async def execute(self, **kwargs) -> ToolResult:
@@ -88,6 +90,17 @@ class BaseTool(ABC):
             "parameters": self.parameter_schema
         }
 
+    #TODO. 重构完成后需要声明为 abstractmethod
+    def build(self) -> Mapping[str, Any]:
+        """Build tool instance. To be implemented by subclasses."""
+        return {
+                "type": "function",
+                "function": {
+                    "name": self.name,
+                    "description": self.description,
+                    "parameters": self.parameter_schema
+                },
+            }
 
 # Alias for backward compatibility
 Tool = BaseTool

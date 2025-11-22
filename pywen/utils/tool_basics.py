@@ -10,17 +10,34 @@ class ToolCall:
     """Represents a tool call from the LLM."""
     call_id: str
     name: str
-    arguments: Dict[str, Any]
+    arguments: Optional[Dict[str, Any]] = None
+    type: Optional[str] = None
+    input: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
             "call_id": self.call_id,
             "name": self.name,
-            "arguments": self.arguments
+            "arguments": self.arguments,
+            "type" : self.type,
+            "input": self.input
         }
 
-@dataclass
+    @classmethod
+    def from_raw(cls, data: dict):
+        import json
+        args = data.get("arguments", "")
+        if isinstance(args, str):
+            args = json.loads(args) if args.strip() else {}
+        return cls(
+            call_id=data["call_id"],
+            name=data["name"],
+            arguments=args,
+            type=data.get("type"),
+            input=data.get("input", "")
+        )
+
 class ToolStatus(Enum):
     """Tool execution status."""
     SUCCESS = "success"

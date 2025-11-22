@@ -1,7 +1,7 @@
 """CLI Console for displaying agent progress."""
 from __future__ import annotations
 
-from typing import Optional, Any, Dict 
+from typing import Optional, Any, Dict, Mapping
 from rich.console import Group
 from rich import get_console
 from rich.panel import Panel
@@ -334,7 +334,7 @@ class UnifiedToolResultRenderer:
     def _render_file_read(self, result: Any, arguments: Dict) -> Panel:
         text = "" if result is None else str(result)
         lines = text.splitlines()
-        max_lines = 50
+        max_lines = 100
         truncated = len(lines) > max_lines
         if truncated:
             lines = lines[:max_lines]
@@ -518,7 +518,7 @@ class ApprovalService:
 
     def _display_basic_tool_info(self, tool_name: str, arguments: dict):
         self.p.print_raw(f"🔧 [bold cyan]{tool_name}[/bold cyan]")
-        if arguments:
+        if arguments and isinstance(arguments, dict):
             self.p.print_raw("Arguments:")
             for key, value in arguments.items():
                 if key == "content" and len(str(value)) > 100:
@@ -526,6 +526,9 @@ class ApprovalService:
                     self.p.print_raw(f"  [cyan]{key}[/cyan]: {preview}")
                 else:
                     self.p.print_raw(f"  [cyan]{key}[/cyan]: {value}")
+        elif arguments and isinstance(arguments, str):
+            self.p.print_raw("Arguments:")
+            self.p.print_text(f"{arguments}")
         else:
             self.p.print_raw("No arguments")
 
@@ -540,7 +543,7 @@ class EventRouter:
         event_type = event.get("type")
         data = event.get("data", {})
 
-        if getattr(agent, "type", "") in ("QwenAgent", "ClaudeCodeAgent"):
+        if getattr(agent, "type", "") in ("QwenAgent", "ClaudeCodeAgent", "CodexAgent"):
             return self._handle_qwen_claude(event_type, data)
         elif getattr(agent, "type", "") == "GeminiResearchDemo":
             return self._handle_gemini(event_type, data)
