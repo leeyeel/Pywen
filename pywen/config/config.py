@@ -37,7 +37,7 @@ class MCPConfig(BaseModel):
 class MemoryMonitorConfig(BaseModel):
     check_interval: int = 60
     maximum_capacity: int = 4096
-    rules: Dict[str, Any] = Field(default_factory=dict)
+    rules: List[List[float]] = Field(default_factory=list)
     model: Optional[str] = None
     class ConfigDict:
         extra = "allow"

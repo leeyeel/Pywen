@@ -49,7 +49,7 @@ models:
   # ------------------------------
   # Claude Code（Anthropic）
   # ------------------------------
-  - agent_name: claudecode
+  - agent_name: claude
     provider: anthropic                        # Claude 使用 anthropic provider
     model: "xx"                                # 如 claude-3.5-sonnet
     api_key: "xx"
