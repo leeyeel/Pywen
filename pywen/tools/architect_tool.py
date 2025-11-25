@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import List, Mapping,Any
+from typing import List, Mapping,Any,Dict
 from pywen.tools.base_tool import BaseTool
 from pywen.utils.tool_basics import ToolResult
 from pywen.utils.llm_basics import LLMMessage
@@ -235,12 +235,12 @@ class ArchitectTool(BaseTool):
         
         return architect_agent
     
-    def _get_architect_tools(self, parent_tools: List[BaseTool]) -> List[BaseTool]:
+    def _get_architect_tools(self, parent_tools: List[Dict]) -> List[Dict]:
         allowed_tool_names = {
             'read_file', 'read_many_files', 'ls', 'grep', 'glob',
             'web_fetch', 'web_search' 
         }
-        return [tool for tool in parent_tools if tool.name in allowed_tool_names]
+        return [tool for tool in parent_tools if tool.get("name") in allowed_tool_names]
     
     def _get_architect_system_prompt(self) -> str:
         """Get system prompt for architect"""
