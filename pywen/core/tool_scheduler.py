@@ -1,17 +1,10 @@
-"""Core tool scheduler for managing tool execution."""
-
 import asyncio
 import uuid
-import sys
-from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict 
 from dataclasses import dataclass
-
-
 from pywen.utils.tool_basics import ToolCall, ToolResult
 from pywen.core.tool_registry import ToolRegistry
 from pywen.core.session_stats import session_stats
-
 
 @dataclass
 class ScheduledTask:
@@ -21,7 +14,6 @@ class ScheduledTask:
     priority: int = 0
     max_retries: int = 3
     current_retry: int = 0
-
 
 class CoreToolScheduler:
     """Core scheduler for managing tool execution."""
@@ -88,16 +80,7 @@ class CoreToolScheduler:
                 success=False,
                 agent_name=agent_name
             )
-
             return ToolResult(
                 call_id=tool_call.call_id,
                 error=f"Tool execution failed: {str(e)}"
             )
-    
-    def get_queue_status(self) -> Dict[str, Any]:
-        """Get current queue status."""
-        return {
-            "queued_tasks": len(self.task_queue),
-            "running_tasks": len(self.running_tasks),
-            "max_concurrent": self.max_concurrent_tasks
-        }

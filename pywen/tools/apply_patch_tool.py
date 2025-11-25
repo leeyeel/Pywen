@@ -4,8 +4,9 @@ import json
 from dataclasses import dataclass 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, override,Mapping 
-from pywen.tools.base import BaseTool, ToolRiskLevel
+from pywen.tools.base_tool import BaseTool, ToolRiskLevel
 from pywen.utils.tool_basics import ToolResult
+from pywen.core.tool_registry2 import register_tool
 
 BEGIN_PATCH_MARKER = "*** Begin Patch"
 END_PATCH_MARKER = "*** End Patch"
@@ -447,7 +448,6 @@ def _compute_replacements(
     replacements.sort(key=lambda t: t[0])
     return replacements
 
-
 def _apply_replacements(original_lines: List[str], reps: List[Tuple[int, int, List[str]]]) -> List[str]:
     out: List[str] = []
     cursor = 0
@@ -460,20 +460,14 @@ def _apply_replacements(original_lines: List[str], reps: List[Tuple[int, int, Li
     out.extend(original_lines[cursor:])
     return out
 
+@register_tool(name = "apply_patch", providers=["codex"])
 class ApplyPatchTool(BaseTool):
-    def __init__(self, config: Optional[Any] = None):
-        self.mode = "custom" if config and "codex" in config.active_model.model.lower() else "function"
-        super().__init__(
-            name="apply_patch",
-            display_name="Apply Patch",
-            description= CUSTOM_DESCRIPTION if self.mode == "custom" else FUNCTION_DESCRIPTION,
-            parameter_schema= GRAMMAR_SCHEMA if self.mode == "custom" else FUNCTION_SCHEMA,
-            is_output_markdown=False,
-            can_update_output=False,
-            config=config,
-            risk_level=ToolRiskLevel.MEDIUM,
-            tool_type= self.mode,
-        )
+    name = "apply_patch"
+    display_name="Apply Patch"
+    description= CUSTOM_DESCRIPTION
+    parameter_schema= GRAMMAR_SCHEMA
+    can_update_output=False
+    risk_level=ToolRiskLevel.MEDIUM
 
     def get_risk_level(self, **kwargs) -> ToolRiskLevel:
         if kwargs.get("dry_run", False):
@@ -488,7 +482,7 @@ class ApplyPatchTool(BaseTool):
         return f"[{mode}] Apply patch to workspace: {wd}"
 
     async def execute(self, **kwargs) -> ToolResult:
-        patch_text : str = kwargs.get("input") or kwargs.get("patch") or ""
+        patch_text : str = kwargs.get("input")  or ""
         workdir = Path(kwargs.get("workdir") or os.getcwd()).resolve()
         allow_heredoc = bool(kwargs.get("allow_heredoc", False))
         dry_run = bool(kwargs.get("dry_run", False))
@@ -567,8 +561,9 @@ class ApplyPatchTool(BaseTool):
                     summary="apply_patch crashed",
             )
 
-    def build(self) -> Mapping[str, Any]:
-        if self.mode == "custom":
+    def build(self, provider:str = "", func_type : str = "") -> Mapping[str, Any]:
+        """ codex专用 """
+        if func_type == "" or func_type.lower() == "custom"  or func_type.lower() == "freeform":
             return {
                     "type" : "custom",
                     "name" : self.name,

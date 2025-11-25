@@ -1,34 +1,35 @@
-"""Directory listing tool."""
-
 import os
+from typing import Any, Mapping
+from .base_tool import BaseTool, ToolResult
+from pywen.core.tool_registry2 import register_tool
 
-from .base import BaseTool, ToolResult
+CLAUDE_DESCRIPTION = """
+Lists files and directories in a given path. 
+The path parameter must be an absolute path, not a relative path. 
+You can optionally provide an array of glob patterns to ignore with the ignore parameter. 
+You should generally prefer the Glob and Grep tools, if you know which directories to search.
+"""
 
-
+@register_tool(name="ls", providers=["claude", "qwen",])
 class LSTool(BaseTool):
-    """Tool for listing directory contents."""
-    
-    def __init__(self):
-        super().__init__(
-            name="ls",
-            display_name="List Directory",
-            description="List contents of a directory",
-            parameter_schema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Directory path to list (default: current directory)",
-                        "default": "."
-                    },
-                    "show_hidden": {
-                        "type": "boolean",
-                        "description": "Show hidden files and directories",
-                        "default": False
-                    }
-                }
+    name="ls"
+    display_name="List Directory"
+    description="List contents of a directory"
+    parameter_schema={
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Directory path to list (default: current directory)",
+                "default": "."
+            },
+            "show_hidden": {
+                "type": "boolean",
+                "description": "Show hidden files and directories",
+                "default": False
             }
-        )
+        }
+    }
     
     async def execute(self, **kwargs) -> ToolResult:
         """List directory contents."""
@@ -60,3 +61,21 @@ class LSTool(BaseTool):
         
         except Exception as e:
             return ToolResult(call_id="", error=f"Error listing directory: {str(e)}")
+
+    def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
+        if provider.lower() == "claude" or provider.lower() == "anthropic":
+            res = {
+                "name": self.name,
+                "description": CLAUDE_DESCRIPTION,
+                "input_schema": self.parameter_schema,
+            }
+        else:
+            res = {
+                "type": "function",
+                "function": {
+                    "name": self.name,
+                    "description": self.description,
+                    "parameters": self.parameter_schema
+                }
+            }
+        return res

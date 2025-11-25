@@ -1,10 +1,7 @@
-"""Enhanced base tool classes matching TypeScript version."""
-
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional,Mapping
 from enum import Enum
 from pywen.utils.tool_basics import ToolCallConfirmationDetails, ToolResult
-
 
 class ToolRiskLevel(Enum):
     """Tool risk levels for permission control."""
@@ -13,32 +10,14 @@ class ToolRiskLevel(Enum):
     MEDIUM = "medium"       # 中等风险，详细确认
     HIGH = "high"           # 高风险操作，强制确认
 
-
 class BaseTool(ABC):
-    """Enhanced base class matching TypeScript BaseTool."""
-    
-    def __init__(
-        self,
-        name: str,
-        display_name: str,
-        description: str,
-        parameter_schema: Dict[str, Any],
-        is_output_markdown: bool = False,
-        can_update_output: bool = False,
-        config: Optional[Any] = None,
-        risk_level: ToolRiskLevel = ToolRiskLevel.SAFE,
-        tool_type: str = "function",
-    ):
-        self.name = name
-        self.display_name = display_name
-        self.description = description
-        self.parameter_schema = parameter_schema
-        self.parameters = parameter_schema  # Add alias for backward compatibility
-        self.is_output_markdown = is_output_markdown
-        self.can_update_output = can_update_output
-        self.config = config
-        self.risk_level = risk_level
-        self.tool_type= tool_type,
+    name: str = ""
+    display_name: str = ""
+    description: str = ""
+    parameter_schema: Dict[str, Any] = {}
+    is_output_markdown: bool = False
+    can_update_output: bool = False
+    risk_level: ToolRiskLevel = ToolRiskLevel.SAFE
     
     @abstractmethod
     async def execute(self, **kwargs) -> ToolResult:
@@ -47,7 +26,6 @@ class BaseTool(ABC):
     
     def validate_parameters(self, **kwargs) -> bool:
         """Validate tool parameters."""
-        # Basic validation - can be overridden by subclasses
         return True
     
     def get_risk_level(self, **kwargs) -> ToolRiskLevel:
@@ -64,7 +42,6 @@ class BaseTool(ABC):
         if risk_level == ToolRiskLevel.SAFE:
             return None
 
-        # Generate detailed confirmation message
         confirmation_message = await self._generate_confirmation_message(**kwargs)
 
         return ToolCallConfirmationDetails(
@@ -90,22 +67,8 @@ class BaseTool(ABC):
             "parameters": self.parameter_schema
         }
 
-    #TODO. 重构完成后需要声明为 abstractmethod
-    def build(self) -> Mapping[str, Any]:
-        """Build tool instance. To be implemented by subclasses."""
-        return {
-                "type": "function",
-                "function": {
-                    "name": self.name,
-                    "description": self.description,
-                    "parameters": self.parameter_schema
-                },
-            }
+    @abstractmethod
+    def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
+        pass
 
-# Alias for backward compatibility
 Tool = BaseTool
-
-
-
-
-

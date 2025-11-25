@@ -1,37 +1,40 @@
-"""Web content fetching tool."""
-
 import asyncio
 import aiohttp
 import html
 import re
+from typing import Any, Mapping
+from .base_tool import BaseTool, ToolResult
+from pywen.core.tool_registry2 import register_tool
 
-from .base import BaseTool, ToolResult
+CLAUDE_DESCRIPTION = """
+- Fetches content from a specified URL and processes it using an AI model
+- Takes a URL and a prompt as input
+- Fetches the URL content, converts HTML to markdown
+- Processes the content with the prompt using a small, fast model
+- Returns the model's response about the content
+- Use this tool when you need to retrieve and analyze web content
+"""
 
-
+@register_tool(name="web_fetch", providers=["claude", "qwen"])
 class WebFetchTool(BaseTool):
-    """Tool for fetching web content."""
-    
-    def __init__(self):
-        super().__init__(
-            name="web_fetch",
-            display_name="Fetch Web Content",
-            description="Fetch content from web URLs",
-            parameter_schema={
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "URL to fetch content from"
-                    },
-                    "timeout": {
-                        "type": "integer",
-                        "description": "Request timeout in seconds (default: 30)",
-                        "default": 30
-                    }
-                },
-                "required": ["url"]
+    name="web_fetch"
+    display_name="Fetch Web Content"
+    description="Fetch content from web URLs"
+    parameter_schema={
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "URL to fetch content from"
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "Request timeout in seconds (default: 30)",
+                "default": 30
             }
-        )
+        },
+        "required": ["url"]
+    }
     
     def _clean_html_content(self, html_content: str) -> str:
         """Extract clean text from HTML content using built-in modules."""
@@ -111,3 +114,21 @@ class WebFetchTool(BaseTool):
             return ToolResult(call_id="", error=f"Timeout fetching {url}")
         except Exception as e:
             return ToolResult(call_id="", error=f"Error fetching {url}: {str(e)}")
+
+    def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
+        if provider.lower() == "claude" or provider.lower() == "anthropic":
+            res = {
+                "name": self.name,
+                "description": CLAUDE_DESCRIPTION,
+                "input_schema": self.parameter_schema,
+            }
+        else:
+            res = {
+                "type": "function",
+                "function": {
+                    "name": self.name,
+                    "description": self.description,
+                    "parameters": self.parameter_schema
+                }
+            }
+        return res

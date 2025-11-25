@@ -1,69 +1,37 @@
-"""Memory tool for storing user preferences and facts."""
-
-import os
 from pathlib import Path
+from typing import Any, Mapping
+from .base_tool import BaseTool, ToolResult
+from pywen.core.tool_registry2 import register_tool
 
-from .base import BaseTool, ToolResult
-
-
+@register_tool(name="memory", providers=["qwen"])
 class MemoryTool(BaseTool):
-    """Tool for remembering user-specific facts and preferences."""
-
-    def __init__(self, project_id: str = None):
-        super().__init__(
-            name="memory",
-            display_name="Memory Tool",
-            description="Write and read memory files in markdown format for storing user-related facts or preferences",
-            parameter_schema={
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["write", "read", "list"],
-                        "description": "Action to perform: write (create/update memory file), read (read specific file), or list (list all memory files)"
-                    },
-                    "file_path": {
-                        "type": "string",
-                        "description": "Path to the memory file (relative to memory directory, e.g. 'preferences.md', 'projects/project1.md')"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Content to write to the memory file (required for 'write' action)"
-                    }
-                },
-                "required": ["action"]
+    name="memory"
+    display_name="Memory Tool"
+    description="Write and read memory files in markdown format for storing user-related facts or preferences"
+    parameter_schema={
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["write", "read", "list"],
+                "description": "Action to perform: write (create/update memory file), read (read specific file), or list (list all memory files)"
+            },
+            "file_path": {
+                "type": "string",
+                "description": "Path to the memory file (relative to memory directory, e.g. 'preferences.md', 'projects/project1.md')"
+            },
+            "content": {
+                "type": "string",
+                "description": "Content to write to the memory file (required for 'write' action)"
             }
-        )
+        },
+        "required": ["action"]
+    }
 
-        # Create memory directory structure similar to Kode
-        # Base directory: ~/.pywen/memory/
-        home_dir = Path.home()
-        base_memory_dir = home_dir / ".pywen" / "memory"
-
-        # Project-specific directory: ~/.pywen/memory/projects/{project_id}/
-        # If no project_id provided, use current working directory name or 'default'
-        if project_id is None:
-            project_id = self._get_project_id()
-
-        self.memory_dir = base_memory_dir / "projects" / project_id
-        self.memory_dir.mkdir(parents=True, exist_ok=True)
-
-    def _get_project_id(self) -> str:
-        """Get project ID from current working directory or environment."""
-        # Try to get from environment variable first
-        project_id = os.environ.get('PYWEN_PROJECT_ID')
-        if project_id:
-            return project_id
-
-        # Use current working directory name
-        cwd = Path.cwd()
-        project_name = cwd.name
-
-        # Sanitize project name for use as directory name
-        import re
-        project_name = re.sub(r'[^\w\-_.]', '_', project_name)
-
-        return project_name or 'default'
+    home_dir = Path.home()
+    base_memory_dir = home_dir / ".pywen" / "memory"
+    memory_dir = base_memory_dir / "projects" / "default"
+    memory_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_full_path(self, file_path: str) -> Path:
         """Get full path for a memory file and ensure it's within memory directory."""
@@ -166,3 +134,21 @@ class MemoryTool(BaseTool):
             return ToolResult(call_id="", error=str(e))
         except Exception as e:
             return ToolResult(call_id="", error=f"Error executing memory operation: {str(e)}")
+
+    def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
+        if provider.lower() == "claude" or provider.lower() == "anthropic":
+            res = {
+                "name": self.name,
+                "description": "",
+                "input_schema": self.parameter_schema,
+            }
+        else:
+            res = {
+                "type": "function",
+                "function": {
+                    "name": self.name,
+                    "description": self.description,
+                    "parameters": self.parameter_schema
+                }
+            }
+        return res

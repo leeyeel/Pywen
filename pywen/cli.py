@@ -17,7 +17,7 @@ from pywen.core.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
 from pywen.core.agent_registry import registry
 from pywen.agents.qwen.qwen_agent import QwenAgent
-from pywen.agents.claudecode.claude_code_agent import ClaudeCodeAgent
+from pywen.agents.claude.claude_agent import ClaudeAgent
 from pywen.agents.codex.codex_agent import CodexAgent 
 from pywen.ui.cli_console import CLIConsole
 from pywen.ui.command_processor import CommandProcessor
@@ -28,6 +28,7 @@ from pywen.utils.llm_basics import LLMMessage
 from pywen.hooks.config import load_hooks_config
 from pywen.hooks.manager import HookManager
 from pywen.hooks.models import HookEvent
+from pywen.core.tool_registry2 import tools_autodiscover
 
 class ExecutionState:
     """集中管理一次用户请求的执行状态与取消信号。"""
@@ -298,11 +299,12 @@ async def main() -> None:
 
     console = CLIConsole(perm_mgr)
 
+    tools_autodiscover()
+
     memory_monitor = Memorymonitor(config, console, verbose=False)
     file_restorer = IntelligentFileRestorer()
 
     session_id = args.session_id or str(uuid.uuid4())[:8]
-    #setattr(config, "session_id", session_id)
 
     hooks_cfg = load_hooks_config(cfg_mgr.get_default_hooks_path())
     hook_mgr = HookManager(hooks_cfg)
@@ -313,7 +315,7 @@ async def main() -> None:
 
     agent_classes = {
         "qwen": QwenAgent,
-        "claude": ClaudeCodeAgent,
+        "claude": ClaudeAgent,
         "codex": CodexAgent,
     }
     agent_cls = agent_classes.get(args.agent.lower() or "qwen")

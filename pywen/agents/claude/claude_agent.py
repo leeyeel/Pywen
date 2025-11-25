@@ -11,84 +11,50 @@ from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
 from pywen.core.session_stats import session_stats
 from pywen.core.agent_registry import registry  as agent_registry
-
-from pywen.agents.claudecode.tools.tool_adapter import ToolAdapterFactory
 from pywen.config.manager import ConfigManager
-from pywen.agents.claudecode.system_reminder import (
+from pywen.agents.claude.system_reminder import (
     generate_system_reminders, emit_reminder_event, reset_reminder_session,
-    get_system_reminder_start
+    get_system_reminder_start,emit_tool_execution_event
 )
 from pywen.hooks.models import HookEvent
+from pywen.core.tool_registry2 import list_tools_for_provider, get_tool
 
-class ClaudeCodeAgent(BaseAgent):
+class ClaudeAgent(BaseAgent):
 
-    def __init__(self, config, hook_mgr, cli_console=None):
+    def __init__(self, config, hook_mgr, cli_console = None):
         super().__init__(config, hook_mgr, cli_console)
         self.type = "ClaudeAgent"
         self.llm_client = LLMClient(self.config.active_model)
         self.prompts = ClaudeCodePrompts()
         self.project_path = os.getcwd()
-        self.max_iterations = getattr(config, 'max_iterations', 10)
-
+        self.max_iterations = config.max_turns
         self.context_manager = ClaudeCodeContextManager(self.project_path)
         self.context = {}
-
         self.conversation_history: List[LLMMessage] = []
-
         trajectories_dir = ConfigManager.get_trajectories_dir()
-
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        trajectory_path = trajectories_dir / f"claude_code_trajectory_{timestamp}.json"
+        trajectory_path = trajectories_dir / f"claude_trajectory_{timestamp}.json"
         self.trajectory_recorder = TrajectoryRecorder(trajectory_path)
-
-        self.tools_formatted = self.tools_format_convert()
-
         session_stats.set_current_agent(self.type)
         self.quota_checked = False
-
         self.todo_items = []
         reset_reminder_session()
         self.file_metrics = {}
-
-    def get_enabled_tools(self) -> List[str]:
-        return [
-            'read_file', 'write_file', 'edit_file', 'read_many_files',
-            'ls', 'grep', 'glob', 'bash', 'web_fetch', 'web_search',
-            'task_tool','architect_tool','todo_write','think_tool',
-        ]
+        self.tools = self._setup_claude_code_tools()
 
     def _setup_claude_code_tools(self):
-        # 为具有开启Sub Agent能力的工具设定智能体类型
-        task_tool = self.tool_registry.get_tool('task_tool')
-        task_tool.set_agent_registry(agent_registry)
-
-        architect_tool = self.tool_registry.get_tool('architect_tool')
-        architect_tool.set_agent_registry(agent_registry)
-
-        # 更换公用工具的工具描述
-        current_tools = self.tool_registry.list_tools()
-        adapted_tools = []
-        for tool in current_tools:
-            try:
-                adapter = ToolAdapterFactory.create_adapter(tool)
-                adapted_tools.append(adapter)
-            except ValueError:
-                adapted_tools.append(tool)
-
-        self.tools = adapted_tools
-
-    def tools_format_convert(self) -> List[Dict[str, Any]]:
-        self._setup_claude_code_tools()
-        tool_list = []
-        for t in self.tools:
-            func_decl = t.get_function_declaration()
-            tool_dict = {
-                "name": func_decl["name"],
-                "description": func_decl["description"],
-                "input_schema": func_decl["parameters"]
-            }
-            tool_list.append(tool_dict)
-        return tool_list
+        # TODO. 急需重构工具适配器体系
+        tools = []
+        task_tool = get_tool('task_tool')
+        task_tool.set_current_agent(self)
+        tools.append(task_tool.build("claude"))
+        architect_tool = get_tool('architect_tool')
+        architect_tool.set_current_agent(self)
+        tools.append(architect_tool.build("claude"))
+        for tool in list_tools_for_provider("claude"):
+            if tool.name != 'task_tool' and tool.name != 'architect_tool':
+                tools.append(tool.build("claude"))
+        return tools
 
     def _build_messages(self, messages: List[LLMMessage]) -> List[Dict[str, Any]]:
         msgs: List[Dict[str, Any]] = []
@@ -264,7 +230,7 @@ class ClaudeCodeAgent(BaseAgent):
                 model=self.config.active_model.model or "claude-3",
                 tools=None,
                 current_task="quota_check",
-                agent_name="ClaudeCodeAgent"
+                agent_name="ClaudeAgent"
             )
 
             return bool(content)
@@ -311,7 +277,7 @@ class ClaudeCodeAgent(BaseAgent):
                 model=self.config.active_model.model or "claude-3",
                 tools=None,
                 current_task="topic_detection",
-                agent_name="ClaudeCodeAgent"
+                agent_name="ClaudeAgent"
             )
 
             if content:
@@ -473,7 +439,7 @@ class ClaudeCodeAgent(BaseAgent):
 
             params = {
                 "model": self.config.active_model.model,
-                "tools": self.tools_formatted,
+                "tools": self.tools,
                 "max_tokens": 4096
             }
 
@@ -702,29 +668,27 @@ class ClaudeCodeAgent(BaseAgent):
                     )
                     return blocked_result, blocked_message
 
-            if hasattr(self, 'cli_console') and self.cli_console:
-                tool = self.tool_registry.get_tool(tool_call["name"])
-                if tool:
-                    confirmation_details = await tool.get_confirmation_details(**tool_call.get("arguments", {}))
-                    if confirmation_details:
-                        confirmed = await self.cli_console.confirm_tool_call(tool_call_obj, tool)
-                        if not confirmed:
-                            cancelled_result = ToolResult(
-                                call_id=tool_call.get("id", "unknown"),
-                                error="Tool execution was cancelled by user",
-                            )
-                            cancelled_message = LLMMessage(
-                                role="tool",
-                                content="Tool execution was cancelled by user",
-                                tool_call_id=tool_call.get("id", "unknown")
-                            )
-                            return cancelled_result, cancelled_message
+            tool = get_tool(tool_call["name"])
+            if not tool:
+                raise ValueError(f"Tool '{tool_call['name']}' not found")
+            confirmation_details = await tool.get_confirmation_details(**tool_call.get("arguments", {}))
+            if confirmation_details:
+                confirmed = await self.cli_console.confirm_tool_call(tool_call_obj, tool)
+                if not confirmed:
+                    cancelled_result = ToolResult(
+                        call_id=tool_call.get("id", "unknown"),
+                        error="Tool execution was cancelled by user",
+                    )
+                    cancelled_message = LLMMessage(
+                        role="tool",
+                        content="Tool execution was cancelled by user",
+                        tool_call_id=tool_call.get("id", "unknown")
+                    )
+                    return cancelled_result, cancelled_message
 
-            results = await self.tool_executor.execute_tools([tool_call_obj], self.type)
-            tool_result = results[0]
+            tool_result = await tool.execute(**tool_call.get("arguments", {}))
             
             # 发送工具执行事件并更新 TODO 状态
-            from pywen.agents.claudecode.system_reminder import emit_tool_execution_event
             new_todos = emit_tool_execution_event(tool_call_obj, self.type, self.todo_items)
             if new_todos is not None:
                 self.todo_items = new_todos

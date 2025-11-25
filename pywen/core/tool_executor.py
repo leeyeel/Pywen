@@ -1,7 +1,4 @@
-"""Non-interactive tool executor."""
-
 from typing import List, Dict, Any
-
 from pywen.utils.tool_basics import ToolCall, ToolResult
 from pywen.core.tool_registry import ToolRegistry
 from pywen.core.tool_scheduler import CoreToolScheduler
@@ -20,12 +17,3 @@ class ToolExecutor:
         results = await self.scheduler.schedule_tool_calls(tool_calls, agent_name)
         
         return results
-    
-    def get_available_tools(self) -> List[str]:
-        """Get list of available tool names."""
-        return [tool.name for tool in self.tool_registry.list_tools()]
-    
-    def get_tool_declarations(self) -> List[Dict[str, Any]]:
-        """Get function declarations for all available tools."""
-        return self.tool_registry.get_function_declarations()
-    

@@ -1,138 +1,16 @@
-"""
-Todo Tool - Manage todo lists for task tracking
-Based on Kode's TodoWriteTool implementation
-"""
 import json
+import uuid
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
-
-
-from pywen.tools.base import BaseTool
+from typing import Any, Dict, List, Mapping
+from pywen.tools.base_tool import BaseTool
 from pywen.utils.tool_basics import ToolResult
+from pywen.core.tool_registry2 import register_tool
 
-logger = logging.getLogger(__name__)
-
-# Global todo tool instances for agent sessions
-_todo_tool_instances = {}
-
-
-def get_todo_tool(agent_id: str = "default") -> 'TodoTool':
-    """Get or create a TodoTool instance for the given agent"""
-    if agent_id not in _todo_tool_instances:
-        _todo_tool_instances[agent_id] = TodoTool(agent_id)
-    return _todo_tool_instances[agent_id]
-
-
-def get_current_todos(agent_id: str = "default") -> List['TodoItem']:
-    """Get current todos for an agent"""
-    tool = get_todo_tool(agent_id)
-    return tool.storage.get_todos()
-
-
-def update_todos(todos: List[Dict[str, Any]], agent_id: str = "default") -> str:
-    """Update todos for an agent and return formatted display"""
-    tool = get_todo_tool(agent_id)
-
-    # Convert to TodoItem objects
-    todo_items = []
-    for todo_data in todos:
-        todo_item = TodoItem(
-            id=todo_data["id"],
-            content=todo_data["content"],
-            status=todo_data["status"]
-        )
-        todo_items.append(todo_item)
-
-    # Save todos
-    tool.storage.set_todos(todo_items)
-
-    # Return formatted display
-    return tool._format_todos_for_display(todo_items)
-
-
-class TodoItem:
-    """Todo item data structure"""
-    def __init__(self, id: str, content: str, status: str = "pending"):
-        self.id = id
-        self.content = content
-        self.status = status  # pending, in_progress, completed
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "content": self.content,
-            "status": self.status
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'TodoItem':
-        return cls(
-            id=data["id"],
-            content=data["content"],
-            status=data.get("status", "pending")
-        )
-
-
-class TodoStorage:
-    """Simple todo storage manager"""
-
-    def __init__(self, agent_id: str = "default"):
-        self.agent_id = agent_id
-        self._storage_dir = self._get_storage_dir()
-        self._storage_file = self._storage_dir / f"todos_{agent_id}.json"
-
-    def _get_storage_dir(self) -> Path:
-        """Get the storage directory for todos"""
-        from pywen.config.manager import ConfigManager 
-        todos_dir = ConfigManager.get_pywen_config_dir() / "todos"
-        todos_dir.mkdir(exist_ok=True)
-        return todos_dir
-    
-    def get_todos(self) -> List['TodoItem']:
-        """Get all todos for this agent"""
-        if not self._storage_file.exists():
-            return []
-
-        try:
-            with open(self._storage_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return [TodoItem.from_dict(item) for item in data]
-        except Exception as e:
-            logger.error(f"Error loading todos: {e}")
-            return []
-    
-    def set_todos(self, todos: List['TodoItem']) -> None:
-        """Set todos for this agent"""
-        try:
-            data = [todo.to_dict() for todo in todos]
-            with open(self._storage_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"Error saving todos: {e}")
-            raise
-
-
-class TodoTool(BaseTool):
-    """
-    Todo Tool for managing task todo lists
-    """
-    
-    def __init__(self, agent_id: str = None, config=None):
-        # Handle case where config is passed as first argument (from tool registry)
-        if agent_id is not None and not isinstance(agent_id, str):
-            config = agent_id
-            agent_id = None
-
-        # Generate a proper agent_id
-        if agent_id is None:
-            import uuid
-            agent_id = f"claude_code_{str(uuid.uuid4())[:8]}"
-
-        super().__init__(
-            name="todo_write",
-            display_name="Todo Manager",
-            description="""Use this tool to create and manage a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user. It also helps the user understand the progress of the task and overall progress of their requests.
+DESCRIPTION = """
+Use this tool to create and manage a structured task list for your current coding session. 
+This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user. 
+It also helps the user understand the progress of the task and overall progress of their requests.
 
   ## When to Use This Tool
   Use this tool proactively in these scenarios:
@@ -359,56 +237,143 @@ class TodoTool(BaseTool):
 
   When in doubt, use this tool. Being proactive with task management
   demonstrates attentiveness and ensures you complete all requirements
-  successfully.""",
-            parameter_schema={
-                "type": "object",
-                "properties": {
-                    "todos": {
-                        "type": "array",
-                        "description": "The updated todo list",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {
-                                    "type": "string",
-                                    "description": "Unique identifier for the task"
-                                },
-                                "content": {
-                                    "type": "string",
-                                    "description": "The task description or content"
-                                },
-                                "status": {
-                                    "type": "string",
-                                    "enum": ["pending", "in_progress", "completed"],
-                                    "description": "Current status of the task"
-                                }
-                            },
-                            "required": ["id", "content", "status"]
-                        }
-                    }
-                },
-                "required": ["todos"]
-            },
-            is_output_markdown=False,
-            can_update_output=False,
-            config=config
+  successfully.
+
+"""
+logger = logging.getLogger(__name__)
+
+_todo_tool_instances = {}
+
+def get_todo_tool(agent_id: str = "default") -> 'TodoTool':
+    """Get or create a TodoTool instance for the given agent"""
+    if agent_id not in _todo_tool_instances:
+        _todo_tool_instances[agent_id] = TodoTool(agent_id)
+    return _todo_tool_instances[agent_id]
+
+def get_current_todos(agent_id: str = "default") -> List['TodoItem']:
+    """Get current todos for an agent"""
+    tool = get_todo_tool(agent_id)
+    return tool.storage.get_todos()
+
+def update_todos(todos: List[Dict[str, Any]], agent_id: str = "default") -> str:
+    """Update todos for an agent and return formatted display"""
+    tool = get_todo_tool(agent_id)
+    todo_items = []
+    for todo_data in todos:
+        todo_item = TodoItem(
+            id=todo_data["id"],
+            content=todo_data["content"],
+            status=todo_data["status"]
         )
-        self.agent_id = agent_id
-        self.storage = TodoStorage(agent_id)
+        todo_items.append(todo_item)
+
+    tool.storage.set_todos(todo_items)
+
+    # Return formatted display
+    return tool._format_todos_for_display(todo_items)
+
+class TodoItem:
+    """Todo item data structure"""
+    def __init__(self, id: str, content: str, status: str = "pending"):
+        self.id = id
+        self.content = content
+        self.status = status  # pending, in_progress, completed
     
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "content": self.content,
+            "status": self.status
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TodoItem':
+        return cls(
+            id=data["id"],
+            content=data["content"],
+            status=data.get("status", "pending")
+        )
+
+class TodoStorage:
+    def __init__(self, agent_id: str = "default"):
+        self.agent_id = agent_id
+        self._storage_dir = self._get_storage_dir()
+        self._storage_file = self._storage_dir / f"todos_{agent_id}.json"
+
+    def _get_storage_dir(self) -> Path:
+        """Get the storage directory for todos"""
+        from pywen.config.manager import ConfigManager 
+        todos_dir = ConfigManager.get_pywen_config_dir() / "todos"
+        todos_dir.mkdir(exist_ok=True)
+        return todos_dir
+    
+    def get_todos(self) -> List['TodoItem']:
+        """Get all todos for this agent"""
+        if not self._storage_file.exists():
+            return []
+
+        try:
+            with open(self._storage_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return [TodoItem.from_dict(item) for item in data]
+        except Exception as e:
+            logger.error(f"Error loading todos: {e}")
+            return []
+    
+    def set_todos(self, todos: List['TodoItem']) -> None:
+        """Set todos for this agent"""
+        try:
+            data = [todo.to_dict() for todo in todos]
+            with open(self._storage_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error saving todos: {e}")
+            raise
+
+@register_tool(name="todo_write", providers=["claude"]) 
+class TodoTool(BaseTool):
+    agent_id = f"claude_code_{str(uuid.uuid4())[:8]}"
+    name="todo_write"
+    display_name="Todo Manager"
+    description=DESCRIPTION
+    parameter_schema={
+        "type": "object",
+        "properties": {
+            "todos": {
+                "type": "array",
+                "description": "The updated todo list",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "description": "Unique identifier for the task"
+                            },
+                        "content": {
+                            "type": "string",
+                            "description": "The task description or content"
+                            },
+                        "status": {
+                            "type": "string",
+                            "enum": ["pending", "in_progress", "completed"],
+                            "description": "Current status of the task"
+                            }
+                        },
+                    "required": ["id", "content", "status"]
+                    }
+                }
+            },
+            "required": ["todos"]
+    }
+    storage = TodoStorage(agent_id)
+
     def is_risky(self, **kwargs) -> bool:
-        """Todo tool is safe"""
         return False
     
     async def execute(self, **kwargs) -> ToolResult:
-        """
-        Execute the todo tool to update the todo list
-        """
-        # Extract parameters from kwargs
         todos = kwargs.get('todos', [])
         
         try:
-            # Validate todos
             validation_result = self._validate_todos(todos)
             if not validation_result["valid"]:
                 return ToolResult(
@@ -417,8 +382,6 @@ class TodoTool(BaseTool):
                     metadata={"error": "validation_failed"}
                 )
             
-            
-            # Convert to TodoItem objects
             todo_items = []
             for todo_data in todos:
                 todo_item = TodoItem(
@@ -428,13 +391,10 @@ class TodoTool(BaseTool):
                 )
                 todo_items.append(todo_item)
             
-            # Save todos
             self.storage.set_todos(todo_items)
             
-            # Generate summary
             summary = self._generate_summary(todo_items)
             
-            # Format todo list for display
             todo_display = self._format_todos_for_display(todo_items)
             
             return ToolResult(
@@ -460,17 +420,14 @@ class TodoTool(BaseTool):
         if not isinstance(todos, list):
             return {"valid": False, "error": "Todos must be a list"}
         
-        # Check for duplicate IDs
         ids = [todo.get("id") for todo in todos]
         if len(ids) != len(set(ids)):
             return {"valid": False, "error": "Duplicate todo IDs found"}
         
-        # Check for multiple in_progress tasks
         in_progress_count = sum(1 for todo in todos if todo.get("status") == "in_progress")
         if in_progress_count > 1:
             return {"valid": False, "error": "Only one task can be in_progress at a time"}
         
-        # Validate each todo
         for todo in todos:
             if not todo.get("id"):
                 return {"valid": False, "error": "Todo ID is required"}
@@ -512,3 +469,11 @@ class TodoTool(BaseTool):
             lines.append(line)
 
         return "\n".join(lines)
+
+    def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
+        """ claude 专用 """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self.parameter_schema,
+        }
