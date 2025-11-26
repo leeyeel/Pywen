@@ -175,9 +175,7 @@ class TaskTool(BaseTool):
                     
                     tool_use_count += 1
                 elif event_type == "tool_call_end":
-                    print("2222222222222222222222")
                     tool_data = event.get("data", {})
-                    print(tool_data)
                     tool_name = tool_data.get("name", "unknown")
                     success = tool_data.get("success", True)
                     

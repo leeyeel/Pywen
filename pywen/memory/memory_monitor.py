@@ -7,7 +7,7 @@ from pywen.utils.llm_basics import LLMMessage
 from typing import Dict, Any
 
 
-class Memorymonitor:
+class MemoryMonitor:
 
     def __init__(self, config,console, verbose=True):
         self.config = config
@@ -22,8 +22,8 @@ class Memorymonitor:
 
     async def call_llm(self, prompt) -> str:
         client = AsyncOpenAI(
-            api_key=self.config.model_config.api_key,
-            base_url=self.config.model_config.base_url
+            api_key=self.config.active_model.api_key,
+            base_url=self.config.active_model.base_url
         )
 
         try:

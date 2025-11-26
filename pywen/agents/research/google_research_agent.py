@@ -2,6 +2,9 @@ from typing import Dict, Any, List, AsyncGenerator, Optional
 from pywen.agents.base_agent import BaseAgent
 from pywen.utils.llm_basics import LLMMessage, LLMResponse
 from pywen.utils.tool_basics import ToolResult
+from pywen.llm.llm_client import LLMClient
+from pywen.core.tool_registry2 import list_tools_for_provider
+from pywen.hooks.manager import HookManager
 from pywen.agents.research.research_prompts import (
     get_current_date,
     query_writer_instructions,
@@ -13,25 +16,27 @@ from pywen.agents.research.research_prompts import (
 )
 import json
 import re
-def _extract_json(content: str) -> str:
 
-    # 使用正则表达式提取 ```json``` 代码块中的内容
+
+def _extract_json(content: str) -> str:
+    """使用正则表达式提取 ```json``` 代码块中的内容"""
     json_match = re.search(r"```json\s*(\{.*?\})\s*```", content, re.DOTALL)
     if json_match:
         return json_match.group(1)
     return content
 
+
 class GeminiResearchDemo(BaseAgent):
     """Research agent specialized for multi-step research tasks."""
     
-    def __init__(self, config, cli_console=None):
-        super().__init__(config, cli_console)
+    def __init__(self, config, hook_mgr: HookManager, cli_console=None):
+        super().__init__(config, hook_mgr, cli_console)
 
         self.type = "GeminiResearchDemo"
 
-        # Create concrete LLM client implementation
-        from pywen.utils.llm_client import LLMClient as UtilsLLMClient
-        self.llm_client = UtilsLLMClient.create(config.model_config)
+        # Create LLM client using active model config
+        self.llm_client = LLMClient(config.active_model)
+        
         # Research state
         self.research_state = {
             "topic": "",
@@ -41,7 +46,8 @@ class GeminiResearchDemo(BaseAgent):
             "current_step": "query_generation",
             "iteration": 0
         }
-        self.available_tools = self.tool_registry.list_tools()
+        # Get available tools for research agent
+        self.available_tools = [tool.build("research") for tool in list_tools_for_provider("research")]
         self.max_iterations = 3
     
     def _build_system_prompt(self) -> str:
@@ -147,8 +153,8 @@ Follow the research process step by step and use the appropriate prompts for eac
         # Start trajectory recording
         self.trajectory_recorder.start_recording(
             task=user_message,
-            provider=self.config.model_config.provider.value,
-            model=self.config.model_config.model,
+            provider=self.config.active_model.provider or "openai",
+            model=self.config.active_model.model,
             max_steps=None
         )
         self.conversation_history.append(LLMMessage(role="user", content=user_message))
@@ -226,11 +232,11 @@ Follow the research process step by step and use the appropriate prompts for eac
                 messages=self.conversation_history,
                 response=LLMResponse(
                     content=final_response.content,
-                    model=self.config.model_config.model,
+                    model=self.config.active_model.model,
                     usage=final_response.usage,
                     tool_calls=None,
                 ),
-                provider=self.config.model_config.provider.value,
+                provider=self.config.active_model.provider or "openai",
                 model="answer_generator",
                 current_task=self.research_state['topic'],
             )
@@ -257,11 +263,11 @@ Follow the research process step by step and use the appropriate prompts for eac
             messages= self.conversation_history,
             response=LLMResponse(
                 content=json_content,
-                model=self.config.model_config.model,
+                model=self.config.active_model.model,
                 usage=query_response.usage,
                 tool_calls=None,
             ),
-            provider=self.config.model_config.provider.value,
+            provider=self.config.active_model.provider or "openai",
             model="query_generator",
             current_task=user_message,
         )
@@ -305,11 +311,11 @@ Follow the research process step by step and use the appropriate prompts for eac
             messages= self.conversation_history,
             response=LLMResponse(
                 content=search_response.content,
-                model=self.config.model_config.model,
+                model=self.config.active_model.model,
                 usage=search_response.usage,
                 tool_calls=search_response.tool_calls,
             ),
-            provider=self.config.model_config.provider.value,
+            provider=self.config.active_model.provider or "openai",
             model="web_searcher_generator",
             current_task=self.research_state['topic'],
         )
@@ -369,11 +375,11 @@ Follow the research process step by step and use the appropriate prompts for eac
                     messages= self.conversation_history,
                     response=LLMResponse(
                         content="No search results to fetch content from.",
-                        model=self.config.model_config.model,
+                        model=self.config.active_model.model,
                         usage=None,
                         tool_calls=None,
                     ),
-                    provider=self.config.model_config.provider.value,
+                    provider=self.config.active_model.provider or "openai",
                     model="web_fetcher_generator",
                     current_task=self.research_state['topic'],
                 )
@@ -384,11 +390,11 @@ Follow the research process step by step and use the appropriate prompts for eac
             messages= self.conversation_history,
             response=LLMResponse(
                 content=fetch_response.content,
-                model=self.config.model_config.model,
+                model=self.config.active_model.model,
                 usage=search_response.usage,
                 tool_calls=fetch_response.tool_calls,
             ),
-            provider=self.config.model_config.provider.value,
+            provider=self.config.active_model.provider or "openai",
             model="web_fetcher_generator",
             current_task=self.research_state['topic'],
         )
@@ -422,11 +428,11 @@ Follow the research process step by step and use the appropriate prompts for eac
                 messages=self.conversation_history,
                 response=LLMResponse(
                     content=final_response.content,
-                    model=self.config.model_config.model,
+                    model=self.config.active_model.model,
                     usage=final_response.usage,
                     tool_calls=None,
                 ),
-                provider=self.config.model_config.provider.value,
+                provider=self.config.active_model.provider or "openai",
                 model="summary_generator",
                 current_task=self.research_state['topic'],
             )
@@ -438,17 +444,18 @@ Follow the research process step by step and use the appropriate prompts for eac
                 self.research_state["summaries"] = [final_response.content]
     async def _process_tool_calls(self, tool_calls):
         """处理工具调用"""
-        try:
-            # 执行工具
-            results = await self.tool_executor.execute_tools(tool_calls)
-            
-            # 确保结果数量匹配
-            if len(results) != len(tool_calls):
-                yield {"type": "error", "data": {"error": f"Tool calls count ({len(tool_calls)}) doesn't match results count ({len(results)})"}}
-                return
-            
-            # 按索引配对处理
-            for i, (tool_call, result) in enumerate(zip(tool_calls, results)):
+        from pywen.core.tool_registry2 import get_tool
+        
+        for tool_call in tool_calls:
+            try:
+                # 获取工具实例
+                tool = get_tool(tool_call.name)
+                if not tool:
+                    yield {"type": "error", "data": {"error": f"Tool not found: {tool_call.name}"}}
+                    continue
+                
+                # 执行工具
+                result = await tool.execute(**tool_call.arguments)
                 
                 yield {"type": "tool_result", "data": {
                     "call_id": tool_call.call_id,
@@ -475,8 +482,8 @@ Follow the research process step by step and use the appropriate prompts for eac
                     tool_call_id=tool_call.call_id
                 ))
                 
-        except Exception as e:
-            yield {"type": "error", "data": {"error": f"Tool execution failed: {str(e)}"}}
+            except Exception as e:
+                yield {"type": "error", "data": {"error": f"Tool execution failed for {tool_call.name}: {str(e)}"}}
 
     def get_enabled_tools(self) -> List[str]:
         """Return list of enabled tool names for ResearchAgent."""

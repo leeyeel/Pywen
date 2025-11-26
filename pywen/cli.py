@@ -22,7 +22,7 @@ from pywen.agents.codex.codex_agent import CodexAgent
 from pywen.ui.cli_console import CLIConsole
 from pywen.ui.command_processor import CommandProcessor
 from pywen.ui.utils.keyboard import create_key_bindings
-from pywen.memory.memory_monitor import Memorymonitor
+from pywen.memory.memory_monitor import MemoryMonitor
 from pywen.memory.file_restorer import IntelligentFileRestorer
 from pywen.utils.llm_basics import LLMMessage
 from pywen.hooks.config import load_hooks_config
@@ -58,7 +58,7 @@ async def run_streaming(
     console: CLIConsole,
     state: ExecutionState,
     *,
-    memory_monitor: Memorymonitor,
+    memory_monitor: MemoryMonitor,
     file_restorer: IntelligentFileRestorer,
     dialogue_counter: int,
     session_id:str,
@@ -148,7 +148,7 @@ async def interactive_mode_streaming(
     config: Any,
     console: CLIConsole,
     session_id: str,
-    memory_monitor: Memorymonitor,
+    memory_monitor: MemoryMonitor,
     file_restorer: IntelligentFileRestorer,
     perm_mgr: PermissionManager,
     hook_mgr: HookManager,
@@ -307,7 +307,7 @@ async def main() -> None:
 
     tools_autodiscover()
 
-    memory_monitor = Memorymonitor(config, console, verbose=False)
+    memory_monitor = MemoryMonitor(config, console, verbose=False)
     file_restorer = IntelligentFileRestorer()
 
     session_id = args.session_id or str(uuid.uuid4())[:8]
