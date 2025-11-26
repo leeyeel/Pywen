@@ -4,7 +4,7 @@ import datetime
 import json
 from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_client import LLMClient, LLMMessage
-from pywen.utils.llm_basics import LLMResponse
+from pywen.llm.llm_basics import LLMResponse
 from pywen.utils.tool_basics import ToolCall, ToolResult
 from pywen.core.trajectory_recorder import TrajectoryRecorder
 from .prompts import ClaudeCodePrompts

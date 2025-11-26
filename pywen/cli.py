@@ -21,10 +21,10 @@ from pywen.agents.claude.claude_agent import ClaudeAgent
 from pywen.agents.codex.codex_agent import CodexAgent 
 from pywen.ui.cli_console import CLIConsole
 from pywen.ui.command_processor import CommandProcessor
-from pywen.ui.utils.keyboard import create_key_bindings
+from pywen.ui.keyboard import create_key_bindings
 from pywen.memory.memory_monitor import MemoryMonitor
 from pywen.memory.file_restorer import IntelligentFileRestorer
-from pywen.utils.llm_basics import LLMMessage
+from pywen.llm.llm_basics import LLMMessage
 from pywen.hooks.config import load_hooks_config
 from pywen.hooks.manager import HookManager
 from pywen.hooks.models import HookEvent

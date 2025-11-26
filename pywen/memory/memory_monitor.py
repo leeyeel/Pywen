@@ -3,7 +3,7 @@ import re
 import os
 from openai import AsyncOpenAI
 from .prompt import compression_prompt, keyword_continuity_score_prompt, first_downgrade_prompt, second_downgrade_prompt
-from pywen.utils.llm_basics import LLMMessage
+from pywen.llm.llm_basics import LLMMessage
 from typing import Dict, Any
 
 

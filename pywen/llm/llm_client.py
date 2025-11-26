@@ -1,11 +1,10 @@
 from __future__ import annotations
-from typing import Generator,AsyncGenerator,Dict, cast, List, Optional, Protocol,Any, Literal
-from dataclasses import dataclass
+from typing import Generator,AsyncGenerator,Dict, cast, List, Protocol,Any
 from .adapters.openai_adapter import OpenAIAdapter
 from .adapters.anthropic_adapter import AnthropicAdapter
 from .adapters.adapter_common import ResponseEvent
 from pywen.config.config import  ModelConfig
-from pywen.utils.llm_basics import LLMMessage, LLMResponse
+from pywen.llm.llm_basics import LLMResponse
 
 class ProviderAdapter(Protocol):
     def conversations(self) -> Any: ...
@@ -54,11 +53,11 @@ class LLMClient:
 
     # 同步，流式 
     def stream_response(self, messages: List[Dict[str, str]], **params) -> Generator[ResponseEvent, None, None]: 
-        pass
+        yield ResponseEvent(type="error", data="")
 
     # 异步，非流式
     async def agenerate_response(self, messages: List[Dict[str, str]], **params) -> LLMResponse:
-        pass
+        return LLMResponse("")
 
     # 异步，流式
     async def astream_response(self, messages: List[Dict[str, str]], **params) -> AsyncGenerator[ResponseEvent, None]: 

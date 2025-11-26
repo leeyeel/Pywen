@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_client import LLMClient 
 from pywen.utils.tool_basics import ToolCall
-from pywen.utils.llm_basics import LLMMessage
+from pywen.llm.llm_basics import LLMMessage
 from pywen.config.token_limits import TokenLimits 
 from pywen.core.session_stats import session_stats
 from pywen.core.tool_registry import list_tools_for_provider, get_tool
@@ -149,7 +149,7 @@ class CodexAgent(BaseAgent):
 
         #2. 转换responses格式
         if isinstance(responses, BaseModel):
-            from pywen.utils.llm_basics import LLMResponse
+            from pywen.llm.llm_basics import LLMResponse
             tool_calls = []
             for out in responses.output:
                 if out.type == "function_call" or out.type == "custom_tool_call":

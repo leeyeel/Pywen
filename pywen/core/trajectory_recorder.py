@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pywen.utils.llm_basics import LLMMessage, LLMResponse
+from pywen.llm.llm_basics import LLMMessage, LLMResponse
 from pywen.utils.tool_basics import ToolResult, ToolCall
 from .session_stats import session_stats
 

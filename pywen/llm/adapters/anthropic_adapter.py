@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import AsyncGenerator, Dict, Generator, List, Any, Optional
 from anthropic import Anthropic, AsyncAnthropic
-from pywen.utils.llm_basics import LLMResponse
+from pywen.llm.llm_basics import LLMResponse
 from .adapter_common import ResponseEvent
 
 def _to_anthropic_messages(messages: List[Dict[str, Any]]):
