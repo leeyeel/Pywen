@@ -5,7 +5,7 @@ import json
 from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_client import LLMClient 
 from pywen.llm.llm_basics import LLMResponse, LLMMessage
-from pywen.llm.llm_basics import ToolCall, ToolResult
+from pywen.llm.llm_basics import ToolCall, ToolCallResult
 from pywen.utils.trajectory_recorder import TrajectoryRecorder
 from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
@@ -625,10 +625,10 @@ class ClaudeAgent(BaseAgent):
         self,
         tool_call: Dict[str, Any],
         **kwargs
-    ) -> tuple[ToolResult, LLMMessage]:
+    ) -> tuple[ToolCallResult, LLMMessage]:
         try:
             if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
-                cancelled_result = ToolResult(
+                cancelled_result = ToolCallResult(
                     call_id=tool_call.get("id", "unknown"),
                     error="Operation was cancelled",
                 )
@@ -657,7 +657,7 @@ class ClaudeAgent(BaseAgent):
                     self.cli_console.print(pre_msg, "yellow")
                 if not pre_ok:
                     blocked_reason = pre_msg or "Tool call blocked by PreToolUse hook"
-                    blocked_result = ToolResult(
+                    blocked_result = ToolCallResult(
                         call_id=tool_call_obj.call_id,
                         error=blocked_reason,
                     )
@@ -675,7 +675,7 @@ class ClaudeAgent(BaseAgent):
             if confirmation_details:
                 confirmed = await self.cli_console.confirm_tool_call(tool_call_obj, tool)
                 if not confirmed:
-                    cancelled_result = ToolResult(
+                    cancelled_result = ToolCallResult(
                         call_id=tool_call.get("id", "unknown"),
                         error="Tool execution was cancelled by user",
                     )
@@ -747,7 +747,7 @@ class ClaudeAgent(BaseAgent):
 
         except Exception as e:
             error_msg = f"Error executing tool '{tool_call['name']}': {str(e)}"
-            error_result = ToolResult(
+            error_result = ToolCallResult(
                 call_id=tool_call.get("id", "unknown"),
                 error=error_msg,
             )

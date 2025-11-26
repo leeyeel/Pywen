@@ -3,7 +3,7 @@ import aiohttp
 import os
 from typing import Dict, Any, List, Optional,Mapping
 from dataclasses import dataclass
-from .base_tool import BaseTool, ToolResult
+from .base_tool import BaseTool, ToolCallResult
 from pywen.tools.tool_registry import register_tool
 
 CLAUDE_DESCRIPTION = """
@@ -89,12 +89,12 @@ class WebSearchTool(BaseTool):
         num_results = kwargs.get("num_results", 10)
         return f'Searching the web for: "{query}" (returning {num_results} results)'
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Perform web search using Serper API."""
         # Validate parameters
         validation_error = self.validate_params(**kwargs)
         if validation_error:
-            return ToolResult(
+            return ToolCallResult(
                 call_id=kwargs.get("call_id", ""),
                 error=f"Invalid parameters provided. Reason: {validation_error}"
             )
@@ -125,7 +125,7 @@ class WebSearchTool(BaseTool):
                     
                     if response.status != 200:
                         error_text = await response.text()
-                        return ToolResult(
+                        return ToolCallResult(
                             call_id=kwargs.get("call_id", ""),
                             error=f"Serper API error {response.status}: {error_text}"
                         )
@@ -135,14 +135,14 @@ class WebSearchTool(BaseTool):
             search_results = self._parse_search_results(data)
             
             if not search_results:
-                return ToolResult(
+                return ToolCallResult(
                     call_id=kwargs.get("call_id", ""),
                     result=f'No search results found for query: "{query}"'
                 )
             
             formatted_results = self._format_search_results(query, search_results)
             
-            return ToolResult(
+            return ToolCallResult(
                 call_id=kwargs.get("call_id", ""),
                 result=formatted_results,
                 metadata={
@@ -161,14 +161,14 @@ class WebSearchTool(BaseTool):
             )
             
         except asyncio.TimeoutError:
-            return ToolResult(
+            return ToolCallResult(
                 call_id=kwargs.get("call_id", ""),
                 error=f"Search request timed out for query: {query}"
             )
         except Exception as e:
             error_message = f'Error during web search for query "{query}": {str(e)}'
             print(f"❌ {error_message}")
-            return ToolResult(
+            return ToolCallResult(
                 call_id=kwargs.get("call_id", ""),
                 error=error_message
             )

@@ -32,7 +32,7 @@ class ToolCall:
             type=data.get("type"),
         )
 
-class ToolResultDisplay:
+class ToolCallResultDisplay:
     """Tool result display configuration."""
     def __init__(self, markdown: str = "", summary: str = ""):
         self.markdown = markdown
@@ -47,11 +47,11 @@ class ToolCallConfirmationDetails:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
-class ToolResult:
+class ToolCallResult:
     call_id: str
     result: Optional[str | Dict] = None
     error: Optional[str] = None
-    display: Optional[ToolResultDisplay] = None
+    display: Optional[ToolCallResultDisplay] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
     summary: Optional[str] = None

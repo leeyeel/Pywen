@@ -9,7 +9,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from pywen.tools.base_tool import BaseTool
-from pywen.llm.llm_basics import ToolResult, ToolResultDisplay
+from pywen.llm.llm_basics import ToolCallResult, ToolCallResultDisplay
 
 def _make_tool_result(
     call_id: str,
@@ -19,9 +19,9 @@ def _make_tool_result(
     summary: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
     display_markdown: Optional[str] = None,
-) -> ToolResult:
+) -> ToolCallResult:
     """
-    统一创建符合项目规范的 ToolResult：
+    统一创建符合项目规范的 ToolCallResult：
     - call_id: 必填，来自本次 tool_call 的 id
     - message: 正文（成功时作为 result，失败时作为 error）
     - is_error: 标记是否为错误
@@ -29,12 +29,12 @@ def _make_tool_result(
     - metadata: 额外元信息（例如保存的文件路径、耗时等）
     - display_markdown: 若提供，则用于展示层；否则默认与 message 相同
     """
-    display = ToolResultDisplay(
+    display = ToolCallResultDisplay(
         markdown=display_markdown if display_markdown is not None else message,
         summary=summary or ""
     )
 
-    return ToolResult(
+    return ToolCallResult(
         call_id=call_id,
         result=None if is_error else message,
         error=message if is_error else None,
@@ -191,7 +191,7 @@ class MCPServerManager:
 class MCPRemoteTool(BaseTool):
     """
     把某个 MCP server 上的一个具体工具（name/schema/desc）包装为本地工具。
-    - execute() 内部通过 MCP 调用远端工具，并把结果序列化为 ToolResult。
+    - execute() 内部通过 MCP 调用远端工具，并把结果序列化为 ToolCallResult。
     - 可在 config 中传入:
         - server: MCP server 名
         - manager: MCPServerManager 实例
@@ -219,7 +219,7 @@ class MCPRemoteTool(BaseTool):
         self._manager = manager
         self._save_images_dir = "./"
 
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         # 远端调用
         res = await self._manager.call_tool(self._server, self.name, kwargs or {})
 

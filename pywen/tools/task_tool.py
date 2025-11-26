@@ -3,7 +3,7 @@ import time
 import uuid
 from typing import List, Mapping, Any,Dict
 from pywen.tools.base_tool import BaseTool
-from pywen.llm.llm_basics import ToolResult
+from pywen.llm.llm_basics import ToolCallResult
 from pywen.llm.llm_basics import LLMMessage
 from pywen.tools.tool_registry import register_tool
 
@@ -102,7 +102,7 @@ class TaskTool(BaseTool):
         """Task tool is generally safe as it uses restricted tools"""
         return False
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """
         Execute the task tool by launching a sub-agent with todo list management
         """
@@ -112,7 +112,7 @@ class TaskTool(BaseTool):
         try:
             start_time = time.time()
             if not self.current_agent or self.current_agent.type != "ClaudeAgent":
-                return ToolResult(
+                return ToolCallResult(
                     call_id="task_tool",
                     error="Task tool can only be used with Claude Code Agent",
                     metadata={"error": "invalid_agent_type"}
@@ -225,7 +225,7 @@ class TaskTool(BaseTool):
             duration = time.time() - start_time
             summary = f"\n\n---\n**Summary:** Task `{task_id}` - {tool_use_count} tool uses, {duration:.1f}s"
             
-            return ToolResult(
+            return ToolCallResult(
                 call_id="task_tool",
                 result=final_result + summary,
                 metadata={
@@ -239,7 +239,7 @@ class TaskTool(BaseTool):
             
         except Exception as e:
             logger.error(f"Task tool execution failed: {e}")
-            return ToolResult(
+            return ToolCallResult(
                 call_id="task_tool",
                 error=f"Task tool failed: {str(e)}",
                 metadata={"error": "task_tool_failed"}

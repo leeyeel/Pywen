@@ -1,6 +1,6 @@
 import os
 from typing import Any, Mapping
-from .base_tool import BaseTool, ToolResult
+from .base_tool import BaseTool, ToolCallResult
 from pywen.tools.tool_registry import register_tool
 
 @register_tool(name="read_many_files", providers=["pywen"])
@@ -30,17 +30,17 @@ class ReadManyFilesTool(BaseTool):
         "required": ["paths"]
     }
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Read multiple files."""
         paths = kwargs.get("paths", [])
         max_file_size = kwargs.get("max_file_size", 102400)
         encoding = kwargs.get("encoding", "utf-8")
         
         if not paths:
-            return ToolResult(call_id="", error="No paths provided")
+            return ToolCallResult(call_id="", error="No paths provided")
         
         if not isinstance(paths, list):
-            return ToolResult(call_id="", error="Paths must be a list")
+            return ToolCallResult(call_id="", error="Paths must be a list")
         
         results = []
         
@@ -64,9 +64,9 @@ class ReadManyFilesTool(BaseTool):
                 results.append(f"=== {path} ===\nError: {str(e)}")
         
         if not results:
-            return ToolResult(call_id="", result="No files could be read")
+            return ToolCallResult(call_id="", result="No files could be read")
         
-        return ToolResult(call_id="", result="\n\n".join(results))
+        return ToolCallResult(call_id="", result="\n\n".join(results))
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         if provider.lower() == "claude" or provider.lower() == "anthropic":

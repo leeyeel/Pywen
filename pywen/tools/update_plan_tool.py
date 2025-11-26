@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Mapping
-from .base_tool import BaseTool, ToolResult 
+from .base_tool import BaseTool, ToolCallResult 
 from pywen.tools.tool_registry import register_tool
 
 class PlanItemStatus(str, Enum):
@@ -80,15 +80,15 @@ class UpdatePlanTool(BaseTool):
         "additionalProperties": False,
     }
 
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         explanation: Optional[str] = kwargs.get("explanation")
         items = kwargs.get("plan")
         if not isinstance(items, list):
-            return ToolResult(call_id="", error="'plan' must be a list of {step, status} objects")
+            return ToolCallResult(call_id="", error="'plan' must be a list of {step, status} objects")
 
         ok, err = _validate_plan_items(items)
         if not ok:
-            return ToolResult(call_id="", error=err or "Invalid plan")
+            return ToolCallResult(call_id="", error=err or "Invalid plan")
 
         normalized: List[Dict[str, str]] = []
         for it in items:
@@ -101,7 +101,7 @@ class UpdatePlanTool(BaseTool):
             "plan": normalized,
         }
 
-        return ToolResult(call_id="", result=md, metadata={"payload": payload})
+        return ToolCallResult(call_id="", result=md, metadata={"payload": payload})
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         """ codex专用 """

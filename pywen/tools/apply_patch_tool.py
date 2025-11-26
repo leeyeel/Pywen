@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, override,Mapping 
 from pywen.tools.base_tool import BaseTool, ToolRiskLevel
-from pywen.llm.llm_basics import ToolResult
+from pywen.llm.llm_basics import ToolCallResult
 from pywen.tools.tool_registry import register_tool
 
 BEGIN_PATCH_MARKER = "*** Begin Patch"
@@ -481,7 +481,7 @@ class ApplyPatchTool(BaseTool):
         wd = kwargs.get("workdir") or os.getcwd()
         return f"[{mode}] Apply patch to workspace: {wd}"
 
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         patch_text : str = kwargs.get("input")  or ""
         workdir = Path(kwargs.get("workdir") or os.getcwd()).resolve()
         allow_heredoc = bool(kwargs.get("allow_heredoc", False))
@@ -547,16 +547,16 @@ class ApplyPatchTool(BaseTool):
             upd_n = sum(1 for k in kinds if k == "Update")
             short = f"Applied patch (add={add_n}, delete={del_n}, update={upd_n}, dry_run={dry_run})"
 
-            return ToolResult(call_id= "", result=json.dumps(summary, ensure_ascii=False),
+            return ToolCallResult(call_id= "", result=json.dumps(summary, ensure_ascii=False),
                 error=None, display=None, metadata=summary, summary=short,)
 
         except (InvalidPatchError, InvalidHunkError, ApplyError, ParseError) as e:
-            return ToolResult(call_id= "", result=None, error=str(e), display=None,
+            return ToolCallResult(call_id= "", result=None, error=str(e), display=None,
                 metadata={"dry_run": dry_run, "cwd": str(workdir), "allow_heredoc": allow_heredoc,},
                 summary="apply_patch failed",
             )
         except Exception as e:
-            return ToolResult(call_id= "", result=None, error=f"Unexpected error: {e}", display=None, 
+            return ToolCallResult(call_id= "", result=None, error=f"Unexpected error: {e}", display=None, 
                     metadata={ "dry_run": dry_run, "cwd": str(workdir), "allow_heredoc": allow_heredoc,},
                     summary="apply_patch crashed",
             )

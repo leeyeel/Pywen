@@ -23,7 +23,7 @@ class CLIConsole:
         self.banner = BannerView(self.printer)
         self.status_bar = StatusBar(self.printer, self.tokens)
         self.tool_call_view = ToolCallView(self.printer)
-        self.renderers = ToolResultRendererRegistry(self.printer)
+        self.renderers = ToolCallResultRendererRegistry(self.printer)
         self.approval = ApprovalService(
                 permission_manager= perm_mgr or PermissionManager(PermissionLevel.LOCKED), 
                 printer=self.printer, 
@@ -262,9 +262,9 @@ class ToolCallView:
         panel = Panel(content, title=f"🔧 {tool_name}", title_align="left", border_style="yellow", padding=(0, 1))
         self.p.print_raw(panel)
 
-class ToolResultRendererRegistry:
+class ToolCallResultRendererRegistry:
     def __init__(self, printer: "Printer"):
-        self.renderer = UnifiedToolResultRenderer(printer)
+        self.renderer = UnifiedToolCallResultRenderer(printer)
 
     def render_success(self, tool_name: str, result: Any, arguments: Dict) -> Optional[Panel]:
         return self.renderer.render_success(tool_name, result, arguments)
@@ -272,7 +272,7 @@ class ToolResultRendererRegistry:
     def render_error(self, tool_name: str, error: Any) -> Panel:
         return self.renderer.render_error(tool_name, error)
 
-class UnifiedToolResultRenderer:
+class UnifiedToolCallResultRenderer:
     """单类处理全部工具结果的渲染；内部做分发与兜底。"""
     def __init__(self, printer: "Printer"):
         self.p = printer
@@ -534,7 +534,7 @@ class ApprovalService:
 
 class EventRouter:
     """将不同 agent 的事件分发到输出/渲染逻辑"""
-    def __init__(self, printer: Printer, renderer: ToolResultRendererRegistry, tool_call_view: ToolCallView):
+    def __init__(self, printer: Printer, renderer: ToolCallResultRendererRegistry, tool_call_view: ToolCallView):
         self.p = printer
         self.renderer = renderer
         self.tool_call_view = tool_call_view

@@ -3,7 +3,7 @@ import os
 import locale
 import re
 from typing import Any, Mapping
-from .base_tool import BaseTool, ToolResult, ToolRiskLevel
+from .base_tool import BaseTool, ToolCallResult, ToolRiskLevel
 from pywen.tools.tool_registry import register_tool
 
 CLAUDE_DESCRIPTION = """
@@ -102,12 +102,12 @@ class BashTool(BaseTool):
 
         return message
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Execute bash command with streaming output."""
         command = kwargs.get("command")
 
         if not command:
-            return ToolResult(call_id="", error="No command provided")
+            return ToolCallResult(call_id="", error="No command provided")
 
         # 在输出开头显示执行的命令
         command_header = f"$ {command}\n"
@@ -177,7 +177,7 @@ class BashTool(BaseTool):
                                     # 服务器启动后立即返回结果
                                     result_text = "\n".join(output_chunks)
                                     result_text += "\n\n✅ Server is running in background"
-                                    return ToolResult(
+                                    return ToolCallResult(
                                         call_id="",
                                         result=result_text,
                                         metadata={"process_running": True, "server_port": port}
@@ -189,7 +189,7 @@ class BashTool(BaseTool):
                                 if process.returncode is None:  # 进程还在运行
                                     result_text += "\n\n⏳ Process is still running..."
                                 
-                                return ToolResult(
+                                return ToolCallResult(
                                     call_id="",
                                     result=result_text,
                                     metadata={"process_running": process.returncode is None}
@@ -204,7 +204,7 @@ class BashTool(BaseTool):
                         if output_chunks:
                             result_text = "\n".join(output_chunks)
                             result_text += "\n\n⏳ Process is still running..."
-                            return ToolResult(
+                            return ToolCallResult(
                                 call_id="",
                                 result=result_text,
                                 metadata={"process_running": True}
@@ -212,7 +212,7 @@ class BashTool(BaseTool):
                         
                         # 运行时间超过30秒且没有输出，提示用户
                         if (asyncio.get_event_loop().time() - start_time) > 10:
-                            return ToolResult(
+                            return ToolCallResult(
                                 call_id="",
                                 result="Process is running but no output detected after 30 seconds.\n"
                                        "This might be a server or long-running process.\n"
@@ -222,9 +222,9 @@ class BashTool(BaseTool):
             
                 # 进程结束，返回最终结果
                 if output_chunks:
-                    return ToolResult(call_id="", result="\n".join(output_chunks))
+                    return ToolCallResult(call_id="", result="\n".join(output_chunks))
                 else:
-                    return ToolResult(call_id="", result=f"{command_header}Process completed with no output")
+                    return ToolCallResult(call_id="", result=f"{command_header}Process completed with no output")
             
             else:
                 # 普通命令，正常等待完成
@@ -233,7 +233,7 @@ class BashTool(BaseTool):
                 except asyncio.TimeoutError:
                     process.kill()
                     await process.wait()
-                    return ToolResult(call_id="", error="Command timed out after 120 seconds")
+                    return ToolCallResult(call_id="", error="Command timed out after 120 seconds")
                 
                 # 解码输出
                 try:
@@ -245,21 +245,21 @@ class BashTool(BaseTool):
                 if process.returncode == 0:
                     # 成功执行
                     result_text = command_header + (stdout_text or "Command executed successfully")
-                    return ToolResult(call_id="", result=result_text)
+                    return ToolCallResult(call_id="", result=result_text)
                 elif process.returncode == 1:
                     # 退出码1通常表示"未成功"但不一定是错误
                     # 对于某些命令（grep、diff等），这是正常的预期行为
                     result_text = command_header + (stdout_text or "⚠️ Command exited with code 1")
-                    return ToolResult(call_id="", result=result_text)
+                    return ToolCallResult(call_id="", result=result_text)
                 else:
                     # 退出码 >= 2 通常表示真正的错误（语法错误、文件不存在等）
                     error_text = command_header + f"Command failed with exit code {process.returncode}"
                     if stdout_text:
                         error_text += f"\nOutput:\n{stdout_text}"
-                    return ToolResult(call_id="", error=error_text)
+                    return ToolCallResult(call_id="", error=error_text)
         
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error executing command: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error executing command: {str(e)}")
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         if provider.lower() == "claude" or provider.lower() == "anthropic":

@@ -1,7 +1,7 @@
 from typing import Dict, Any, List, AsyncGenerator, Optional
 from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_basics import LLMMessage, LLMResponse
-from pywen.llm.llm_basics import ToolResult
+from pywen.llm.llm_basics import ToolCallResult
 from pywen.llm.llm_client import LLMClient
 from pywen.tools.tool_registry import list_tools_for_provider
 from pywen.hooks.manager import HookManager
@@ -81,7 +81,7 @@ Follow the research process step by step and use the appropriate prompts for eac
             research_topic=queries_text
         )
 
-    def _get_web_fetch_executor_prompt(self, queries: List[str], web_search_results: List[ToolResult]) -> str:
+    def _get_web_fetch_executor_prompt(self, queries: List[str], web_search_results: List[ToolCallResult]) -> str:
         """生成网络抓取提示"""
         queries_text = "\n".join([f"- {query}" for query in queries])
         return web_fetch_executor_instructions.format(
