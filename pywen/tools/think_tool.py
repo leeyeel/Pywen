@@ -5,7 +5,7 @@ Based on claude_code_version/tools/ThinkTool/ThinkTool.tsx
 from datetime import datetime
 from typing import Any, Mapping 
 from pywen.tools.base_tool import BaseTool
-from pywen.utils.tool_basics import ToolResult
+from pywen.llm.llm_basics import ToolResult
 from pywen.tools.tool_registry import register_tool
 
 DESCRIPTION= """Use the tool to think about something. 

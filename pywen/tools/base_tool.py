@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional,Mapping
 from enum import Enum
-from pywen.utils.tool_basics import ToolCallConfirmationDetails, ToolResult
+from pywen.llm.llm_basics import ToolCallConfirmationDetails, ToolResult
 
 class ToolRiskLevel(Enum):
     """Tool risk levels for permission control."""

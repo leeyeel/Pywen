@@ -4,7 +4,7 @@ from typing import Dict, List, Mapping, Literal, Any, AsyncGenerator
 from pydantic import BaseModel
 from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_client import LLMClient 
-from pywen.utils.tool_basics import ToolCall
+from pywen.llm.llm_basics import ToolCall
 from pywen.llm.llm_basics import LLMMessage
 from pywen.config.token_limits import TokenLimits 
 from pywen.utils.session_stats import session_stats

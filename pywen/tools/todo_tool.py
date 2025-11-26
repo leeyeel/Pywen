@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 from pywen.tools.base_tool import BaseTool
-from pywen.utils.tool_basics import ToolResult
+from pywen.llm.llm_basics import ToolResult
 from pywen.tools.tool_registry import register_tool
 
 DESCRIPTION = """

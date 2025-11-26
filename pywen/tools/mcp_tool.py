@@ -9,7 +9,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from pywen.tools.base_tool import BaseTool
-from pywen.utils.tool_basics import ToolResult, ToolResultDisplay
+from pywen.llm.llm_basics import ToolResult, ToolResultDisplay
 
 def _make_tool_result(
     call_id: str,

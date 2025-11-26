@@ -1,7 +1,7 @@
 from typing import Dict, Any, List, AsyncGenerator, Optional
 from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_basics import LLMMessage, LLMResponse
-from pywen.utils.tool_basics import ToolResult
+from pywen.llm.llm_basics import ToolResult
 from pywen.llm.llm_client import LLMClient
 from pywen.tools.tool_registry import list_tools_for_provider
 from pywen.hooks.manager import HookManager

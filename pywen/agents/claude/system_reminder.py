@@ -499,7 +499,7 @@ def emit_tool_execution_event(tool_call, agent_type: str, todo_items: List[Dict]
     Returns:
         如果是 todo_write 工具，返回新的 todo_items，否则返回 None
     """
-    from pywen.utils.tool_basics import ToolCall
+    from pywen.llm.llm_basics import ToolCall
     current_time = time.time()
     
     # 文件读取事件
