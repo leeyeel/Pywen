@@ -12,7 +12,7 @@ CLAUDE_DESCRIPTION = """
 - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
 """
 
-@register_tool(name="glob", providers=["claude", "qwen",])
+@register_tool(name="glob", providers=["claude", "pywen",])
 class GlobTool(BaseTool):
     name="glob"
     display_name="Find Files"

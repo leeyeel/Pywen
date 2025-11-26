@@ -10,7 +10,7 @@ You can optionally provide an array of glob patterns to ignore with the ignore p
 You should generally prefer the Glob and Grep tools, if you know which directories to search.
 """
 
-@register_tool(name="ls", providers=["claude", "qwen",])
+@register_tool(name="ls", providers=["claude", "pywen",])
 class LSTool(BaseTool):
     name="ls"
     display_name="List Directory"

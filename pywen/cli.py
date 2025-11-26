@@ -1,4 +1,4 @@
-"""Command line interface for Qwen Python Agent. (refactored)"""
+"""Command line interface for Pywen Python Agent."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from pywen.core.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
 from pywen.core.agent_registry import registry
-from pywen.agents.qwen.qwen_agent import QwenAgent
+from pywen.agents.pywen.pywen_agent import PywenAgent
 from pywen.agents.claude.claude_agent import ClaudeAgent
 from pywen.agents.codex.codex_agent import CodexAgent 
 from pywen.ui.cli_console import CLIConsole
@@ -138,7 +138,7 @@ async def run_streaming(
         state.reset()
 
 async def interactive_mode_streaming(
-    agent: QwenAgent,
+    agent: PywenAgent,
     config: Any,
     console: CLIConsole,
     session_id: str,
@@ -256,7 +256,7 @@ async def interactive_mode_streaming(
     finally:
         await current_agent.aclose()
 
-async def single_prompt_mode_streaming(agent: QwenAgent, console: CLIConsole, prompt_text: str,
+async def single_prompt_mode_streaming(agent: PywenAgent, console: CLIConsole, prompt_text: str,
                                        session_id: str, hook_mgr: HookManager) -> None:
     """单次模式：与交互模式共享同一事件消费逻辑（但无需状态与记忆压缩）。"""
     ok, msg, _ = await hook_mgr.emit(
@@ -287,7 +287,7 @@ async def main() -> None:
     parser.add_argument("--max-tokens", type=int, help="Override max tokens")
     parser.add_argument("--session-id", type=str, help="Use specific session ID")
     parser.add_argument("--permission-mode", type=str, help="Set permission mode (yolo, planning, edit-only, locked)", default="locked")
-    parser.add_argument("--agent", type=str, help="Use specific agent: qwen|claude", default="qwen")
+    parser.add_argument("--agent", type=str, help="Use specific agent: pywen|claude", default="pywen")
     parser.add_argument("prompt", nargs="?", help="Prompt to execute")
     args = parser.parse_args()
 
@@ -314,11 +314,11 @@ async def main() -> None:
     )
 
     agent_classes = {
-        "qwen": QwenAgent,
+        "pywen": PywenAgent,
         "claude": ClaudeAgent,
         "codex": CodexAgent,
     }
-    agent_cls = agent_classes.get(args.agent.lower() or "qwen")
+    agent_cls = agent_classes.get(args.agent.lower() or "pywen")
     if not agent_cls:
         console.print(f"Unsupported agent type: {args.agent}", "red")
         return

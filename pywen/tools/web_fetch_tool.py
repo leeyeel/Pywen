@@ -15,7 +15,7 @@ CLAUDE_DESCRIPTION = """
 - Use this tool when you need to retrieve and analyze web content
 """
 
-@register_tool(name="web_fetch", providers=["claude", "qwen"])
+@register_tool(name="web_fetch", providers=["claude", "pywen"])
 class WebFetchTool(BaseTool):
     name="web_fetch"
     display_name="Fetch Web Content"

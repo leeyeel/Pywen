@@ -1,11 +1,10 @@
-"""Qwen Agent implementation with streaming logic."""
+"""Pywen Agent implementation with streaming logic."""
 import os,subprocess, json
 from pathlib import Path
 from typing import Dict, List, Any, AsyncGenerator
 from pywen.agents.base_agent import BaseAgent
 from pywen.utils.llm_basics import LLMMessage
 from pywen.llm.llm_client import LLMClient
-from pywen.agents.qwen.loop_detection_service import AgentLoopDetectionService
 from pywen.config.token_limits import TokenLimits
 from pywen.core.session_stats import session_stats
 from pywen.hooks.models import HookEvent
@@ -296,25 +295,25 @@ To help you check their settings, I can read their contents. Which one would you
 Your core function is efficient and safe assistance. Balance extreme conciseness with the crucial need for clarity, especially regarding safety and potential system modifications. Always prioritize user control and project conventions. Never make assumptions about the contents of files; instead use 'ReadFileTool.Name' or 'ReadManyFilesTool.Name' to ensure you aren't making broad assumptions. Finally, you are an agent - please keep going until the user's query is completely resolved.
 """
 
-class QwenAgent(BaseAgent):
-    """Qwen Agent with streaming iterative tool calling logic."""
+class PywenAgent(BaseAgent):
+    """Pywen Agent with streaming iterative tool calling logic."""
     
     def __init__(self, config, hook_mgr, cli_console=None):
         super().__init__(config, hook_mgr, cli_console)
-        self.type = "QwenAgent"
+        self.type = "PywenAgent"
         session_stats.set_current_agent(self.type)
         self.current_turn_index = 0
         self.original_user_task = ""
         self.max_turns = config.max_turns
-        self.loop_detector = AgentLoopDetectionService()
         self.system_prompt = self.get_core_system_prompt()
         self.llm_client = LLMClient(config.active_model)
         self.conversation_history = self._update_system_prompt(self.system_prompt)
+        self.file_metrics = {}
     
     async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run agent with streaming output and task continuation."""
         model_name = self.config.active_model.model or ""
-        max_tokens = TokenLimits.get_limit("qwen", model_name)
+        max_tokens = TokenLimits.get_limit("pywen", model_name)
         #TODO，从console剥离
         if self.cli_console:
             self.cli_console.set_max_context_tokens(max_tokens)
@@ -322,7 +321,6 @@ class QwenAgent(BaseAgent):
         self.original_user_task = user_message
         self.current_turn_index = 0
         session_stats.record_task_start(self.type)
-        self.loop_detector.reset()
         self.trajectory_recorder.start_recording(
             task=user_message,
             provider=self.config.active_model.provider or "",
@@ -375,7 +373,7 @@ class QwenAgent(BaseAgent):
     async def _process_turn_stream(self) -> AsyncGenerator[Dict[str, Any], None]:
         messages = [self._convert_single_message(msg) for msg in self.conversation_history]
         trajectory_msg = self.conversation_history.copy()
-        tools = [tool.build("qwen") for tool in list_tools_for_provider("qwen")]
+        tools = [tool.build("pywen") for tool in list_tools_for_provider("pywen")]
         completed_resp : LLMResponse = LLMResponse(content = "")
         async for event in self.llm_client.astream_response(messages= messages, tools= tools, api = "chat"):
             if event.type == "created":
@@ -431,7 +429,7 @@ class QwenAgent(BaseAgent):
             tool = get_tool(tc.name)
             if not tool:
                 continue
-            confirmation_details = await tool.get_confirmation_details(name = tc.name, args = tc.arguments)
+            confirmation_details = await tool.get_confirmation_details(**tc.arguments)
             if confirmation_details and self.cli_console:
                 confirmed = await self.cli_console.confirm_tool_call(tc, tool)
                 if not confirmed:
@@ -451,7 +449,7 @@ class QwenAgent(BaseAgent):
                     continue
 
             #实际上这里是单个执行
-            res = await tool.execute()
+            res = await tool.execute(**tc.arguments)
             data = { 
                     "call_id": tc.call_id, 
                     "name": tc.name, 
@@ -477,7 +475,7 @@ class QwenAgent(BaseAgent):
 
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions."""
-        available_tools = list_tools_for_provider("qwen")
+        available_tools = list_tools_for_provider("pywen")
         system_prompt = SYSTEM_PROMPT 
         for tool in available_tools:
             system_prompt += f"- **{tool.name}**: {tool.description}\n"
@@ -491,7 +489,7 @@ class QwenAgent(BaseAgent):
         return system_prompt.strip()
 
     def get_core_system_prompt(self,user_memory: str = "") -> str:
-        PYWEN_CONFIG_DIR = Path.home() / ".qwen"
+        PYWEN_CONFIG_DIR = Path.home() / ".pywen"
         system_md_enabled = False
         system_md_path = (PYWEN_CONFIG_DIR / "system.md").resolve()
         system_md_var = os.environ.get("PYWEN_SYSTEM_MD", "").lower()

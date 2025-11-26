@@ -13,7 +13,7 @@ Usage:
 - Filter files with glob parameter (e.g., "*.js", "**/*.tsx") or type parameter (e.g., "js", "py", "rust")
 """
 
-@register_tool(name="grep", providers=["claude", "qwen",])
+@register_tool(name="grep", providers=["claude", "pywen",])
 class GrepTool(BaseTool):
     name="grep"
     display_name="Search Text"

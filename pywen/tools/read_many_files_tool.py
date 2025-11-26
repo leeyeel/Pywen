@@ -3,7 +3,7 @@ from typing import Any, Mapping
 from .base_tool import BaseTool, ToolResult
 from pywen.core.tool_registry2 import register_tool
 
-@register_tool(name="read_many_files", providers=["qwen"])
+@register_tool(name="read_many_files", providers=["pywen"])
 class ReadManyFilesTool(BaseTool):
     name="read_many_files"
     display_name="Read Multiple Files"

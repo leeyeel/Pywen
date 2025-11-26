@@ -9,7 +9,7 @@
 # 设置默认使用哪个 Agent。
 # 它会根据 models[] 中的 agent_name 匹配对应模型配置。
 # 可选值取决于你在 models 数组中定义的 agent_name。
-default_agent: qwen
+default_agent: pywen
 
 
 # ------------------------------------------------------------
@@ -21,7 +21,7 @@ default_agent: qwen
 # 每个 model 块代表一个可用模型，用于代码执行/对话/工具调用任务。
 #
 # 字段说明：
-# - agent_name: Pywen 用来选择 Agent 的逻辑名称（qwen / claudecode / codex）
+# - agent_name: Pywen 用来选择 Agent 的逻辑名称（pywen / claudecode / codex）
 # - provider: 模型供应商（openai / anthropic ）
 #   由于oepnai SDK可以兼容市面上绝大多数模型，所以除claude外都应该选用openai 
 #
@@ -38,7 +38,7 @@ models:
   # ------------------------------
   # Qwen Coder / ModelScope API
   # ------------------------------
-  - agent_name: qwen
+  - agent_name: pywen
     model: ""                                  # 模型名称由 CLI 决定时可留空
     api_key: "your-qwen-api-key-here"          # 填 ModelScope 的 key
     base_url: "https://api-inference.modelscope.cn/v1"   # ModelScope API 地址

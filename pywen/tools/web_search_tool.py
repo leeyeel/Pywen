@@ -22,7 +22,7 @@ class SearchResult:
     snippet: str
     position: int = 0
 
-@register_tool(name="web_search", providers=["claude", "qwen"])
+@register_tool(name="web_search", providers=["claude", "pywen"])
 class WebSearchTool(BaseTool):
     name="web_search"
     display_name="Web Search"

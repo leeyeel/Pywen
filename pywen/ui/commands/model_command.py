@@ -39,7 +39,7 @@ class ModelCommand(BaseCommand):
             # 直接读取配置文件
             config_data = ConfigManager._read_yaml(config_mgr.config_path)
             models = config_data.get("models", [])
-            default_agent = config_data.get("default_agent", "qwen")
+            default_agent = config_data.get("default_agent", "pywen")
         except Exception as e:
             self.console.print(f"[red]Failed to read config: {e}[/red]")
             return

@@ -37,7 +37,7 @@ Usage notes:
   - When issuing multiple commands, use the ';' or '&&' operator to separate them. DO NOT use newlines (newlines are ok in quoted strings).
   - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it.
 """
-@register_tool(name="bash", providers=["qwen", "claude",])
+@register_tool(name="bash", providers=["pywen", "claude",])
 class BashTool(BaseTool):
     if os.name == "nt":
         description = """Run commands in Windows Command Prompt (cmd.exe)"""

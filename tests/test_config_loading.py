@@ -10,11 +10,11 @@ def sample_yaml_config():
     创建一个临时 YAML 配置文件，用于测试 ConfigManager。
     """
     data = {
-        "default_agent": "qwen",
+        "default_agent": "pywen",
         "permission_level": "locked",
         "agents": [
             {
-                "agent_name": "qwen",
+                "agent_name": "pywen",
                 "api_key": "yaml_qwen_key",
                 "base_url": "https://qwen.com",
                 "model": "qwen3-coder",
@@ -60,14 +60,14 @@ class DummyArgs:
 
 def test_load_default_agent(sample_yaml_config):
     """
-    测试：是否能正确加载 default_agent 并选中 qwen
+    测试：是否能正确加载 default_agent 并选中 pywen
     """
     args = DummyArgs(config=sample_yaml_config)
     mgr = ConfigManager(args.config)
 
     cfg = mgr.get_app_config(args)
 
-    assert cfg.active_agent_name == "qwen"
+    assert cfg.active_agent_name == "pywen"
     assert cfg.active_agent.model == "qwen3-coder"
 
 
@@ -105,7 +105,7 @@ def test_env_fallback(sample_yaml_config, monkeypatch):
     """
     测试：YAML 中缺失字段时，ENV 是否补齐
     """
-    # 修改 YAML：删除 qwen 的 api_key
+    # 修改 YAML：删除 pywen 的 api_key
     data = yaml.safe_load(open(sample_yaml_config))
     data["agents"][0]["api_key"] = None
 
@@ -114,7 +114,7 @@ def test_env_fallback(sample_yaml_config, monkeypatch):
     new_file.close()
 
     # 设置环境变量
-    monkeypatch.setenv("PYWEN_QWEN_API_KEY", "env_api_key")
+    monkeypatch.setenv("PYWEN_PYWEN_API_KEY", "env_api_key")
 
     args = DummyArgs(config=new_file.name)
 

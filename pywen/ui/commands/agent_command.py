@@ -7,8 +7,8 @@ from typing import Dict, Any
 
 # 可用agent配置
 AVAILABLE_AGENTS = {
-    "qwen": {
-        "name": "🤖 Qwen Agent",
+    "pywen": {
+        "name": "🤖 Pywen Agent",
         "description": "General purpose conversational and coding assistant"
     },
     "research": {
@@ -96,12 +96,12 @@ class AgentCommand(BaseCommand):
 
         # 动态导入避免循环依赖
         try:
-            from pywen.agents.qwen.qwen_agent import QwenAgent
+            from pywen.agents.pywen.pywen_agent import PywenAgent
             from pywen.agents.research.google_research_agent import GeminiResearchDemo
             from pywen.agents.claude.claude_agent import ClaudeAgent
 
-            if isinstance(agent, QwenAgent):
-                return "qwen"
+            if isinstance(agent, PywenAgent):
+                return "pywen"
             elif isinstance(agent, GeminiResearchDemo):
                 return "research"
             elif isinstance(agent, ClaudeAgent):
@@ -115,9 +115,9 @@ class AgentCommand(BaseCommand):
         """创建agent实例"""
         if config:
             config.set_active_agent(agent_type)
-        if agent_type == "qwen":
-            from pywen.agents.qwen.qwen_agent import QwenAgent
-            return QwenAgent(config, hook_mgr)
+        if agent_type == "pywen":
+            from pywen.agents.pywen.pywen_agent import PywenAgent
+            return PywenAgent(config, hook_mgr)
         elif agent_type == "research":
             from pywen.agents.research.google_research_agent import GeminiResearchDemo
             return GeminiResearchDemo(config)
