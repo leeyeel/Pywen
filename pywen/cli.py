@@ -88,7 +88,10 @@ async def run_streaming(
                 tool_result = data.get("result")
 
                 if success and tool_name in {"read_file", "write_file", "edit"}:
-                    file_restorer.update_file_metrics(arguments, tool_result, agent.file_metrics, tool_name)
+                    # 安全访问 file_metrics，如果 agent 没有该属性则跳过
+                    file_metrics = getattr(agent, "file_metrics", None)
+                    if file_metrics is not None:
+                        file_restorer.update_file_metrics(arguments, tool_result, file_metrics, tool_name)
 
             # 会话终结/等待用户 → 触发记忆压缩与必要文件内容注入
             if result in {"task_complete", "max_turns_reached", "waiting_for_user"}:
@@ -96,9 +99,12 @@ async def run_streaming(
                 summary = await memory_monitor.run_monitored(dialogue_counter, agent.conversation_history, total_tokens)
 
                 if summary:
-                    recovered = file_restorer.file_recover(agent.file_metrics)
-                    if recovered:
-                        summary += "\nHere is the potentially important file content:\n" + recovered
+                    # 安全访问 file_metrics，如果 agent 没有该属性则跳过文件恢复
+                    file_metrics = getattr(agent, "file_metrics", None)
+                    if file_metrics is not None:
+                        recovered = file_restorer.file_recover(file_metrics)
+                        if recovered:
+                            summary += "\nHere is the potentially important file content:\n" + recovered
                     agent.conversation_history = [LLMMessage(role="user", content=summary)]
 
                 ok, msg, extra = await hook_mgr.emit(
