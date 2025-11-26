@@ -1,55 +1,62 @@
-import importlib
-from typing import Dict, List, Optional, Callable
-from pywen.tools.base_tool import BaseTool
+from __future__ import annotations
+import importlib, pkgutil
+from typing import Dict, Iterable, Set, Type, Optional, List
+from dataclasses import dataclass
+from pywen.tools.base_tool import BaseTool, ToolRiskLevel
 
-class ToolRegistry:
-    def __init__(self):
-        self._tools: Dict[str, BaseTool] = {}
-        self._tool_factories: Dict[str, Callable] = {}
-    
-    def register(self, tool: BaseTool):
-        """Register a tool."""
-        self._tools[tool.name] = tool
-    
-    def get_tool(self, name: str) -> Optional[BaseTool]:
-        """Get tool by name."""
-        return self._tools.get(name)
-    
-    def list_tools(self) -> List[BaseTool]:
-        """Get list of all registered tools."""
-        return list(self._tools.values())
-    
-    def remove_tool(self, name: str) -> bool:
-        """Remove a tool from registry."""
-        if name in self._tools:
-            del self._tools[name]
-            return True
-        return False
-    
-    def clear(self):
-        """Clear all tools from registry."""
-        self._tools.clear()
-    
-    def create_and_register_tool(self, tool_name: str, config=None) -> bool:
-        """Create and register a tool by name using factories."""
-        if tool_name in self._tools:
-            return True
-        if tool_name not in self._tool_factories:
-            return False
-        try:
-            tool_instance = self._tool_factories[tool_name](config)
-            if tool_instance:
-                self.register(tool_instance)
-                return True
-        except Exception as e:
-            print(f"Failed to create tool {tool_name}: {e}")
+@dataclass
+class ToolEntry:
+    instance: BaseTool
+    providers: Set[str]
+    risk: ToolRiskLevel = ToolRiskLevel.SAFE
+    enabled: bool = True
 
-        return False
+TOOL_REGISTRY: Dict[str, ToolEntry] = {}
 
-    def register_tools_by_names(self, tool_names: List[str], config=None) -> List[str]:
-        """Register multiple tools by names. Returns list of successfully registered tools."""
-        registered = []
-        for tool_name in tool_names:
-            if self.create_and_register_tool(tool_name, config):
-                registered.append(tool_name)
-        return registered
+def register_tool(*, name: str, providers: Iterable[str] | str = '*', enabled: bool = True):
+    def deco(cls: Type[BaseTool]):
+        if not issubclass(cls, BaseTool):
+            raise TypeError("@register_tool must decorate BaseTool subclasses")
+        provs = {'*'} if providers == '*' else set(providers)
+        tool = cls()
+        tool.name = name
+        if name in TOOL_REGISTRY:
+            raise ValueError(f"Duplicate tool registration: {name}")
+        TOOL_REGISTRY[name] = ToolEntry(
+            instance=tool,
+            providers=provs,
+            risk=tool.risk_level,
+            enabled=enabled,
+        )
+        return cls
+    return deco
+
+def get_tool(name: str) -> BaseTool:
+    return TOOL_REGISTRY[name].instance
+
+def list_tools_for_provider(provider: str,
+                            allowlist: Optional[Iterable[str]] = None,
+                            safe_mode: bool = False,
+                            ) -> List[BaseTool]:
+    allowset = set(allowlist) if allowlist else None
+    out: List[BaseTool] = []
+    for name, entry in TOOL_REGISTRY.items():
+        if '*' not in entry.providers and provider not in entry.providers:
+            continue
+        if allowset and name not in allowset:
+            continue
+        if safe_mode and entry.risk != ToolRiskLevel.SAFE:
+            continue
+        out.append(entry.instance)
+    return out
+
+
+def tools_autodiscover(package: str = "pywen.tools"):
+    pkg = importlib.import_module(package)
+    for _, modname, ispkg in pkgutil.iter_modules(pkg.__path__):
+        if ispkg:
+            tools_autodiscover(f"{package}.{modname}")
+            continue
+        if modname in {"base_tool",}:
+            continue
+        importlib.import_module(f"{package}.{modname}")

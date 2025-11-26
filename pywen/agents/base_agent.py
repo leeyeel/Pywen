@@ -6,10 +6,9 @@ from typing import List, Dict, Any
 from pywen.config.config import AppConfig, MCPConfig
 from pywen.ui.cli_console import CLIConsole
 from pywen.core.trajectory_recorder import TrajectoryRecorder
-from pywen.utils.llm_basics import LLMMessage
+from pywen.llm.llm_basics import LLMMessage
 from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
 from pywen.hooks.manager import HookManager
-from pywen.core.tool_registry2 import list_tools_for_provider
 
 class BaseAgent(ABC):
     def __init__(self, config: AppConfig, hook_mgr:HookManager, cli_console: Optional[CLIConsole] =None):

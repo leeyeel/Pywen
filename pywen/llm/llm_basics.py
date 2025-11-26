@@ -1,20 +1,16 @@
-"""Basic LLM data structures."""
-
 from dataclasses import dataclass
 from typing import List, Optional
 from pywen.utils.tool_basics import ToolCall
 
 @dataclass
 class LLMMessage:
-    """Standard message format for LLM interactions."""
     role: str  # "system", "user", "assistant", "tool"
     content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
-    tool_call_id: Optional[str] = None  # For tool response messages
+    tool_call_id: Optional[str] = None 
 
 @dataclass
 class LLMUsage:
-    """Token usage information."""
     input_tokens: int
     output_tokens: int
     total_tokens: int
@@ -28,7 +24,6 @@ class LLMUsage:
 
 @dataclass
 class LLMResponse:
-    """Standard LLM response format."""
     content: str
     tool_calls: Optional[List[ToolCall]] = None
     usage: Optional[LLMUsage] = None
