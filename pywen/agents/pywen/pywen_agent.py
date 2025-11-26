@@ -308,7 +308,7 @@ class PywenAgent(BaseAgent):
         self.system_prompt = self.get_core_system_prompt()
         self.llm_client = LLMClient(config.active_model)
         self.conversation_history = self._update_system_prompt(self.system_prompt)
-        self.file_metrics = {}
+        self.file_metrics = {}  # 用于跟踪文件操作，供 file_restorer 使用
     
     async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run agent with streaming output and task continuation."""
