@@ -15,7 +15,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
 from pywen.core.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
-from pywen.core.agent_registry import registry
+from pywen.agents.agent_registry import registry
 from pywen.agents.pywen.pywen_agent import PywenAgent
 from pywen.agents.claude.claude_agent import ClaudeAgent
 from pywen.agents.codex.codex_agent import CodexAgent 
