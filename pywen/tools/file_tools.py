@@ -1,6 +1,6 @@
 import os
 from typing import Any, Mapping
-from pywen.ui.highlighted_content import HighlightedContentDisplay
+from pywen.cli.highlighted_content import HighlightedContentDisplay
 from .base_tool import BaseTool, ToolCallResult, ToolRiskLevel
 from pywen.tools.tool_registry import register_tool
 

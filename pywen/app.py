@@ -15,9 +15,9 @@ from pywen.agents.agent_registry import registry
 from pywen.agents.pywen.pywen_agent import PywenAgent
 from pywen.agents.claude.claude_agent import ClaudeAgent
 from pywen.agents.codex.codex_agent import CodexAgent 
-from pywen.ui.cli_console import CLIConsole
-from pywen.ui.command_processor import CommandProcessor
-from pywen.ui.keyboard import create_key_bindings
+from pywen.cli.cli_console import CLIConsole
+from pywen.cli.command_processor import CommandProcessor
+from pywen.utils.key_binding import create_key_bindings
 from pywen.memory.memory_monitor import MemoryMonitor
 from pywen.memory.file_restorer import IntelligentFileRestorer
 from pywen.llm.llm_basics import LLMMessage
@@ -47,7 +47,6 @@ class ExecutionState:
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
         self.reset()
-
 
 async def _emit_prompt_submit(hook_mgr: HookManager, session_id: str, prompt: str) -> tuple[bool, str | None, dict[str, Any]]:
     """统一的用户输入 hook 触发逻辑。"""

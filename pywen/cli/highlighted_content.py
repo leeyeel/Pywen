@@ -1,15 +1,11 @@
 """
 Highlighted content display for showing file changes with +/- indicators.
 """
-
 import difflib
-from typing import List, Tuple, Optional, Dict
-from rich.console import Console
+from typing import List, Optional
 from rich.panel import Panel
 from rich.text import Text
-from rich.syntax import Syntax
 from rich.table import Table
-
 
 class HighlightedContentDisplay:
     """Display file content with highlighted changes."""
@@ -284,7 +280,6 @@ class HighlightedContentDisplay:
             border_style="blue",
             padding=(0, 1)
         )
-
 
 def create_enhanced_tool_result_display(result_data: dict, tool_name: str) -> Panel:
     """Create enhanced display for tool results with highlighted content."""

@@ -10,8 +10,8 @@ from rich.text import Text
 
 from pywen.tools.base_tool import ToolRiskLevel
 from pywen.utils.permission_manager import PermissionLevel, PermissionManager
-from pywen.ui.highlighted_content import create_enhanced_tool_result_display
-from pywen.ui.highlighted_content import HighlightedContentDisplay
+from pywen.cli.highlighted_content import create_enhanced_tool_result_display
+from pywen.cli.highlighted_content import HighlightedContentDisplay
 
 class CLIConsole:
     """Console for displaying agent progress and handling user interactions."""
