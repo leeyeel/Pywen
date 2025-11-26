@@ -6,7 +6,7 @@ from typing import Callable, Optional
 from prompt_toolkit.key_binding import KeyBindings
 from pywen.config.manager import  ConfigManager
 from pywen.ui.cli_console import CLIConsole
-from pywen.core.permission_manager import PermissionLevel,PermissionManager
+from pywen.utils.permission_manager import PermissionLevel,PermissionManager
 
 
 def create_key_bindings(

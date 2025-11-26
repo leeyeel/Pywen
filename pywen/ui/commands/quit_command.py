@@ -5,7 +5,7 @@ from rich.panel import Panel
 from rich import get_console
 from rich.align import Align
 from .base_command import BaseCommand
-from pywen.core.session_stats import session_stats
+from pywen.utils.session_stats import session_stats
 
 
 class QuitCommand(BaseCommand):

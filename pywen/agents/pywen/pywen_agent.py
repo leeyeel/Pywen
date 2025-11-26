@@ -6,7 +6,7 @@ from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_basics import LLMMessage
 from pywen.llm.llm_client import LLMClient
 from pywen.config.token_limits import TokenLimits
-from pywen.core.session_stats import session_stats
+from pywen.utils.session_stats import session_stats
 from pywen.hooks.models import HookEvent
 from pywen.llm.llm_basics import LLMResponse, ToolCall
 from pywen.tools.tool_registry import list_tools_for_provider, get_tool

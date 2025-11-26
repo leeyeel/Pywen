@@ -9,7 +9,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from pywen.core.permission_manager import PermissionLevel, PermissionManager
+from pywen.utils.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
 from pywen.agents.agent_registry import registry
 from pywen.agents.pywen.pywen_agent import PywenAgent

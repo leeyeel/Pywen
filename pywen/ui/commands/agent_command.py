@@ -2,7 +2,7 @@
 
 from rich import get_console
 from .base_command import BaseCommand
-from pywen.core.session_stats import session_stats
+from pywen.utils.session_stats import session_stats
 from typing import Dict, Any
 
 # 可用agent配置

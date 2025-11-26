@@ -1,14 +1,11 @@
 """Trajectory recording functionality."""
-
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
 from pywen.llm.llm_basics import LLMMessage, LLMResponse
 from pywen.utils.tool_basics import ToolResult, ToolCall
-from .session_stats import session_stats
-
+from pywen.utils.session_stats import session_stats
 
 class TrajectoryRecorder:
     """Records trajectory data for agent execution and LLM interactions."""

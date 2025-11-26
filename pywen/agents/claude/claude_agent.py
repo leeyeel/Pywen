@@ -6,10 +6,10 @@ from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_client import LLMClient 
 from pywen.llm.llm_basics import LLMResponse, LLMMessage
 from pywen.utils.tool_basics import ToolCall, ToolResult
-from pywen.core.trajectory_recorder import TrajectoryRecorder
+from pywen.utils.trajectory_recorder import TrajectoryRecorder
 from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
-from pywen.core.session_stats import session_stats
+from pywen.utils.session_stats import session_stats
 from pywen.agents.agent_registry import registry  as agent_registry
 from pywen.config.manager import ConfigManager
 from pywen.agents.claude.system_reminder import (

@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from pywen.tools.base_tool import ToolRiskLevel
-from pywen.core.permission_manager import PermissionLevel, PermissionManager
+from pywen.utils.permission_manager import PermissionLevel, PermissionManager
 from pywen.ui.highlighted_content import create_enhanced_tool_result_display
 from pywen.ui.highlighted_content import HighlightedContentDisplay
 
