@@ -274,7 +274,11 @@ async def single_prompt_mode_streaming(agent: PywenAgent, console: CLIConsole, p
         return 
 
     async for event in agent.run(prompt_text):
-        await console.handle_streaming_event(event, agent)
+        result = await console.handle_streaming_event(event, agent)
+        if result in {"waiting_for_user", "task_complete", "max_turns_reached", "error"}:
+            if result == "waiting_for_user":
+                console.print("⚠️ Additional input required. Use interactive mode to continue.", "yellow")
+            break
     await agent.aclose()
 
 def main_sync() -> None:
