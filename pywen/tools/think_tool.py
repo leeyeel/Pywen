@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Mapping 
 from pywen.tools.base_tool import BaseTool
 from pywen.utils.tool_basics import ToolResult
-from pywen.core.tool_registry import register_tool
+from pywen.tools.tool_registry import register_tool
 
 DESCRIPTION= """Use the tool to think about something. 
 It will not obtain new information or make any changes to the repository, 

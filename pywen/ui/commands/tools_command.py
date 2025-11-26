@@ -4,7 +4,7 @@ from typing import Dict, Any
 from rich import get_console
 from rich.table import Table
 from .base_command import BaseCommand
-from pywen.core.tool_registry import list_tools_for_provider, get_tool
+from pywen.tools.tool_registry import list_tools_for_provider, get_tool
 
 
 class ToolsCommand(BaseCommand):

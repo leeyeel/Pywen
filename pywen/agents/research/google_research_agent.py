@@ -3,7 +3,7 @@ from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_basics import LLMMessage, LLMResponse
 from pywen.utils.tool_basics import ToolResult
 from pywen.llm.llm_client import LLMClient
-from pywen.core.tool_registry import list_tools_for_provider
+from pywen.tools.tool_registry import list_tools_for_provider
 from pywen.hooks.manager import HookManager
 from pywen.agents.research.research_prompts import (
     get_current_date,
@@ -444,7 +444,7 @@ Follow the research process step by step and use the appropriate prompts for eac
                 self.research_state["summaries"] = [final_response.content]
     async def _process_tool_calls(self, tool_calls):
         """处理工具调用"""
-        from pywen.core.tool_registry import get_tool
+        from pywen.tools.tool_registry import get_tool
         
         for tool_call in tool_calls:
             try:

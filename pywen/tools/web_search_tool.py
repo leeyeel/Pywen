@@ -4,7 +4,7 @@ import os
 from typing import Dict, Any, List, Optional,Mapping
 from dataclasses import dataclass
 from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry import register_tool
+from pywen.tools.tool_registry import register_tool
 
 CLAUDE_DESCRIPTION = """
 - Allows Claude to search the web and use the results to inform responses

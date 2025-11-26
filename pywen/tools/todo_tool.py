@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping
 from pywen.tools.base_tool import BaseTool
 from pywen.utils.tool_basics import ToolResult
-from pywen.core.tool_registry import register_tool
+from pywen.tools.tool_registry import register_tool
 
 DESCRIPTION = """
 Use this tool to create and manage a structured task list for your current coding session. 

@@ -4,7 +4,7 @@ import html
 import re
 from typing import Any, Mapping
 from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry import register_tool
+from pywen.tools.tool_registry import register_tool
 
 CLAUDE_DESCRIPTION = """
 - Fetches content from a specified URL and processes it using an AI model

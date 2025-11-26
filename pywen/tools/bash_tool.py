@@ -4,7 +4,7 @@ import locale
 import re
 from typing import Any, Mapping
 from .base_tool import BaseTool, ToolResult, ToolRiskLevel
-from pywen.core.tool_registry import register_tool
+from pywen.tools.tool_registry import register_tool
 
 CLAUDE_DESCRIPTION = """
 Executes a given bash command in a persistent shell session with optional timeout, 

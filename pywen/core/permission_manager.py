@@ -1,12 +1,6 @@
-"""
-Permission management system for Pywen tools.
-Provides fine-grained control over tool execution permissions.
-"""
-
 from enum import Enum
 from typing import Set, Dict, Any, Optional
 from dataclasses import dataclass
-
 
 class PermissionLevel(Enum):
     """Permission levels for tool execution."""
@@ -15,14 +9,12 @@ class PermissionLevel(Enum):
     PLANNING = "planning"       # 规划权限：自动确认非编辑操作，编辑需要确认
     YOLO = "yolo"              # 锁开状态：自动确认所有操作
 
-
 @dataclass
 class PermissionRule:
     """Permission rule for specific tool categories."""
     tool_categories: Set[str]
     auto_approve: bool
     description: str
-
 
 class PermissionManager:
     """Manages tool execution permissions based on permission levels."""

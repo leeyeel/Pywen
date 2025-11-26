@@ -1,9 +1,7 @@
 from __future__ import annotations
 from typing import Any, Callable, Dict, Optional, Tuple
-
 from .manager import HookManager
 from .models import HookEvent
-
 
 def run_tool_with_hooks(
     *,
@@ -47,6 +45,5 @@ def run_tool_with_hooks(
     if not cont2:
         return False, (msg2 or f"{tool_name} post hook blocked."), tool_resp
 
-    # 可以把 extra2["additionalContext"] 注入到后续 agent 上下文
     return True, msg2, tool_resp
 

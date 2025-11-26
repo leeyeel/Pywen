@@ -50,13 +50,12 @@ def list_tools_for_provider(provider: str,
         out.append(entry.instance)
     return out
 
-
 def tools_autodiscover(package: str = "pywen.tools"):
     pkg = importlib.import_module(package)
     for _, modname, ispkg in pkgutil.iter_modules(pkg.__path__):
         if ispkg:
             tools_autodiscover(f"{package}.{modname}")
             continue
-        if modname in {"base_tool",}:
+        if modname in {"base_tool", "tool_registry"}:
             continue
         importlib.import_module(f"{package}.{modname}")

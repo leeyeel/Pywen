@@ -17,7 +17,7 @@ from pywen.agents.claude.system_reminder import (
     get_system_reminder_start,emit_tool_execution_event
 )
 from pywen.hooks.models import HookEvent
-from pywen.core.tool_registry import list_tools_for_provider, get_tool
+from pywen.tools.tool_registry import list_tools_for_provider, get_tool
 
 class ClaudeAgent(BaseAgent):
 

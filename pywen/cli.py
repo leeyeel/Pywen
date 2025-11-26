@@ -1,18 +1,14 @@
-"""Command line interface for Pywen Python Agent."""
-
 from __future__ import annotations
-
 import argparse
 import asyncio
-import uuid
 import threading
-from typing import Any
+import uuid
 
+from typing import Any
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-
 from pywen.core.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
 from pywen.agents.agent_registry import registry
@@ -28,7 +24,7 @@ from pywen.llm.llm_basics import LLMMessage
 from pywen.hooks.config import load_hooks_config
 from pywen.hooks.manager import HookManager
 from pywen.hooks.models import HookEvent
-from pywen.core.tool_registry import tools_autodiscover
+from pywen.tools.tool_registry import tools_autodiscover
 
 class ExecutionState:
     """集中管理一次用户请求的执行状态与取消信号。"""
@@ -51,6 +47,72 @@ class ExecutionState:
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
         self.reset()
+
+
+async def _emit_prompt_submit(hook_mgr: HookManager, session_id: str, prompt: str) -> tuple[bool, str | None, dict[str, Any]]:
+    """统一的用户输入 hook 触发逻辑。"""
+
+    ok, msg, extra = await hook_mgr.emit(
+        HookEvent.UserPromptSubmit,
+        base_payload={"session_id": session_id, "prompt": prompt},
+    )
+    return ok, msg, extra
+
+def _update_file_metrics_from_event(
+    agent: Any,
+    file_restorer: IntelligentFileRestorer,
+    event: dict[str, Any],
+) -> None:
+    data = event.get("data", {})
+    tool_name = data.get("name")
+    success = data.get("success", False)
+    arguments = data.get("arguments", {})
+    tool_result = data.get("result")
+
+    if success and tool_name in {"read_file", "write_file", "edit"}:
+        file_metrics = getattr(agent, "file_metrics", None)
+        if file_metrics is not None:
+            file_restorer.update_file_metrics(arguments, tool_result, file_metrics, tool_name)
+
+async def _handle_conversation_stop(
+    result: str,
+    event: dict[str, Any],
+    *,
+    agent: Any,
+    console: CLIConsole,
+    memory_monitor: MemoryMonitor,
+    file_restorer: IntelligentFileRestorer,
+    dialogue_counter: int,
+    session_id: str,
+    hook_mgr: HookManager,
+    user_input: str,
+) -> str:
+    total_tokens = event["data"] if result == "turn_token_usage" else 0
+    summary = await memory_monitor.run_monitored(dialogue_counter, agent.conversation_history, total_tokens)
+
+    if summary:
+        file_metrics = getattr(agent, "file_metrics", None)
+        if file_metrics is not None:
+            recovered = file_restorer.file_recover(file_metrics)
+            if recovered:
+                summary += "\nHere is the potentially important file content:\n" + recovered
+        agent.conversation_history = [LLMMessage(role="user", content=summary)]
+
+    ok, msg, extra = await hook_mgr.emit(
+        HookEvent.Stop,
+        base_payload={"session_id": session_id, "prompt": user_input},
+    )
+    if msg:
+        console.print(msg, "yellow")
+    if not ok:
+        console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+        return "task_complete"
+
+    if extra.get("additionalContext"):
+        agent.conversation_history.append(LLMMessage(role="user", content=extra["additionalContext"]))
+
+    return result
+
 
 async def run_streaming(
     agent: Any,
@@ -76,50 +138,23 @@ async def run_streaming(
                 console.print("\n⚠️ Operation cancelled by user", color="yellow")
                 return "cancelled"
 
-            # 消费事件
             result = await console.handle_streaming_event(event, agent)
-
-            # 工具结果 → 文件恢复指标更新
             if result == "tool_result":
-                data = event.get("data", {})
-                tool_name = data.get("name")
-                success = data.get("success", False)
-                arguments = data.get("arguments", {})
-                tool_result = data.get("result")
+                _update_file_metrics_from_event(agent, file_restorer, event)
 
-                if success and tool_name in {"read_file", "write_file", "edit"}:
-                    # 安全访问 file_metrics，如果 agent 没有该属性则跳过
-                    file_metrics = getattr(agent, "file_metrics", None)
-                    if file_metrics is not None:
-                        file_restorer.update_file_metrics(arguments, tool_result, file_metrics, tool_name)
-
-            # 会话终结/等待用户 → 触发记忆压缩与必要文件内容注入
             if result in {"task_complete", "max_turns_reached", "waiting_for_user"}:
-                total_tokens = event["data"] if result == "turn_token_usage" else 0
-                summary = await memory_monitor.run_monitored(dialogue_counter, agent.conversation_history, total_tokens)
-
-                if summary:
-                    # 安全访问 file_metrics，如果 agent 没有该属性则跳过文件恢复
-                    file_metrics = getattr(agent, "file_metrics", None)
-                    if file_metrics is not None:
-                        recovered = file_restorer.file_recover(file_metrics)
-                        if recovered:
-                            summary += "\nHere is the potentially important file content:\n" + recovered
-                    agent.conversation_history = [LLMMessage(role="user", content=summary)]
-
-                ok, msg, extra = await hook_mgr.emit(
-                        HookEvent.Stop,
-                        base_payload={"session_id": session_id, "prompt": user_input},
+                return await _handle_conversation_stop(
+                    result,
+                    event,
+                    agent=agent,
+                    console=console,
+                    memory_monitor=memory_monitor,
+                    file_restorer=file_restorer,
+                    dialogue_counter=dialogue_counter,
+                    session_id=session_id,
+                    hook_mgr=hook_mgr,
+                    user_input=user_input,
                 )
-                if msg: 
-                    console.print(msg, "yellow")
-                if not ok:
-                    console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
-                    continue
-                if extra.get("additionalContext"):
-                    agent.conversation_history.append(LLMMessage(role="user", content=extra["additionalContext"]))
-
-                return result
 
             if result == "tool_cancelled":
                 return "tool_cancelled"
@@ -211,10 +246,7 @@ async def interactive_mode_streaming(
                 if not user_input.strip():
                     continue
 
-                ok, msg, extra = await hook_mgr.emit(
-                        HookEvent.UserPromptSubmit,
-                        base_payload={"session_id": session_id, "prompt": user_input},
-                )
+                ok, msg, extra = await _emit_prompt_submit(hook_mgr, session_id, user_input)
                 if not ok:
                     console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
                     continue
@@ -265,10 +297,7 @@ async def interactive_mode_streaming(
 async def single_prompt_mode_streaming(agent: PywenAgent, console: CLIConsole, prompt_text: str,
                                        session_id: str, hook_mgr: HookManager) -> None:
     """单次模式：与交互模式共享同一事件消费逻辑（但无需状态与记忆压缩）。"""
-    ok, msg, _ = await hook_mgr.emit(
-            HookEvent.UserPromptSubmit,
-            base_payload={"session_id": session_id, "prompt": prompt_text},
-    )
+    ok, msg, _ = await _emit_prompt_submit(hook_mgr, session_id, prompt_text)
     if not ok:
         console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
         return 

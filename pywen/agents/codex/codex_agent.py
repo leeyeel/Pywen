@@ -8,7 +8,7 @@ from pywen.utils.tool_basics import ToolCall
 from pywen.llm.llm_basics import LLMMessage
 from pywen.config.token_limits import TokenLimits 
 from pywen.core.session_stats import session_stats
-from pywen.core.tool_registry import list_tools_for_provider, get_tool
+from pywen.tools.tool_registry import list_tools_for_provider, get_tool
 
 MessageRole = Literal["system", "developer", "user", "assistant"]
 HistoryItem = Dict[str, Any]
