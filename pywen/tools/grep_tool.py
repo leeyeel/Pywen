@@ -2,7 +2,7 @@ import os
 import re
 from typing import Any, Mapping
 from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry2 import register_tool
+from pywen.core.tool_registry import register_tool
 
 CLAUDE_DESCRIPTION = """
 A powerful search tool built on ripgrep

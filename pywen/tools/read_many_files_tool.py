@@ -1,7 +1,7 @@
 import os
 from typing import Any, Mapping
 from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry2 import register_tool
+from pywen.core.tool_registry import register_tool
 
 @register_tool(name="read_many_files", providers=["pywen"])
 class ReadManyFilesTool(BaseTool):

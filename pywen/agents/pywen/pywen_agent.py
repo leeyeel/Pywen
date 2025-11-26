@@ -9,7 +9,7 @@ from pywen.config.token_limits import TokenLimits
 from pywen.core.session_stats import session_stats
 from pywen.hooks.models import HookEvent
 from pywen.utils.llm_basics import LLMResponse, ToolCall
-from pywen.core.tool_registry2 import list_tools_for_provider, get_tool
+from pywen.core.tool_registry import list_tools_for_provider, get_tool
 
 SYSTEM_PROMPT = f"""You are PYWEN, an interactive CLI agent who is created by PAMPAS-Lab, specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools.
 

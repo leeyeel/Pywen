@@ -4,6 +4,7 @@ from typing import Dict, Any
 from rich import get_console
 from rich.table import Table
 from .base_command import BaseCommand
+from pywen.core.tool_registry import list_tools_for_provider, get_tool
 
 
 class ToolsCommand(BaseCommand):
@@ -13,34 +14,27 @@ class ToolsCommand(BaseCommand):
     
     async def execute(self, context: Dict[str, Any], args: str) -> bool:
         """显示可用工具列表"""
-        agent = context.get('agent')
+        agent  = context.get('agent')
         
         if not agent:
             self.console.print("[red]No agent available[/red]")
             return True
         
-        tool_registry = getattr(agent, 'tool_registry', None)
-        
-        if not tool_registry:
-            self.console.print("[red]No tool registry found in agent[/red]")
-            return True
-        
-        # 获取工具列表
         try:
-            tools = tool_registry.list_tools()
+            provider = agent.type.lower().replace("agent", "")
+            tools = list_tools_for_provider(provider)
              
-            # 创建工具表格
-            table = Table(title=f"Available Pywen -  {type(agent).__name__} Tools")
+            table = Table(title=f"{agent.type} Available Tools")
             table.add_column("Tool Name", style="green")
+            table.add_column("Display Name", style="green")
             table.add_column("Description", style="white")
             
             # 添加工具信息
             for tool in tools:
-                tool_name = getattr(tool, 'name', 'Unknown')
-                display_name = getattr(tool, 'display_name', tool_name)
-                description = getattr(tool, 'description', 'No description available')
-                
-                table.add_row(display_name, description)
+                tool_name = tool.name
+                display_name = tool.display_name
+                description = tool.description
+                table.add_row(tool_name, display_name, description)
             
             self.console.print(table)
             self.console.print(f"\n[dim]Total: {len(tools)} tools available[/dim]")

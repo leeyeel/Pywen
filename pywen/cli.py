@@ -28,7 +28,7 @@ from pywen.utils.llm_basics import LLMMessage
 from pywen.hooks.config import load_hooks_config
 from pywen.hooks.manager import HookManager
 from pywen.hooks.models import HookEvent
-from pywen.core.tool_registry2 import tools_autodiscover
+from pywen.core.tool_registry import tools_autodiscover
 
 class ExecutionState:
     """集中管理一次用户请求的执行状态与取消信号。"""

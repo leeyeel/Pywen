@@ -1,7 +1,7 @@
 import os
 from typing import Any, Mapping
 from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry2 import register_tool
+from pywen.core.tool_registry import register_tool
 
 CLAUDE_DESCRIPTION = """
 Lists files and directories in a given path. 
