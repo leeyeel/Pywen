@@ -1,4 +1,3 @@
-
 # Pywen × SWE-bench：容器化运行指南
 
 ---
@@ -10,11 +9,31 @@
 * 网络能访问 Docker Hub（拉取 SWE-bench 镜像）
 * 已准备好 **Pywen 配置文件** `pywen_config.yaml`
 
-  运行时通过 `--config` 指向自定义路径,比如自己的`~/.pywen/pywen_config.yaml`
+  运行时通过 `--config` 指向自定义路径，比如自己的 `~/.pywen/pywen_config.yaml`
 
 ---
 
-## 二、目录结构（关键路径）
+## 二、安装依赖
+
+评估功能需要额外的可选依赖：
+
+```bash
+# 使用 uv（推荐）
+uv sync --extra evaluation
+
+# 或使用 pip
+pip install -e ".[evaluation]"
+```
+
+可选依赖包括：
+- `sb-cli`：SWE-bench 云端评估提交
+- `docker`：Docker Python SDK
+- `tqdm`：进度条
+- `datasets`：HuggingFace datasets
+
+---
+
+## 三、目录结构（关键路径）
 
 ```
 Pywen/
@@ -31,17 +50,18 @@ Pywen/
 运行后脚本会在工作目录下生成缓存与结果：
 
 ```
-pywen_workspace/pywen_agent_cache/
-├─ Pywen/                # 映射到容器 /opt/Pywen   （含 .venv）
-├─ uv_bin/uv             # 映射到容器 /root/.local/bin/uv
-└─ uv_share/uv/...       # 映射到容器 /root/.local/share/uv（含托管 CPython）
-results/
-└─ SWE-bench_.../        # 每个实例的日志、patch、predictions.json 等
+evaluation/
+├─ pywen_workspace/pywen_agent_cache/
+│  ├─ Pywen/                # 映射到容器 /opt/Pywen（含 .venv）
+│  ├─ uv_bin/uv             # 映射到容器 /root/.local/bin/uv
+│  └─ uv_share/uv/...       # 映射到容器 /root/.local/share/uv（含托管 CPython）
+└─ results/
+   └─ SWE-bench_.../        # 每个实例的日志、patch、predictions.json 等
 ```
 
 ---
 
-## 三、构建镜像（一次性）
+## 四、构建镜像（一次性）
 
 在项目根目录执行：
 
@@ -59,58 +79,86 @@ docker build -f Dockerfile.pywen-agent -t pywen/agent:0.1 .
 
 ---
 
-## 四、一次性导出运行时缓存（自动完成）
-
-`evaluation/run_evaluation.py` 在首次运行时会自动：
-
-* 启动一个短暂的 `pywen/agent:0.1` 容器
-* 将镜像内的 `/opt/Pywen`、`/root/.local/bin/uv`、`/root/.local/share/uv` **拷贝到宿主机**
-* 缓存路径：`pywen_workspace/pywen_agent_cache/`
-
-后续所有 SWE 实例容器只需挂载这些目录，无需在每个容器中再次解压或安装。
-
----
-
 ## 五、运行方式
 
-### 1）单实例运行（推荐先试）
+### 1）快速开始（推荐先试）
+
+```bash
+cd Pywen
+
+# 跑 2 个实例试试
+python evaluation/run_evaluation.py \
+  --config ~/.pywen/pywen_config.yaml \
+  --limit 2 \
+  --mode e2e
+```
+
+### 2）跑指定实例
 
 ```bash
 python evaluation/run_evaluation.py \
   --config ~/.pywen/pywen_config.yaml \
-  --limit 2
+  --instance-ids django__django-11001 astropy__astropy-12907
 ```
 
-说明：
+### 3）跑 50 个实例（并行）
 
-* `--config`：你的真实配置文件。未指定时将依次查找：
-
-  1. `~/.pywen/pywen_config.yaml`
-  2. 项目内 `pywen_config.example.yaml`（没法用，会报错）
-* `--limit 2`：只下载两个镜像处理。
-
----
-
-## 六、参数说明（`run_evaluation.py`）
-
-* `--benchmark`：默认 `SWE-bench`
-* `--dataset`：`SWE-bench` / `SWE-bench_Lite` / `SWE-bench_Verified`
-* `--working-dir`：工作区（缓存与中间文件）
-* `--config`：Pywen 配置 YAML 路径（强烈建议显式传入）
-* `--agent`：`qwen` / `codex` / `claude`
-* `--instance_ids`：指定实例（空则跑全量）
-* `--pattern`：用正则匹配实例 id
-* `--limit`：最多跑多少个实例
-* `--max_workers`：并发度
-* `--mode`：
-
-  * `expr`：只生成补丁
-  * `eval`：只跑评测（需要先有 predictions.json）
-  * `e2e`：生成补丁 + 评测
+```bash
+python evaluation/run_evaluation.py \
+  --config ~/.pywen/pywen_config.yaml \
+  --limit 50 \
+  --max-workers 4 \
+  --mode e2e
+```
 
 ---
 
-## 七、工作原理（简述）
+## 六、参数说明
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--dataset` | `SWE-bench_Lite` | 数据集：`SWE-bench` / `SWE-bench_Lite` / `SWE-bench_Verified` |
+| `--config` | `~/.pywen/pywen_config.yaml` | Pywen 配置文件路径 |
+| `--agent` | `pywen` | Agent 类型：`pywen` / `codex` / `claude` |
+| `--instance-ids` | - | 指定实例 ID（空则跑全量） |
+| `--pattern` | - | 用正则匹配实例 ID |
+| `--limit` | - | 最多跑多少个实例 |
+| `--max-workers` | `1` | 并发数 |
+| `--mode` | `expr` | 运行模式（见下表） |
+| `--run-id` | `pywen-agent` | 运行标识符 |
+
+### 运行模式
+
+| 模式 | 说明 |
+|------|------|
+| `expr` | 只生成 patch |
+| `collect` | 只收集已有 patch 成 `predictions.json` |
+| `e2e` | 生成 patch + 收集 |
+
+---
+
+## 七、提交云端评估
+
+生成 `predictions.json` 后，可以提交到 SWE-bench 云端评估：
+
+```bash
+# 提交到 SWE-bench Lite（test 分割）
+sb-cli submit swe-bench_lite test \
+    --predictions_path evaluation/results/SWE-bench_SWE-bench_Lite_pywen-agent/predictions.json \
+    --run_id my_run_name
+```
+
+**数据集对照表**：
+
+| 你跑的 --dataset | sb-cli 参数 |
+|------------------|-------------|
+| `SWE-bench_Lite` | `swe-bench_lite test` |
+| `SWE-bench_Verified` | `swe-bench_verified test` |
+| `SWE-bench` | `swe-bench-m test` |
+
+---
+
+## 八、工作原理（简述）
 
 1. **构建阶段**：用 uv 根据 `.python-version` 下载 **CPython 3.12（manylinux 预编译）**，创建 `.venv` 并安装依赖。
 2. **导出缓存**：从构建镜像把 `/opt/Pywen`、`/root/.local/bin/uv`、`/root/.local/share/uv` 拷贝到宿主 `pywen_agent_cache/`。
@@ -119,7 +167,7 @@ python evaluation/run_evaluation.py \
 
 ---
 
-## 八、手动调试（可选）
+## 九、手动调试（可选）
 
 想进入某个 SWE 实例容器手动跑 Pywen，可参考：
 
@@ -134,12 +182,12 @@ docker run --rm -it \
   bash
 
 # 容器里：
-/opt/Pywen/.venv/bin/pywen --config /results/pywen_config.yaml --agent qwen --permission-mode yolo
+/opt/Pywen/.venv/bin/pywen --config /results/pywen_config.yaml --agent pywen --permission-mode yolo
 ```
 
 ---
 
-## 九、清理
+## 十、清理
 
 ```bash
 # 删除导出的缓存（会在下次运行时自动重新导出）

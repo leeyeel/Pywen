@@ -378,6 +378,54 @@ PYWEN_EOF
                 except Exception as e:
                     print(f"Instance {iid} crashed: {e}")
 
+    def collect_predictions(self, instance_ids: list[str] | None = None) -> Path:
+        """
+        收集所有生成的 patch 文件，汇总成 predictions.json。
+        
+        Args:
+            instance_ids: 要收集的实例 ID 列表，None 则收集所有数据集中的实例
+            
+        Returns:
+            predictions.json 的路径
+        """
+        import json
+        
+        if instance_ids is None:
+            instance_ids = [item["instance_id"] for item in self.dataset]
+        
+        predictions = []
+        found_count = 0
+        missing_count = 0
+        
+        for instance_id in instance_ids:
+            patch_path = self.task_results_dir / instance_id / f"{instance_id}.patch"
+            
+            if not patch_path.exists():
+                missing_count += 1
+                continue
+            
+            patch_content = patch_path.read_text(encoding="utf-8")
+            if not patch_content.strip():
+                missing_count += 1
+                continue
+                
+            predictions.append({
+                "instance_id": instance_id,
+                "model_name_or_path": "pywen-agent",
+                "model_patch": patch_content,
+            })
+            found_count += 1
+        
+        predictions_path = self.task_results_dir / "predictions.json"
+        with open(predictions_path, "w", encoding="utf-8") as f:
+            json.dump(predictions, f, indent=2, ensure_ascii=False)
+        
+        print(f"✅ Collected {found_count} patches into {predictions_path}")
+        if missing_count > 0:
+            print(f"⚠️  {missing_count} instances have no patch")
+        
+        return predictions_path
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run Pywen on SWE-bench instances using official Docker images",
@@ -387,13 +435,17 @@ def main():
     parser.add_argument("--dataset", default="SWE-bench_Lite", choices=["SWE-bench", "SWE-bench_Lite", "SWE-bench_Verified"], help="Dataset to use")
     parser.add_argument("--max-workers", type=int, default=1, help="Number of parallel workers")
     parser.add_argument("--config", type=str, default=str(Path.home() / ".pywen" / "pywen_config.yaml"), help="Pywen config file path")
-    parser.add_argument("--agent", default="qwen", choices=["qwen", "codex", "claude"], help="Agent to use")
+    parser.add_argument("--agent", default="pywen", choices=["pywen", "codex", "claude"], help="Agent to use")
     parser.add_argument("--limit", type=int, default=None, help="Only run first N instances after filtering")
     parser.add_argument("--pattern", type=str, default=None, help="Regex to filter instance_id")
+    parser.add_argument("--mode", type=str, default="expr", choices=["expr", "collect", "e2e"],
+                        help="Mode: expr=only generate patches, collect=only collect patches to predictions.json, e2e=both")
+    parser.add_argument("--run-id", type=str, default="pywen-agent", help="Run ID for this evaluation")
 
     args = parser.parse_args()
 
-    if not args.instance_ids:
+    # collect 模式不需要确认
+    if args.mode != "collect" and not args.instance_ids:
         print("⚠️  Warning: No --instance-ids specified. Will run ALL instances in dataset.")
         print(f"   Dataset: {args.dataset}")
         print(f"   Using config: {args.config} (YAML)")
@@ -405,15 +457,21 @@ def main():
     evaluator = BenchmarkEvaluation(
         benchmark="SWE-bench",
         working_dir="pywen_workspace",
-        config_path =args.config,
-        dataset_name =args.dataset,
+        config_path=args.config,
+        dataset_name=args.dataset,
         max_workers=args.max_workers,
         instance_ids=args.instance_ids,
         agent_name=args.agent,
         pattern=args.pattern,
         limit=args.limit,
     )
-    evaluator.run_all()
+    
+    # 根据模式执行
+    if args.mode in ("expr", "e2e"):
+        evaluator.run_all()
+    
+    if args.mode in ("collect", "e2e"):
+        evaluator.collect_predictions(args.instance_ids)
 
 if __name__ == "__main__":
     main()
