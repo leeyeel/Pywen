@@ -2,6 +2,7 @@ import os
 import shutil
 import argparse
 import traceback
+import shlex
 from typing import cast
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -64,7 +65,7 @@ class DockerOps:
             raise RuntimeError(f"Docker build failed: {e}")
 
     def run_container(self, image: str, *, command: str = "/bin/bash", detach: bool = True,
-                      tty: bool = True, stdin_open: bool = True, environment: dict | None = None,
+                      tty: bool = False, stdin_open: bool = True, environment: dict | None = None,
                       volumes: dict | None = None, working_dir: str | None = None) -> Container:
         try:
             container = self.client.containers.run(
@@ -84,7 +85,11 @@ class DockerOps:
     def exec_sh(self, container: Container, shell_cmd: str, check: bool = True) -> str:
         """ 在容器内用 /bin/bash -lc 执行命令。统一解析 ExitCode 和输出，失败时抛错。 """
         try:
-            res: ExecResult = container.exec_run(cmd=["/bin/bash", "--noprofile", "--norc", "-lc", shell_cmd])
+            res: ExecResult = container.exec_run(
+                    cmd=["/bin/bash", "--noprofile", "--norc", "-lc", shell_cmd],
+                    tty=False,
+                    stdin=False,
+            )
         except Exception as e:
             raise RuntimeError(f"Exec failed: {shell_cmd}\n{e}")
 
@@ -164,7 +169,7 @@ BENCHMARK_CONFIG: dict[str, BenchmarkConfig] = {
 class BenchmarkEvaluation:
     def __init__(self, benchmark: str, working_dir: str, config_path: str, dataset_name: str = "SWE-bench_Lite",
         run_id: str = "pywen-agent",  max_workers: int = 4, instance_ids: list[str] | None = None,
-        agent_name: str = "qwen", pattern: str | None = None, limit: int | None = None,):
+        agent_name: str = "pywen", pattern: str | None = None, limit: int | None = None,):
 
         self.pattern = pattern
         self.limit   = limit
@@ -288,19 +293,20 @@ class BenchmarkEvaluation:
         if not instance:
             print(f"Instance {instance_id} not found")
             return
-
+    
         image_name = self.config.image_name(instance_id)
         if not ops.image_exists(image_name):
             print(f"Pulling {image_name} ...")
             ops.pull_image(image_name)
-
+    
         instance_res_dir = self.task_results_dir / instance_id
         instance_res_dir.mkdir(parents=True, exist_ok=True)
         self.config.problem_statement(instance, instance_res_dir)
+    
         host_pywen = (self.host_agent_cache / "Pywen").resolve()
         host_uv_bin = (self.host_agent_cache / HOST_UV_BIN_DIRNAME).resolve()
         host_uv_share = (self.host_agent_cache / HOST_UV_SHARE_DIRNAME).resolve()
-
+    
         volumes = {
             str(instance_res_dir): {"bind": "/results", "mode": "rw"},
             str(host_pywen): {"bind": AGENT_IMAGE_PATH_IN_CONTAINER, "mode": "ro"},
@@ -308,9 +314,9 @@ class BenchmarkEvaluation:
             str(host_uv_share): {"bind": "/root/.local/share", "mode": "ro"},
         }
         environment = {
-            "PATH": "/root/.local/bin:" + os.environ.get("PATH",""),
+            "PATH": "/root/.local/bin:" + os.environ.get("PATH", ""),
         }
-
+    
         container = None
         try:
             container = ops.run_container(
@@ -321,48 +327,56 @@ class BenchmarkEvaluation:
                 tty=True,
                 stdin_open=True,
             )
-
-            verify = ops.exec_sh(container, f'[ -x "{AGENT_IMAGE_PATH_IN_CONTAINER}/.venv/bin/python" ] && echo OK || echo MISSING', check=False)
+    
+            verify = ops.exec_sh(
+                container,
+                f'[ -x "{AGENT_IMAGE_PATH_IN_CONTAINER}/.venv/bin/pywen" ] && echo OK || echo MISSING',
+                check=False,
+            )
             if "MISSING" in verify:
                 ops.exec_sh(container, f"ls -l /opt && ls -l {AGENT_IMAGE_PATH_IN_CONTAINER}", check=False)
-
-            problem_stmt = (instance_res_dir / "problem_statement.txt").read_text(encoding="utf-8") if (instance_res_dir / "problem_statement.txt").exists() else ""
-            prompt = f"""You are tasked with resolving a GitHub issue in this repository.
-The repository is checked out at /testbed.
-
-IMPORTANT: You must analyze the issue, locate the relevant code files, make the necessary changes to fix the bug, and verify your solution. Do not just acknowledge the task - you must actually implement the fix.
-
-Issue Description:
-{problem_stmt}
-
-Please start by exploring the codebase to understand the issue, then implement the fix.
-"""
+    
+            # 读取问题并保存一份备查（可选）
+            problem_stmt_path = instance_res_dir / "problem_statement.txt"
+            problem_stmt = problem_stmt_path.read_text(encoding="utf-8") if problem_stmt_path.exists() else ""
+            prompt = (
+                "You are tasked with resolving a GitHub issue in this repository.\n"
+                "The repository is checked out at /testbed.\n\n"
+                "IMPORTANT: You must analyze the issue, locate the relevant code files, make the necessary changes to fix the bug, "
+                "and verify your solution. Do not just acknowledge the task - you must actually implement the fix.\n\n"
+                f"Issue Description:\n{problem_stmt}\n\n"
+                "Please start by exploring the codebase to understand the issue, then implement the fix.\n"
+            )
             (instance_res_dir / "problem_statement_for_pywen.txt").write_text(prompt, encoding="utf-8")
-
-            run_cmd = f"""
-cd /testbed
-{AGENT_IMAGE_PATH_IN_CONTAINER}/.venv/bin/pywen --config /results/{self.config_dest.name} --permission-mode yolo --agent {self.agent_name} <<'PYWEN_EOF'
-{prompt.replace("PYWEN_EOF", "PYWEN_EOX")}
-PYWEN_EOF
-"""
+    
             instance_cfg = instance_res_dir / self.config_dest.name
             shutil.copy(self.config_dest, instance_cfg)
-
+    
+            quoted_prompt = shlex.quote(prompt)
+            run_cmd = f"""
+cd /testbed
+{AGENT_IMAGE_PATH_IN_CONTAINER}/.venv/bin/pywen \
+--config /results/{self.config_dest.name} \
+--permission-mode yolo \
+--agent {shlex.quote(self.agent_name)} \
+{quoted_prompt}
+"""
             output = ops.exec_sh(container, run_cmd, check=False)
             (instance_res_dir / "run.log").write_text(output, encoding="utf-8")
-
+    
             patch_out = ops.exec_sh(container, "cd /testbed && git diff", check=False)
             if patch_out.strip():
                 (instance_res_dir / f"{instance_id}.patch").write_text(patch_out, encoding="utf-8")
                 print(f"✅ Patch saved: {instance_id}")
             else:
                 print(f"⚠️  No patch generated for {instance_id}")
-
+    
         except Exception as e:
             print(f"Error running {instance_id}: {e}")
             traceback.print_exc()
         finally:
             ops.stop_and_remove(container)
+
 
     def run_all(self):
         self.ensure_agent_image_and_cache()
