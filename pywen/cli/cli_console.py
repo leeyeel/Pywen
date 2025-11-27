@@ -1,17 +1,14 @@
 """CLI Console for displaying agent progress."""
 from __future__ import annotations
-
 import os
 from typing import Optional, Any, Dict
 from rich.console import Group
 from rich import get_console
 from rich.panel import Panel
 from rich.text import Text
-
 from pywen.tools.base_tool import ToolRiskLevel
 from pywen.utils.permission_manager import PermissionLevel, PermissionManager
-from pywen.cli.highlighted_content import create_enhanced_tool_result_display
-from pywen.cli.highlighted_content import HighlightedContentDisplay
+from pywen.cli.highlighted_content import create_enhanced_tool_result_display, HighlightedContentDisplay
 
 class CLIConsole:
     """Console for displaying agent progress and handling user interactions."""

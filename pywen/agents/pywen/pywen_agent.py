@@ -298,8 +298,8 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
 class PywenAgent(BaseAgent):
     """Pywen Agent with streaming iterative tool calling logic."""
     
-    def __init__(self, config, hook_mgr, cli_console=None):
-        super().__init__(config, hook_mgr, cli_console)
+    def __init__(self, config, hook_mgr):
+        super().__init__(config, hook_mgr)
         self.type = "PywenAgent"
         session_stats.set_current_agent(self.type)
         self.current_turn_index = 0
@@ -313,10 +313,8 @@ class PywenAgent(BaseAgent):
     async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
         """Run agent with streaming output and task continuation."""
         model_name = self.config.active_model.model or ""
-        max_tokens = TokenLimits.get_limit("pywen", model_name)
-        #TODO，从console剥离
-        if self.cli_console:
-            self.cli_console.set_max_context_tokens(max_tokens)
+        #max_tokens = TokenLimits.get_limit("pywen", model_name)
+        #set_max_context_tokens(max_tokens)
         
         self.original_user_task = user_message
         self.current_turn_index = 0
@@ -405,8 +403,7 @@ class PywenAgent(BaseAgent):
                 # 更新 token 使用统计
                 usage = event.data.get("usage", {})
                 if usage and usage.total_tokens:
-                    if self.cli_console:
-                        self.cli_console.update_token_usage(usage.total_tokens)
+                    #self.cli_console.update_token_usage(usage.total_tokens)
                     yield {"type": "turn_token_usage", "data": usage.total_tokens}
                 # 处理结束状态
                 finish_reason = event.data.get("finish_reason")
@@ -430,23 +427,24 @@ class PywenAgent(BaseAgent):
             if not tool:
                 continue
             confirmation_details = await tool.get_confirmation_details(**tc.arguments)
-            if confirmation_details and self.cli_console:
-                confirmed = await self.cli_console.confirm_tool_call(tc, tool)
-                if not confirmed:
-                    tool_msg = LLMMessage(
-                        role="tool",
-                        content="Tool execution was cancelled by user",
-                        tool_call_id=tc.call_id
-                    )
-                    self.conversation_history.append(tool_msg)
+            if confirmation_details:
+               # TODO. 实现用户确认逻辑
+               # confirmed = await self.cli_console.confirm_tool_call(tc, tool)
+               # if not confirmed:
+               #     tool_msg = LLMMessage(
+               #         role="tool",
+               #         content="Tool execution was cancelled by user",
+               #         tool_call_id=tc.call_id
+               #     )
+               #     self.conversation_history.append(tool_msg)
 
-                    data = {"call_id": tc.call_id, 
-                            "name": tc.name, 
-                            "result": "Tool execution rejected by user",
-                            "success": False, 
-                            "error": "Tool execution rejected by user" }
-                    yield {"type": "tool_result", "data": data}
-                    continue
+               #     data = {"call_id": tc.call_id, 
+               #             "name": tc.name, 
+               #             "result": "Tool execution rejected by user",
+               #             "success": False, 
+               #             "error": "Tool execution rejected by user" }
+               #     yield {"type": "tool_result", "data": data}
+               #     continue
 
             #实际上这里是单个执行
             res = await tool.execute(**tc.arguments)

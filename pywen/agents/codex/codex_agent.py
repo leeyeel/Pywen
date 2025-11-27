@@ -45,8 +45,8 @@ class History:
         return _remove_none(self._items)
 
 class CodexAgent(BaseAgent):
-    def __init__(self, config, hook_mgr, cli_console=None):
-        super().__init__(config, hook_mgr, cli_console)
+    def __init__(self, config, hook_mgr):
+        super().__init__(config, hook_mgr)
         self.type = "CodexAgent"
         self.llm_client = LLMClient(self.config.active_model)
         session_stats.set_current_agent(self.type)
@@ -84,8 +84,7 @@ class CodexAgent(BaseAgent):
         session_stats.record_task_start(self.type)
 
         max_tokens = TokenLimits.get_limit("openai", model_name)
-        if self.cli_console:
-            self.cli_console.set_max_context_tokens(max_tokens)
+        #self.cli_console.set_max_context_tokens(max_tokens)
 
         self.trajectory_recorder.start_recording(
             task=user_message, provider=provider, model=model_name, max_steps=self.turn_cnt_max
@@ -214,9 +213,9 @@ class CodexAgent(BaseAgent):
                 #一轮结束
                 self.record_turn_messages(messages, evt.data)
                 self.turn_index += 1
-                if evt.data and self.cli_console:
+                if evt.data:
                     total_tokens = evt.data.usage.total_tokens
-                    self.cli_console.update_token_usage(total_tokens)
+                    #self.cli_console.update_token_usage(total_tokens)
 
                 has_tool_call = False
                 for out in evt.data.output:
@@ -238,8 +237,6 @@ class CodexAgent(BaseAgent):
         tool = get_tool(tool_call.name)
         if not tool:
             return
-        if not self.cli_console:
-            return
         #格式不一致，需要特殊处理
         confirm_tool_call = tool_call
         if isinstance(tool_call.arguments, Mapping):
@@ -247,6 +244,7 @@ class CodexAgent(BaseAgent):
         elif isinstance(tool_call.arguments, str) and tool_call.name == "apply_patch":
             confirm_tool_call.arguments = {"input": tool_call.arguments}
 
+        #TODO.亟须解决
         confirmed = await self.cli_console.confirm_tool_call(confirm_tool_call, tool)
         if not confirmed:
             self.history.add_message(role="assistant", content=f"Tool call '{tool_call.name}' was rejected by the user.")

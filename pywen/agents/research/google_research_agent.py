@@ -29,8 +29,8 @@ def _extract_json(content: str) -> str:
 class GeminiResearchDemo(BaseAgent):
     """Research agent specialized for multi-step research tasks."""
     
-    def __init__(self, config, hook_mgr: HookManager, cli_console=None):
-        super().__init__(config, hook_mgr, cli_console)
+    def __init__(self, config, hook_mgr: HookManager):
+        super().__init__(config, hook_mgr)
 
         self.type = "GeminiResearchDemo"
 

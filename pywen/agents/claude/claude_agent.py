@@ -21,8 +21,8 @@ from pywen.tools.tool_registry import list_tools_for_provider, get_tool
 
 class ClaudeAgent(BaseAgent):
 
-    def __init__(self, config, hook_mgr, cli_console = None):
-        super().__init__(config, hook_mgr, cli_console)
+    def __init__(self, config, hook_mgr):
+        super().__init__(config, hook_mgr)
         self.type = "ClaudeAgent"
         self.llm_client = LLMClient(self.config.active_model)
         self.prompts = ClaudeCodePrompts()
@@ -139,14 +139,12 @@ class ClaudeAgent(BaseAgent):
             self.context.update(additional_context)
 
         except Exception as e:
-            if self.cli_console:
-                self.cli_console.print(f"Failed to build context: {e}", "yellow")
+            #self.cli_console.print(f"Failed to build context: {e}", "yellow")
             self.context = {'project_path': self.project_path}
 
     def reset_conversation(self):
         self.conversation_history.clear()
-        if self.cli_console:
-            self.cli_console.print("Conversation history cleared", "green")
+        #self.cli_console.print("Conversation history cleared", "green")
 
     async def run(self, user_message: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
         try:
@@ -211,8 +209,7 @@ class ClaudeAgent(BaseAgent):
                 elif evt.type == "completed":
                     break
                 elif evt.type == "error":
-                    if self.cli_console:
-                        self.cli_console.print(f"Quota check error: {evt.data}", "yellow")
+                    #self.cli_console.print(f"Quota check error: {evt.data}", "yellow")
                     return False
 
             quota_llm_response = LLMResponse(
@@ -235,8 +232,7 @@ class ClaudeAgent(BaseAgent):
 
             return bool(content)
         except Exception as e:
-            if self.cli_console:
-                self.cli_console.print(f"Quota check failed: {e}", "yellow")
+            #self.cli_console.print(f"Quota check failed: {e}", "yellow")
             return False
 
     async def _detect_new_topic(self, user_input: str) -> Optional[Dict[str, Any]]:
@@ -255,8 +251,7 @@ class ClaudeAgent(BaseAgent):
                 elif evt.type == "completed":
                     break
                 elif evt.type == "error":
-                    if self.cli_console:
-                        self.cli_console.print(f"Topic detection error: {evt.data}", "yellow")
+                    #self.cli_console.print(f"Topic detection error: {evt.data}", "yellow")
                     return None
 
             topic_llm_response = LLMResponse(
@@ -288,8 +283,7 @@ class ClaudeAgent(BaseAgent):
                     return None
             return None
         except Exception as e:
-            if self.cli_console:
-                self.cli_console.print(f"Topic detection failed: {e}", "yellow")
+            #self.cli_console.print(f"Topic detection failed: {e}", "yellow")
             return None  
 
     async def _query_recursive(
@@ -653,8 +647,8 @@ class ClaudeAgent(BaseAgent):
                     tool_name=tool_call_obj.name,
                     tool_input=dict(tool_call_obj.arguments or {}),
                 )
-                if pre_msg and self.cli_console:
-                    self.cli_console.print(pre_msg, "yellow")
+                #if pre_msg and self.cli_console:
+                #    self.cli_console.print(pre_msg, "yellow")
                 if not pre_ok:
                     blocked_reason = pre_msg or "Tool call blocked by PreToolUse hook"
                     blocked_result = ToolCallResult(
@@ -672,19 +666,20 @@ class ClaudeAgent(BaseAgent):
             if not tool:
                 raise ValueError(f"Tool '{tool_call['name']}' not found")
             confirmation_details = await tool.get_confirmation_details(**tool_call.get("arguments", {}))
-            if confirmation_details:
-                confirmed = await self.cli_console.confirm_tool_call(tool_call_obj, tool)
-                if not confirmed:
-                    cancelled_result = ToolCallResult(
-                        call_id=tool_call.get("id", "unknown"),
-                        error="Tool execution was cancelled by user",
-                    )
-                    cancelled_message = LLMMessage(
-                        role="tool",
-                        content="Tool execution was cancelled by user",
-                        tool_call_id=tool_call.get("id", "unknown")
-                    )
-                    return cancelled_result, cancelled_message
+            #TODO.
+            #if confirmation_details:
+            #    confirmed = await self.cli_console.confirm_tool_call(tool_call_obj, tool)
+            #    if not confirmed:
+            #        cancelled_result = ToolCallResult(
+            #            call_id=tool_call.get("id", "unknown"),
+            #            error="Tool execution was cancelled by user",
+            #        )
+            #        cancelled_message = LLMMessage(
+            #            role="tool",
+            #            content="Tool execution was cancelled by user",
+            #            tool_call_id=tool_call.get("id", "unknown")
+            #        )
+            #        return cancelled_result, cancelled_message
 
             tool_result = await tool.execute(**tool_call.get("arguments", {}))
             
@@ -707,8 +702,7 @@ class ClaudeAgent(BaseAgent):
                         "error": tool_result.error,
                     },
                 )
-                if post_msg and self.cli_console:
-                    self.cli_console.print(post_msg, "yellow")
+                #self.cli_console.print(post_msg, "yellow")
                 if post_extra.get("additionalContext"):
                     self.conversation_history.append(LLMMessage(
                         role="system",

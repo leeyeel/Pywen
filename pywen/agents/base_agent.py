@@ -4,16 +4,14 @@ from typing import Callable, Iterable, Optional, AsyncGenerator
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 from pywen.config.config import AppConfig, MCPConfig
-from pywen.cli.cli_console import CLIConsole
 from pywen.utils.trajectory_recorder import TrajectoryRecorder
 from pywen.llm.llm_basics import LLMMessage
 from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
 from pywen.hooks.manager import HookManager
 
 class BaseAgent(ABC):
-    def __init__(self, config: AppConfig, hook_mgr:HookManager, cli_console: Optional[CLIConsole] =None):
+    def __init__(self, config: AppConfig, hook_mgr:HookManager):
         self.config = config
-        self.cli_console = cli_console
         self.type = "BaseAgent"
         self.conversation_history: List[LLMMessage] = []
         self.trajectory_recorder = TrajectoryRecorder()
@@ -31,10 +29,6 @@ class BaseAgent(ABC):
     def get_tool_configs(self) -> Dict[str, Dict[str, Any]]:
         """Return tool-specific configurations. Override if needed."""
         return {}
-    
-    def set_cli_console(self, console):
-        """Set the CLI console for progress updates."""
-        self.cli_console = console
     
     @abstractmethod
     def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
@@ -93,7 +87,7 @@ class BaseAgent(ABC):
                 try:
                     await mgr.add_stdio_server(name, command, args)
                 except Exception as e:
-                    self.cli_console.print(f"[MCP] Failed to start server: {e}", "yellow")
+                    return
 
             for s in servers:
                 if not s.enabled:
@@ -105,7 +99,7 @@ class BaseAgent(ABC):
                 await sync_mcp_server_tools_into_registry(
                     server_name=name,
                     manager=mgr,
-                    tool_registry=self.tool_registry,
+                    tool_registry= None,
                     include=include_pred,
                     save_images_dir=save_dir,
                 )
