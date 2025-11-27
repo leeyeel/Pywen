@@ -6,6 +6,7 @@ authors = [
   { name ="PAMPAS-Lab" },
   { name = "CHEN LONGRONG", email = "longrongchen@163.com" },
   { name = "XUE YIBO", email = "yiboxue@163.com" },
+  { name = "LI YAO"},
 ]
 license = {text = "MIT"}
 keywords = ["agent", "cli", "llm"]
@@ -39,6 +40,14 @@ dependencies = [
     "mcp>=1.13.0",
     "pytest>=8.0.0",
     "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+evaluation = [
+    "sb-cli>=0.1.4",
+    "docker>=7.0.0",
+    "tqdm>=4.66.0",
+    "datasets>=2.14.0",
 ]
 
 [project.scripts]

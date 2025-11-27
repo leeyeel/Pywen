@@ -15,20 +15,20 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 
 from pywen.core.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
-from pywen.core.agent_registry import registry
+from pywen.agents.agent_registry import registry
 from pywen.agents.pywen.pywen_agent import PywenAgent
 from pywen.agents.claude.claude_agent import ClaudeAgent
 from pywen.agents.codex.codex_agent import CodexAgent 
 from pywen.ui.cli_console import CLIConsole
 from pywen.ui.command_processor import CommandProcessor
-from pywen.ui.utils.keyboard import create_key_bindings
+from pywen.ui.keyboard import create_key_bindings
 from pywen.memory.memory_monitor import MemoryMonitor
 from pywen.memory.file_restorer import IntelligentFileRestorer
-from pywen.utils.llm_basics import LLMMessage
+from pywen.llm.llm_basics import LLMMessage
 from pywen.hooks.config import load_hooks_config
 from pywen.hooks.manager import HookManager
 from pywen.hooks.models import HookEvent
-from pywen.core.tool_registry2 import tools_autodiscover
+from pywen.core.tool_registry import tools_autodiscover
 
 class ExecutionState:
     """集中管理一次用户请求的执行状态与取消信号。"""
@@ -274,7 +274,11 @@ async def single_prompt_mode_streaming(agent: PywenAgent, console: CLIConsole, p
         return 
 
     async for event in agent.run(prompt_text):
-        await console.handle_streaming_event(event, agent)
+        result = await console.handle_streaming_event(event, agent)
+        if result in {"waiting_for_user", "task_complete", "max_turns_reached", "error"}:
+            if result == "waiting_for_user":
+                console.print("⚠️ Additional input required. Use interactive mode to continue.", "yellow")
+            break
     await agent.aclose()
 
 def main_sync() -> None:

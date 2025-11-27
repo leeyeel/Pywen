@@ -1,7 +1,7 @@
 import glob
 from typing import Any, Mapping
 from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry2 import register_tool
+from pywen.core.tool_registry import register_tool
 
 CLAUDE_DESCRIPTION = """
 - Fast file pattern matching tool that works with any codebase size

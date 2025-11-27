@@ -10,7 +10,6 @@ from mcp.client.stdio import stdio_client
 
 from pywen.tools.base_tool import BaseTool
 from pywen.utils.tool_basics import ToolResult, ToolResultDisplay
-from pywen.core.tool_registry import ToolRegistry
 
 def _make_tool_result(
     call_id: str,
@@ -282,7 +281,7 @@ async def sync_mcp_server_tools_into_registry(
     *,
     server_name: str,
     manager: MCPServerManager,
-    tool_registry: ToolRegistry,
+    tool_registry,
     include: Optional[Callable[[str], bool]] = None,
     save_images_dir: Optional[str] = None,
     display_name_map: Optional[Callable[[str], str]] = None,

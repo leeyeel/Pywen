@@ -33,19 +33,11 @@ class ToolCall:
             type=data.get("type"),
         )
 
-class ToolStatus(Enum):
-    """Tool execution status."""
-    SUCCESS = "success"
-    ERROR = "error"
-    PENDING = "pending"
-    RUNNING = "running"
-
 class ToolResultDisplay:
     """Tool result display configuration."""
     def __init__(self, markdown: str = "", summary: str = ""):
         self.markdown = markdown
         self.summary = summary
-
 
 @dataclass
 class ToolCallConfirmationDetails:
@@ -54,7 +46,6 @@ class ToolCallConfirmationDetails:
     message: str
     is_risky: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
-
 
 @dataclass
 class ToolResult:

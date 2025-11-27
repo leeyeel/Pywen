@@ -4,7 +4,7 @@ from typing import AsyncGenerator, Dict, Generator, List, Any, Optional, cast
 from openai import OpenAI, AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from openai.types.responses import ResponseInputParam
-from pywen.utils.llm_basics import LLMResponse
+from pywen.llm.llm_basics import LLMResponse
 from .adapter_common import ResponseEvent
 
 def _tool_feedback_to_tool_result_block(payload: Dict[str, Any]) -> Dict[str, Any]:

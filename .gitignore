@@ -16,3 +16,5 @@ pywen_config.json
 pywen/trajectories/*
 trajectories/*
 !.gitkeep
+pywen_workspace
+results
