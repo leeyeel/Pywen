@@ -42,7 +42,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pywen = "pywen.main:main_sync"
+pywen = "pywen.main:main"
 
 [build-system]
 requires = ["hatchling"]

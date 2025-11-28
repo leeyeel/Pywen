@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Generator,AsyncGenerator,Dict, cast, List, Protocol,Any
 from .adapters.openai_adapter import OpenAIAdapter
 from .adapters.anthropic_adapter import AnthropicAdapter
-from .adapters.adapter_common import ResponseEvent
+from .llm_events import ResponseEvent
 from pywen.config.config import  ModelConfig
 from pywen.llm.llm_basics import LLMResponse
 

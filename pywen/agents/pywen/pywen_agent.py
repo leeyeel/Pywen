@@ -428,6 +428,7 @@ class PywenAgent(BaseAgent):
                 continue
             confirmation_details = await tool.get_confirmation_details(**tc.arguments)
             if confirmation_details:
+                print(confirmation_details)
                # TODO. 实现用户确认逻辑
                # confirmed = await self.cli_console.confirm_tool_call(tc, tool)
                # if not confirmed:

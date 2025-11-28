@@ -3,7 +3,6 @@ import argparse
 import asyncio
 import threading
 import uuid
-
 from typing import Any
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
@@ -309,11 +308,7 @@ async def single_prompt_mode_streaming(agent: PywenAgent, console: CLIConsole, p
             break
     await agent.aclose()
 
-def main_sync() -> None:
-    """Synchronous wrapper for the main CLI entry point."""
-    asyncio.run(main())
-
-async def main() -> None:
+async def async_main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Pywen Python Agent")
     parser.add_argument("--config", type=str, default=None, help="Config file path (default: ~/.pywen/pywen/pywen_config.json)")
@@ -360,7 +355,7 @@ async def main() -> None:
     if not agent_cls:
         console.print(f"Unsupported agent type: {args.agent}", "red")
         return
-    agent = registry.switch_by_cls(agent_cls, name=args.agent.lower(), config=config, hook_mgr=hook_mgr, cli_console=console)
+    agent = registry.switch_by_cls(agent_cls, name=args.agent.lower(), config=config, hook_mgr=hook_mgr)
 
     console.start_interactive_mode()
 
@@ -370,6 +365,9 @@ async def main() -> None:
     else:
         await single_prompt_mode_streaming(agent, console, args.prompt, session_id, hook_mgr)
 
-if __name__ == "__main__":
-    main_sync()
+def main() -> None:
+    """Synchronous wrapper for the main CLI entry point."""
+    asyncio.run(async_main())
 
+if __name__ == "__main__":
+    main()

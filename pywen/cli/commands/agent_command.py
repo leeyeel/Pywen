@@ -74,7 +74,6 @@ class AgentCommand(BaseCommand):
         try:
             # 创建新agent
             new_agent = self._create_agent(context.get('config'), context.get('hook_mgr'), new_agent_type)
-            new_agent.set_cli_console(context.get('console'))
             
             # 更新context中的agent
             context['agent'] = new_agent
