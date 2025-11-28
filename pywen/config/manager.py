@@ -45,33 +45,11 @@ class ConfigManager:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def load_raw(self) -> Dict[str, Any]:
-        """只读 YAML，返回原始 dict（不含 CLI/ENV 中的信息）。"""
-        path = self._resolve_config_path()
-        data = self._read_yaml(path)
-        if not isinstance(data, dict):
-            raise ConfigError(f"Config file must be a mapping (YAML dict): {path}")
-        self._raw_config = data
-        return data
-
     def get_raw_config(self) -> Dict[str, Any]:
+        """读取YAML文件后得到的配置 dict（不含 CLI/ENV 中的信息）。"""
         if self._raw_config is None:
-            return self.load_raw()
+            return self._load_raw()
         return self._raw_config
-
-    def save_raw(self, cfg: Mapping[str, Any]) -> Path:
-        path = self.config_path
-        self._write_yaml(path, cfg)
-        self._raw_config = dict(cfg)
-        self._app_config = None
-        return path
-
-    def save_raw_as(self, cfg: Mapping[str, Any], target_path: str | Path) -> Path:
-        target = Path(target_path)
-        self._write_yaml(target, cfg)
-        self._raw_config = dict(cfg)
-        self._app_config = None
-        return target
 
     @classmethod
     def find_config_file(cls, filename: str = "pywen_config.yaml") -> Optional[Path]:
@@ -82,9 +60,6 @@ class ConfigManager:
             if p.exists():
                 return p
         return None
-
-    def default_config_exists(self) -> bool:
-        return self.get_default_config_path().exists()
 
     def resolve_effective_config(self, args: Any) -> AppConfig:
         """ 考虑CLI参数，环境变量后的“最终有效配置” """
@@ -169,6 +144,12 @@ class ConfigManager:
         cfg = self.get_app_config(args)
         return cfg.active_model
 
+    def list_agent_names(self) -> List[str]:
+        """辅助方法：返回配置中所有可用的 agent 名称列表。 应在用配置解析后调用。 """
+        cfg = self._app_config if self._app_config else self.resolve_effective_config(None)
+        models_by_name = self._index_models(cfg.models)
+        return list(models_by_name.keys())
+
     @staticmethod
     def _index_models(models: Any) -> Dict[str, Dict[str, Any]]:
         """
@@ -233,12 +214,7 @@ class ConfigManager:
             "Please set 'default_agent' or use --agent."
         )
 
-    def _apply_field_priority(
-        self,
-        agent_cfg: Dict[str, Any],
-        agent_name: str,
-        args: Any,
-    ) -> None:
+    def _apply_field_priority(self, agent_cfg: Dict[str, Any], agent_name: str, args: Any,) -> None:
         """
         对单个 agent 的配置按优先级进行覆盖：
         1. CLI 参数
@@ -283,11 +259,7 @@ class ConfigManager:
         return s.lower() in PLACEHOLDERS
 
     def _get_env_for_field(self, field: str, agent_name: str) -> Optional[str]:
-        key_suffix = {
-            "api_key": "API_KEY",
-            "base_url": "BASE_URL",
-            "model": "MODEL",
-        }.get(field)
+        key_suffix = {"api_key": "API_KEY", "base_url": "BASE_URL", "model": "MODEL",}.get(field)
         if key_suffix is None:
             return None
 
@@ -330,20 +302,11 @@ class ConfigManager:
             "or pass --config /path/to/config.yaml."
         )
 
-    @staticmethod
-    def _read_yaml(path: Path) -> Dict[str, Any]:
+    def _load_raw(self) -> Dict[str, Any]:
+        path = self._resolve_config_path()
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        return data or {}
-
-    @staticmethod
-    def _write_yaml(path: Path, data: Mapping[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(
-                dict(data),
-                f,
-                allow_unicode=True,
-                sort_keys=False,
-                default_flow_style=False,
-            )
+            if not isinstance(data, dict):
+                raise ConfigError(f"Config file must be a mapping (YAML dict): {path}")
+            self._raw_config = data
+            return data

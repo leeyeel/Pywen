@@ -28,6 +28,7 @@ AVAILABLE_AGENTS = {
 class AgentCommand(BaseCommand):
     def __init__(self):
         super().__init__("agent", "switch between different agents")
+        #TODO. 不应该在这里获取console，应该通过context传递
         self.console = get_console()
     
     async def execute(self, context: Dict[str, Any], args: str) -> bool:

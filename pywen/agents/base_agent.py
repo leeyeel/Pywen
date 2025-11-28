@@ -10,7 +10,7 @@ from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_re
 from pywen.hooks.manager import HookManager
 
 class BaseAgent(ABC):
-    def __init__(self, config: AppConfig, hook_mgr:HookManager):
+    def __init__(self, config: AppConfig, hook_mgr: Optional[HookManager] = None) -> None:
         self.config = config
         self.type = "BaseAgent"
         self.conversation_history: List[LLMMessage] = []
@@ -18,7 +18,6 @@ class BaseAgent(ABC):
         self._closed = False 
         self._mcp_mgr = None
         self._mcp_init_lock = asyncio.Lock()
-
         self.hook_mgr = hook_mgr
 
     async def setup_tools_mcp(self):

@@ -10,7 +10,6 @@ from pywen.utils.trajectory_recorder import TrajectoryRecorder
 from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
 from pywen.utils.session_stats import session_stats
-from pywen.agents.agent_registry import registry  as agent_registry
 from pywen.config.manager import ConfigManager
 from pywen.agents.claude.system_reminder import (
     generate_system_reminders, emit_reminder_event, reset_reminder_session,
@@ -148,7 +147,6 @@ class ClaudeAgent(BaseAgent):
 
     async def run(self, user_message: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
         try:
-            agent_registry.switch_to(self)
             self.trajectory_recorder.start_recording(
                 task=user_message,
                 provider=self.config.active_model.provider or "anthropic",

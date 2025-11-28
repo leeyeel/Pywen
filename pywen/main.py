@@ -10,10 +10,7 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from pywen.utils.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
-from pywen.agents.agent_registry import registry
-from pywen.agents.pywen.pywen_agent import PywenAgent
-from pywen.agents.claude.claude_agent import ClaudeAgent
-from pywen.agents.codex.codex_agent import CodexAgent 
+from pywen.agents.agent_manager import AgentManager
 from pywen.cli.cli_console import CLIConsole
 from pywen.cli.command_processor import CommandProcessor
 from pywen.utils.key_binding import create_key_bindings
@@ -177,7 +174,7 @@ async def run_streaming(
         state.reset()
 
 async def interactive_mode_streaming(
-    agent: PywenAgent,
+    agent: Any,
     config: Any,
     console: CLIConsole,
     session_id: str,
@@ -292,7 +289,7 @@ async def interactive_mode_streaming(
     finally:
         await current_agent.aclose()
 
-async def single_prompt_mode_streaming(agent: PywenAgent, console: CLIConsole, prompt_text: str,
+async def single_prompt_mode_streaming(agent: Any, console: CLIConsole, prompt_text: str,
                                        session_id: str, hook_mgr: HookManager) -> None:
     """单次模式：与交互模式共享同一事件消费逻辑（但无需状态与记忆压缩）。"""
     ok, msg, _ = await _emit_prompt_submit(hook_mgr, session_id, prompt_text)
@@ -331,6 +328,7 @@ async def async_main() -> None:
     perm_mgr = PermissionManager(perm_level)
 
     console = CLIConsole(perm_mgr)
+    console.start_interactive_mode()
 
     tools_autodiscover()
 
@@ -346,18 +344,8 @@ async def async_main() -> None:
         base_payload={"session_id": session_id, "source": "startup"},
     )
 
-    agent_classes = {
-        "pywen": PywenAgent,
-        "claude": ClaudeAgent,
-        "codex": CodexAgent,
-    }
-    agent_cls = agent_classes.get(args.agent.lower() or "pywen")
-    if not agent_cls:
-        console.print(f"Unsupported agent type: {args.agent}", "red")
-        return
-    agent = registry.switch_by_cls(agent_cls, name=args.agent.lower(), config=config, hook_mgr=hook_mgr)
-
-    console.start_interactive_mode()
+    agent_mgr = AgentManager(config, hook_mgr)
+    agent = await agent_mgr.init(args.agent.lower())
 
     if args.interactive or not args.prompt:
         await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, 
