@@ -314,7 +314,7 @@ class OpenAIAdapter():
                 data["call_id"] = tc_delta.id or data["call_id"]
                 if tc_delta.function:
                     data["name"] = tc_delta.function.name or data["name"]
-                    data["arguments"] += tc_delta.function.arguments 
+                    data["arguments"] += tc_delta.function.arguments  or ""
                     yield ResponseEvent.tool_call_delta(data["call_id"], data["name"], tc_delta.function.arguments  or "", data["type"])
 
             if delta.content:
