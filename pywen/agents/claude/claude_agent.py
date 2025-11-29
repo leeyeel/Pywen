@@ -353,7 +353,6 @@ class ClaudeAgent(BaseAgent):
 
 
             if not tool_calls:
-
                 if final_response and hasattr(final_response, 'usage') and final_response.usage:
                     yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
                 yield {
@@ -493,6 +492,7 @@ class ClaudeAgent(BaseAgent):
                         tool_json_buffer = ""
 
                 elif evt.type == "message_delta":
+                    # adapter 已经统一处理了 usage，直接使用
                     if evt.data and "usage" in evt.data:
                         usage_data = evt.data["usage"]
 
@@ -523,8 +523,8 @@ class ClaudeAgent(BaseAgent):
 
             usage_obj = None
             if usage_data:
-                input_tokens = usage_data.get('input_tokens', 0)
-                output_tokens = usage_data.get('output_tokens', 0)
+                input_tokens = usage_data.get('input_tokens') or 0
+                output_tokens = usage_data.get('output_tokens') or 0
 
                 usage_attrs = {
                     'input_tokens': input_tokens,
