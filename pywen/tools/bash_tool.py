@@ -139,7 +139,7 @@ class BashTool(BaseTool):
                 "default": DEFAULT_TIMEOUT
             }
         },
-        "required": ["command", "is_background"]
+        "required": ["command"]
     }
     risk_level = ToolRiskLevel.LOW
     
