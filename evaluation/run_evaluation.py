@@ -353,8 +353,11 @@ class BenchmarkEvaluation:
             shutil.copy(self.config_dest, instance_cfg)
     
             quoted_prompt = shlex.quote(prompt)
+            # 在启动 pywen 前激活 conda testbed 环境，确保 pywen 及其子进程（bash_tool）都能使用正确的 Python 环境
             run_cmd = f"""
-cd /testbed
+cd /testbed && \
+source /opt/miniconda3/etc/profile.d/conda.sh && \
+conda activate testbed && \
 {AGENT_IMAGE_PATH_IN_CONTAINER}/.venv/bin/pywen \
 --config /results/{self.config_dest.name} \
 --permission-mode yolo \
