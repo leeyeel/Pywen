@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
-from typing import Optional, List, Protocol
+from typing import Optional, List, Literal,AsyncGenerator,Dict, Any
+from enum import Enum
 from pywen.config.config import AppConfig
 from pywen.hooks.manager import HookManager
 from .base_agent import BaseAgent
@@ -8,8 +9,25 @@ from .pywen.pywen_agent import PywenAgent
 from .claude.claude_agent import ClaudeAgent
 from .codex.codex_agent import CodexAgent
 
-class Closable(Protocol):
-    async def aclose(self) -> None: ...
+EventType = Literal[
+        "waiting_for_user",
+        "task_completed",
+        "max_turns_reached",
+        "error",
+        "tool_result",
+        "tool_cancelled",
+        ]
+
+class AgentEvent(str, Enum):
+    PreToolUse = "PreToolUse"
+    PostToolUse = "PostToolUse"
+    Notification = "Notification"
+    UserPromptSubmit = "UserPromptSubmit"
+    Stop = "Stop"
+    SubagentStop = "SubagentStop"
+    PreCompact = "PreCompact"
+    SessionStart = "SessionStart"
+    SessionEnd = "SessionEnd"
 
 def _normalize_name(name: str) -> str:
     n = (name or "").strip().lower()
@@ -53,6 +71,12 @@ class AgentManager:
                 return self._current
             return await self._switch_impl(name)
 
+    async def agent_run(self, prompt_text: str) -> AsyncGenerator[Dict[str, Any], None]:
+        if not self._current:
+            raise RuntimeError("No agent is currently initialized.")
+        async for event in self._current.run(prompt_text):
+            yield event
+
     async def close(self) -> None:
         """关闭当前 agent 并清理状态。"""
         async with self._lock:
@@ -92,4 +116,5 @@ class AgentManager:
         if normalized_name == "codex":
             return CodexAgent(self._config, self._hook_mgr)
         raise ValueError(f"Unsupported agent type: {normalized_name}")
+
 

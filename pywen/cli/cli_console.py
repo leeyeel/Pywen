@@ -6,6 +6,9 @@ from rich.console import Group
 from rich import get_console
 from rich.panel import Panel
 from rich.text import Text
+from rich.syntax import Syntax
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
 from pywen.tools.base_tool import ToolRiskLevel
 from pywen.utils.permission_manager import PermissionLevel, PermissionManager
 from pywen.cli.highlighted_content import create_enhanced_tool_result_display, HighlightedContentDisplay
@@ -28,17 +31,11 @@ class CLIConsole:
                 )
         self.router = EventRouter(self.printer, self.renderers, self.tool_call_view)
 
-    async def start(self):
-        pass
-
     def print(self, message: str, color: str = "blue", bold: bool = False):
         self.printer.print_text(message, color, bold)
 
     async def confirm_tool_call(self, tool_call, tool=None) -> bool:
         return await self.approval.confirm(tool_call, tool)
-
-    def gradient_line(self, text, start_color, end_color):
-        return BannerView._gradient_line(text, start_color, end_color)
 
     def show_interactive_banner(self):
         self.banner.show()
@@ -59,26 +56,12 @@ class CLIConsole:
     def set_max_context_tokens(self, max_tokens: int):
         self.tokens.set_max(max_tokens)
 
-    async def handle_streaming_event(self, event, agent=None):
-        return self.router.handle(event, agent)
+    async def handle_events(self, event):
+        return self.router.handle(event)
 
-    def display_tool_result(self, data: dict):
-        tool_name = data.get('name', 'Tool')
-        arguments = data.get('arguments', {})
-        if data.get("success"):
-            result = data.get('result', '')
-            panel = self.renderers.render_success(tool_name, result, arguments)
-        else:
-            error = data.get('error', 'Unknown error')
-            panel = self.renderers.render_error(tool_name, error)
-        if panel is not None:
-            self.printer.print_raw(panel)
+    def prompt_prefix(self, session_id: str) -> HTML:
+        return HTML(f'<ansiblue>✦</ansiblue><ansigreen>{session_id}</ansigreen> <ansiblue>❯</ansiblue> ')
 
-    def handle_tool_call_event(self, data: dict):
-        tool_call = data.get('tool_call', None)
-        tool_name = tool_call.name
-        arguments = tool_call.arguments
-        self.tool_call_view.show(tool_name, arguments)
 
 class Printer:
     """仅负责输出（统一入口，隔离 rich 细节）"""
@@ -171,7 +154,6 @@ class StatusBar:
              permission_level: str | None = None, # 取值：locked/edit_only/planning/yolo 或 None
              sandbox_label: str = "no sandbox (see /docs)",
         ):
-        import os
         current_dir = os.getcwd()
         home_dir = os.path.expanduser('~')
         display_dir = current_dir.replace(home_dir, "~", 1) if current_dir.startswith(home_dir) else current_dir
@@ -319,7 +301,6 @@ class UnifiedToolCallResultRenderer:
                      border_style="green", padding=(0, 1))
 
     def _render_bash(self, result: Any, arguments: Dict) -> Panel:
-        from rich.syntax import Syntax
         output = "" if result is None else str(result)
         content = Syntax(output, "bash", theme="monokai", line_numbers=False) if len(output) > 100 else Text(output, style="green")
         title = "✓ bash"
@@ -427,7 +408,6 @@ class UnifiedToolCallResultRenderer:
                          border_style="green", padding=(0, 1))
 
     def _maybe_syntax(self, text: str):
-        from rich.syntax import Syntax
         low = text.lower()
         lang = "text"
         if any(k in low for k in ["def ", "class ", "import "]):
@@ -486,9 +466,6 @@ class ApprovalService:
 
         self.p.print_raw("")
 
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.formatted_text import HTML
-
         session = PromptSession()
         while True:
             try:
@@ -536,17 +513,9 @@ class EventRouter:
         self.renderer = renderer
         self.tool_call_view = tool_call_view
 
-    def handle(self, event: dict, agent) -> Optional[str]:
-        event_type = event.get("type")
+    def handle(self, event: dict) -> Optional[str]:
+        event_type = event.get("type") or ""
         data = event.get("data", {})
-
-        if getattr(agent, "type", "") in ("PywenAgent", "ClaudeAgent", "CodexAgent"):
-            return self._handle_qwen_claude(event_type, data)
-        elif getattr(agent, "type", "") == "GeminiResearchDemo":
-            return self._handle_gemini(event_type, data)
-        return None
-
-    def _handle_qwen_claude(self, event_type: str, data: dict) -> Optional[str]:
         if event_type == "user_message":
             self.p.print_text(f"🔵 User:{data['message']}", "blue", True)
             self.p.print_raw("")
@@ -560,13 +529,11 @@ class EventRouter:
             self.p.print_end_chunk(data["content"])
         elif event_type == "tool_result":
             self._display_tool_result(data)
-            return "tool_result"
         elif event_type == "turn_token_usage":
-            return "turn_token_usage"
+            pass
         elif event_type == "waiting_for_user":
             self.p.print_text(f"💭{data['reasoning']}", "yellow")
             self.p.print_raw("")
-            return "waiting_for_user"
         elif event_type == "model_continues":
             self.p.print_text(f"🔄 Model continues: {data['reasoning']}", "cyan")
             if data.get('next_action'):
@@ -575,48 +542,16 @@ class EventRouter:
         elif event_type == "task_complete":
             self.p.print_text(f"\n✅ Task completed!", "green", True)
             self.p.print_raw("")
-            return "task_complete"
         elif event_type == "max_turns_reached":
             self.p.print_text(f"⚠️ Maximum turns reached", "yellow", True)
             self.p.print_raw("")
-            return "max_turns_reached"
         elif event_type == "error":
             self.p.print_text(f"❌ Error: {data['error']}", "red")
             self.p.print_raw("")
-            return "error"
         elif event_type == "trajectory_saved":
             if data.get('is_task_start', False):
                 self.p.print_text(f"✅ Trajectory saved to: {data['path']}", "dim")
-        return None
-
-    def _handle_gemini(self, event_type: str, data: dict) -> Optional[str]:
-        if event_type == "user_message":
-            self.p.print_text(f"🔵 User:{data['message']}", "blue", True)
-            self.p.print_raw("")
-        elif event_type == "query":
-            self.p.print_text(f"🔍Query: {data['queries']}", "blue")
-            self.p.print_raw("")
-        elif event_type == "search":
-            self.p.print_text(f"{data['content']}", "blue")
-        elif event_type == "fetch":
-            self.p.print_text(f"{data['content']}", "blue")
-        elif event_type == "summary_start":
-            self.p.print_end_chunk("\n📝Summary:")
-        elif event_type == "summary_chunk":
-            self.p.print_end_chunk(data["content"])
-        elif event_type == "tool_call":
-            self.p.print_raw("")
-            tool_call = data.get('tool_call', None)
-            self.tool_call_view.show(tool_call.name, tool_call.arguments)
-        elif event_type == "tool_result":
-            self._display_tool_result(data)
-        elif event_type == "final_answer_start":
-            self.p.print_end_chunk("\n📄final answer:")
-        elif event_type == "final_answer_chunk":
-            self.p.print_end_chunk(data["content"])
-        elif event_type == "error":
-            self.p.print_text(f"❌ Error: {data['error']}", "red")
-        return None
+        return event_type 
 
     def _display_tool_result(self, data: dict):
         tool_name = data.get('name', 'Tool')

@@ -44,15 +44,6 @@ class ExecutionState:
             self.current_task.cancel()
         self.reset()
 
-async def _emit_prompt_submit(hook_mgr: HookManager, session_id: str, prompt: str) -> tuple[bool, str | None, dict[str, Any]]:
-    """统一的用户输入 hook 触发逻辑。"""
-
-    ok, msg, extra = await hook_mgr.emit(
-        HookEvent.UserPromptSubmit,
-        base_payload={"session_id": session_id, "prompt": prompt},
-    )
-    return ok, msg, extra
-
 def _update_file_metrics_from_event(
     agent: Any,
     file_restorer: IntelligentFileRestorer,
@@ -74,7 +65,7 @@ async def _handle_conversation_stop(
     event: dict[str, Any],
     *,
     agent: Any,
-    console: CLIConsole,
+    cli: CLIConsole,
     memory_monitor: MemoryMonitor,
     file_restorer: IntelligentFileRestorer,
     dialogue_counter: int,
@@ -98,9 +89,9 @@ async def _handle_conversation_stop(
         base_payload={"session_id": session_id, "prompt": user_input},
     )
     if msg:
-        console.print(msg, "yellow")
+        cli.print(msg, "yellow")
     if not ok:
-        console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+        cli.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
         return "task_complete"
 
     if extra.get("additionalContext"):
@@ -112,7 +103,7 @@ async def _handle_conversation_stop(
 async def run_streaming(
     agent: Any,
     user_input: str,
-    console: CLIConsole,
+    cli: CLIConsole,
     state: ExecutionState,
     *,
     memory_monitor: MemoryMonitor,
@@ -130,10 +121,10 @@ async def run_streaming(
         async for event in agent.run(user_input):
             # 取消
             if state.cancel_event.is_set():
-                console.print("\n⚠️ Operation cancelled by user", color="yellow")
+                cli.print("\n⚠️ Operation cancelled by user", color="yellow")
                 return "cancelled"
 
-            result = await console.handle_streaming_event(event, agent)
+            result = await cli.handle_events(event)
             if result == "tool_result":
                 _update_file_metrics_from_event(agent, file_restorer, event)
 
@@ -142,7 +133,7 @@ async def run_streaming(
                     result,
                     event,
                     agent=agent,
-                    console=console,
+                    cli=cli,
                     memory_monitor=memory_monitor,
                     file_restorer=file_restorer,
                     dialogue_counter=dialogue_counter,
@@ -159,16 +150,16 @@ async def run_streaming(
         return "completed"
 
     except asyncio.CancelledError:
-        console.print("\n⚠️ Task was cancelled", color="yellow")
+        cli.print("\n⚠️ Task was cancelled", color="yellow")
         return "cancelled"
     except UnicodeError as e:
-        console.print(f"\nUnicode 错误: {e}", "red")
+        cli.print(f"\nUnicode 错误: {e}", "red")
         return "error"
     except KeyboardInterrupt:
-        console.print("\n⚠️ Operation interrupted by user", color="yellow")
+        cli.print("\n⚠️ Operation interrupted by user", color="yellow")
         return "cancelled"
     except Exception as e:
-        console.print(f"\nError: {e}", "red")
+        cli.print(f"\nError: {e}", "red")
         return "error"
     finally:
         state.reset()
@@ -176,7 +167,7 @@ async def run_streaming(
 async def interactive_mode_streaming(
     agent: Any,
     config: Any,
-    console: CLIConsole,
+    cli: CLIConsole,
     session_id: str,
     memory_monitor: MemoryMonitor,
     file_restorer: IntelligentFileRestorer,
@@ -193,7 +184,7 @@ async def interactive_mode_streaming(
     dialogue_counter = 0
 
     bindings = create_key_bindings(
-        lambda: console,
+        lambda: cli,
         lambda: perm_mgr,
         lambda: state.cancel_event,
         lambda: state.current_task,
@@ -223,19 +214,20 @@ async def interactive_mode_streaming(
 
                 if not state.in_task:
                     perm_level = perm_mgr.get_permission_level()
-                    console.show_status_bar(permission_level=perm_level.value)
+                    #TODO. 增加model信息显示
+                    cli.show_status_bar(permission_level=perm_level.value)
 
                 try:
                     user_input = await session.prompt_async(_prompt_prefix(session_id), multiline=False)
                 except EOFError:
-                    console.print("Goodbye!", "yellow")
+                    cli.print("Goodbye!", "yellow")
                     break
                 except KeyboardInterrupt:
-                    console.print("\nUse Ctrl+C twice to quit, or type 'exit'", "yellow")
+                    cli.print("\nUse Ctrl+C twice to quit, or type 'exit'", "yellow")
                     continue
 
                 if _should_exit(user_input):
-                    console.print("Goodbye!", "yellow")
+                    cli.print("Goodbye!", "yellow")
                     break
 
                 if not user_input.strip():
@@ -243,12 +235,12 @@ async def interactive_mode_streaming(
 
                 ok, msg, extra = await _emit_prompt_submit(hook_mgr, session_id, user_input)
                 if not ok:
-                    console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+                    cli.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
                     continue
                 if extra.get("additionalContext"):
                     agent.conversation_history.append(LLMMessage(role="user", content=extra["additionalContext"]))
 
-                context = {"console": console, "agent": current_agent, "config": config, "hook_mgr": hook_mgr}
+                context = {"console": cli, "agent": current_agent, "config": config, "hook_mgr": hook_mgr}
                 cmd_result = await command_processor.process_command(user_input, context)
 
                 if context and "agent" in context and context["agent"] is not current_agent:
@@ -263,7 +255,7 @@ async def interactive_mode_streaming(
 
                 state.start()
                 state.current_task = asyncio.create_task(
-                    run_streaming( current_agent, user_input, console, state,
+                    run_streaming( current_agent, user_input, cli, state,
                         memory_monitor=memory_monitor, file_restorer=file_restorer, dialogue_counter=dialogue_counter, 
                         session_id = session_id, hook_mgr = hook_mgr,
                     )
@@ -274,42 +266,25 @@ async def interactive_mode_streaming(
                     continue
 
             except KeyboardInterrupt:
-                console.print("\nInterrupted by user. Press Ctrl+C again to quit.", "yellow")
+                cli.print("\nInterrupted by user. Press Ctrl+C again to quit.", "yellow")
                 state.reset()
             except EOFError:
-                console.print("Goodbye!", "yellow")
+                cli.print("Goodbye!", "yellow")
                 break
             except UnicodeError as e:
-                console.print(f"Unicode 错误: {e}", "red")
+                cli.print(f"Unicode 错误: {e}", "red")
                 continue
             except Exception as e:
-                console.print(f"Error: {e}", "red")
+                cli.print(f"Error: {e}", "red")
                 state.reset()
 
     finally:
         await current_agent.aclose()
 
-async def single_prompt_mode_streaming(agent: Any, console: CLIConsole, prompt_text: str,
-                                       session_id: str, hook_mgr: HookManager) -> None:
-    """单次模式：与交互模式共享同一事件消费逻辑（但无需状态与记忆压缩）。"""
-    ok, msg, _ = await _emit_prompt_submit(hook_mgr, session_id, prompt_text)
-    if not ok:
-        console.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
-        return 
-
-    async for event in agent.run(prompt_text):
-        result = await console.handle_streaming_event(event, agent)
-        if result in {"waiting_for_user", "task_complete", "max_turns_reached", "error"}:
-            if result == "waiting_for_user":
-                console.print("⚠️ Additional input required. Use interactive mode to continue.", "yellow")
-            break
-    await agent.aclose()
-
 async def async_main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Pywen Python Agent")
     parser.add_argument("--config", type=str, default=None, help="Config file path (default: ~/.pywen/pywen/pywen_config.json)")
-    parser.add_argument("--interactive", action="store_true", help="Interactive mode")
     parser.add_argument("--model", type=str, help="Override model name")
     parser.add_argument("--api_key", help="Qwen API key", default=None)
     parser.add_argument("--base_url", help="Qwen base URL", default=None)
@@ -317,8 +292,8 @@ async def async_main() -> None:
     parser.add_argument("--max-tokens", type=int, help="Override max tokens")
     parser.add_argument("--session-id", type=str, help="Use specific session ID")
     parser.add_argument("--permission-mode", type=str, help="Set permission mode (yolo, planning, edit-only, locked)", default="locked")
-    parser.add_argument("--agent", type=str, help="Use specific agent: pywen|claude", default="pywen")
-    parser.add_argument("prompt", nargs="?", help="Prompt to execute")
+    parser.add_argument("--agent", type=str, help="Use specific agent: pywen|claude|codex", default="pywen")
+    parser.add_argument("-p", "--prompt", nargs="?", help="Prompt to execute")
     args = parser.parse_args()
 
     cfg_mgr =  ConfigManager(args.config)
@@ -327,12 +302,11 @@ async def async_main() -> None:
     perm_level = PermissionLevel(config.permission_level)
     perm_mgr = PermissionManager(perm_level)
 
-    console = CLIConsole(perm_mgr)
-    console.start_interactive_mode()
+    cli= CLIConsole(perm_mgr)
 
     tools_autodiscover()
 
-    memory_monitor = MemoryMonitor(config, console, verbose=False)
+    memory_monitor = MemoryMonitor(config, cli, verbose=False)
     file_restorer = IntelligentFileRestorer()
 
     session_id = args.session_id or str(uuid.uuid4())[:8]
@@ -347,11 +321,65 @@ async def async_main() -> None:
     agent_mgr = AgentManager(config, hook_mgr)
     agent = await agent_mgr.init(args.agent.lower())
 
-    if args.interactive or not args.prompt:
-        await interactive_mode_streaming(agent, config, console, session_id, memory_monitor, 
-                                         file_restorer, perm_mgr, hook_mgr)
-    else:
-        await single_prompt_mode_streaming(agent, console, args.prompt, session_id, hook_mgr)
+    ok, msg, _ = await hook_mgr.emit(
+        HookEvent.UserPromptSubmit,
+        base_payload={"session_id": session_id, "prompt": args.prompt or "" },
+    )
+    if not ok:
+        cli.print(f"⛔ {msg or 'Prompt blocked by hook'}", "yellow")
+        return 
+
+    # 非交互模式
+    if args.prompt:
+        perm_mgr.set_permission_level(PermissionLevel.YOLO)
+        async for event in agent_mgr.agent_run(args.prompt):
+            result = await cli.handle_events(event)
+            if not result:
+                await agent_mgr.close()
+                return 
+        return 
+
+    # 交互模式
+    cli.start_interactive_mode()
+    cmd_processor = CommandProcessor()
+    history = InMemoryHistory()
+    suggest = AutoSuggestFromHistory()
+    bindings = create_key_bindings(lambda: cli, lambda: perm_mgr)
+
+    session = PromptSession(history=history, auto_suggest=suggest, key_bindings=bindings, multiline=True, wrap_lines=True,)
+    while True:
+        user_input = await session.prompt_async(cli.prompt_prefix(session_id), multiline=False)
+        if not user_input.strip():
+            continue
+
+        if user_input.strip().lower() in {"exit", "quit", "q"}:
+            cli.print("Goodbye!", "yellow")
+            await agent_mgr.close()
+            break
+
+        # TODO. 不使用字典传入 
+        context = {"console": cli, "agent": agent_mgr.current, "config": config, "hook_mgr": hook_mgr}
+        cmd_result = await cmd_processor.process_command(user_input, context)
+        # TODO. cmd_reuslt 更改判断，并决定是否退出
+        async for event in agent.run(user_input):
+            print(event)
+            result = await cli.handle_events(event)
+            if result == "tool_result":
+                _update_file_metrics_from_event(agent_mgr.current, file_restorer, event)
+            if result in {"task_complete", "max_turns_reached", "waiting_for_user"}:
+                await _handle_conversation_stop(
+                    result,
+                    event,
+                    agent=agent_mgr.current,
+                    cli=cli,
+                    memory_monitor=memory_monitor,
+                    file_restorer=file_restorer,
+                    dialogue_counter=0,
+                    session_id=session_id,
+                    hook_mgr=hook_mgr,
+                    user_input=user_input,
+                )
+                break
 
 def main() -> None:
     """Synchronous wrapper for the main CLI entry point."""
