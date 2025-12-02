@@ -29,10 +29,11 @@ class LLMClient:
             )
             return cast(ProviderAdapter, impl)
         elif cfg.provider == "anthropic":
-            # 如果模型名不是 claude 开头，说明是第三方服务，使用 Bearer 认证
-            use_bearer = False
-            if not use_bearer and cfg.model and not cfg.model.lower().startswith("claude"):
-                use_bearer = True
+            # 如果 base_url 不包含 anthropic 或模型名不包含 claude，说明是第三方服务，使用 Bearer 认证
+            use_bearer = bool(
+                (cfg.base_url and "anthropic" not in cfg.base_url.lower()) or
+                (cfg.model and "claude" not in cfg.model.lower())
+            )
 
             impl = AnthropicAdapter(
                 api_key=cfg.api_key,

@@ -213,11 +213,12 @@ class BashTool(BaseTool):
         if directory and not os.path.isdir(directory):
             return ToolResult(call_id="", error=f"Directory does not exist: {directory}")
         
+        # 括号在 bash 中创建子shell，自动处理多行语法
         if os.name == "nt":
-            shell_command = f'cmd.exe /c "{command}"'
+            shell_command = f'cmd.exe /c "({command})"'
         else:
             escaped_command = command.replace("'", "'\"'\"'")
-            shell_command = f"bash -c '{escaped_command}'"
+            shell_command = f"bash -c '(\n{escaped_command}\n)'"
         
         if is_background:
             return await self._execute_background(command, cwd)
@@ -237,6 +238,7 @@ class BashTool(BaseTool):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                start_new_session=(os.name != "nt"),
             )
             return await self._read_with_progress(process, timeout)
             
