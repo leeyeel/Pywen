@@ -169,10 +169,12 @@ BENCHMARK_CONFIG: dict[str, BenchmarkConfig] = {
 class BenchmarkEvaluation:
     def __init__(self, benchmark: str, working_dir: str, config_path: str, dataset_name: str = "SWE-bench_Lite",
         run_id: str = "pywen-agent",  max_workers: int = 4, instance_ids: list[str] | None = None,
-        agent_name: str = "pywen", pattern: str | None = None, limit: int | None = None,):
+        agent_name: str = "pywen", pattern: str | None = None, limit: int | None = None,
+        force: bool = False):
 
         self.pattern = pattern
         self.limit   = limit
+        self.skip_completed = not force  # 默认跳过已完成的，--force 时重跑所有
         self.ops = DockerOps()
 
         self.benchmark = benchmark
@@ -287,7 +289,28 @@ class BenchmarkEvaluation:
             if not self.ops.image_exists(name):
                 self.ops.pull_image(name)
 
+    def _is_instance_completed(self, instance_id: str) -> bool:
+        """检查实例是否已完成（存在 patch 或 run.log）"""
+        instance_res_dir = self.task_results_dir / instance_id
+        patch_path = instance_res_dir / f"{instance_id}.patch"
+        log_path = instance_res_dir / "run.log"
+        
+        # 如果 patch 文件存在且非空，认为已完成
+        if patch_path.exists() and patch_path.stat().st_size > 0:
+            return True
+        
+        # 如果 log 文件存在且非空，也认为已完成（即使没有生成 patch）
+        if log_path.exists() and log_path.stat().st_size > 0:
+            return True
+        
+        return False
+
     def run_one_instance(self, instance_id: str):
+        # Skip if already completed
+        if self.skip_completed and self._is_instance_completed(instance_id):
+            print(f"⏭️  Skipping {instance_id} (already completed)")
+            return
+        
         ops = DockerOps()
         instance = next((i for i in self.dataset if i["instance_id"] == instance_id), None)
         if not instance:
@@ -385,7 +408,17 @@ conda activate testbed && \
         self.ensure_agent_image_and_cache()
         self.pull_images()
 
-        print(f"Running {len(self.instance_ids)} instances with {self.max_workers} workers")
+        # Check completion status
+        if self.skip_completed:
+            completed = [iid for iid in self.instance_ids if self._is_instance_completed(iid)]
+            remaining = [iid for iid in self.instance_ids if not self._is_instance_completed(iid)]
+            print(f"📊 Status: {len(completed)} completed, {len(remaining)} remaining (total: {len(self.instance_ids)})")
+            if len(remaining) == 0:
+                print("✅ All instances already completed!")
+                return
+        else:
+            print(f"Running {len(self.instance_ids)} instances with {self.max_workers} workers")
+
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {executor.submit(self.run_one_instance, iid): iid for iid in self.instance_ids}
             for fut in tqdm(as_completed(futures), total=len(futures)):
@@ -458,6 +491,7 @@ def main():
     parser.add_argument("--mode", type=str, default="expr", choices=["expr", "collect", "e2e"],
                         help="Mode: expr=only generate patches, collect=only collect patches to predictions.json, e2e=both")
     parser.add_argument("--run-id", type=str, default="pywen-agent", help="Run ID for this evaluation")
+    parser.add_argument("--force", action="store_true", help="Force re-run all instances, ignoring existing results")
 
     args = parser.parse_args()
 
@@ -481,6 +515,7 @@ def main():
         agent_name=args.agent,
         pattern=args.pattern,
         limit=args.limit,
+        force=args.force,
     )
     
     # 根据模式执行

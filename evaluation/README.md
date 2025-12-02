@@ -69,6 +69,12 @@ evaluation/
 docker build -f Dockerfile.pywen-agent -t pywen/agent:0.1 .
 ```
 
+如果需要重新构建镜像（比如Pywen代码修改更新等）：
+
+```bash
+docker build --no-cache -f Dockerfile.pywen-agent -t pywen/agent:0.1 .
+```
+
 镜像中包含：
 
 * `/opt/Pywen/.venv`（venv；其 python 为 uv 的 shim）
@@ -126,6 +132,7 @@ python evaluation/run_evaluation.py \
 | `--max-workers` | `1` | 并发数 |
 | `--mode` | `expr` | 运行模式（见下表） |
 | `--run-id` | `pywen-agent` | 运行标识符 |
+| `--force` | `False` | 强制重跑所有实例（默认会跳过已完成的） |
 
 ### 运行模式
 
@@ -134,6 +141,21 @@ python evaluation/run_evaluation.py \
 | `expr` | 只生成 patch |
 | `collect` | 只收集已有 patch 成 `predictions.json` |
 | `e2e` | 生成 patch + 收集 |
+
+### 断点续跑
+
+默认会自动跳过已完成的实例（存在 patch 或 run.log），中断后再次运行会从上次的进度继续：
+
+```bash
+# 第一次运行（假设跑了 30 个后中断）
+python evaluation/run_evaluation.py --limit 100
+
+# 再次运行，会自动跳过已完成的 30 个，继续剩余 70 个
+python evaluation/run_evaluation.py --limit 100
+
+# 如果想强制重跑所有（忽略已有结果）
+python evaluation/run_evaluation.py --limit 100 --force
+```
 
 ---
 
