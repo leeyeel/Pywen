@@ -16,12 +16,11 @@ from pywen.agents.claude.system_reminder import (
     get_system_reminder_start,emit_tool_execution_event
 )
 from pywen.hooks.models import HookEvent
-from pywen.tools.tool_registry import list_tools_for_provider, get_tool
 
 class ClaudeAgent(BaseAgent):
 
-    def __init__(self, config, hook_mgr):
-        super().__init__(config, hook_mgr)
+    def __init__(self, config, tool_mgr, hook_mgr):
+        super().__init__(config, tool_mgr, hook_mgr)
         self.type = "ClaudeAgent"
         self.llm_client = LLMClient(self.config.active_model)
         self.prompts = ClaudeCodePrompts()
@@ -44,13 +43,13 @@ class ClaudeAgent(BaseAgent):
     def _setup_claude_code_tools(self):
         # TODO. 急需重构工具适配器体系
         tools = []
-        task_tool = get_tool('task_tool')
+        task_tool = self.tool_mgr.get_tool('task_tool')
         task_tool.set_current_agent(self)
         tools.append(task_tool.build("claude"))
-        architect_tool = get_tool('architect_tool')
+        architect_tool = self.tool_mgr.get_tool('architect_tool')
         architect_tool.set_current_agent(self)
         tools.append(architect_tool.build("claude"))
-        for tool in list_tools_for_provider("claude"):
+        for tool in self.tool_mgr.list_for_provider("claude"):
             if tool.name != 'task_tool' and tool.name != 'architect_tool':
                 tools.append(tool.build("claude"))
         return tools
@@ -636,106 +635,26 @@ class ClaudeAgent(BaseAgent):
                 name=tool_call["name"],
                 arguments=tool_call.get("arguments", {})
             )
-            if self.hook_mgr:
-                pre_ok, pre_msg, _ = await self.hook_mgr.emit(
-                    HookEvent.PreToolUse,
-                    base_payload={
-                        "session_id": getattr(self.config, "session_id", ""),
-                    },
-                    tool_name=tool_call_obj.name,
-                    tool_input=dict(tool_call_obj.arguments or {}),
-                )
-                #if pre_msg and self.cli_console:
-                #    self.cli_console.print(pre_msg, "yellow")
-                if not pre_ok:
-                    blocked_reason = pre_msg or "Tool call blocked by PreToolUse hook"
-                    blocked_result = ToolCallResult(
-                        call_id=tool_call_obj.call_id,
-                        error=blocked_reason,
-                    )
-                    blocked_message = LLMMessage(
-                        role="tool",
-                        content=f"Blocked: {blocked_reason}",
-                        tool_call_id=tool_call_obj.call_id,
-                    )
-                    return blocked_result, blocked_message
-
-            tool = get_tool(tool_call["name"])
+            tool = self.tool_mgr.get_tool(tool_call["name"])
             if not tool:
                 raise ValueError(f"Tool '{tool_call['name']}' not found")
-            confirmation_details = await tool.get_confirmation_details(**tool_call.get("arguments", {}))
-            #TODO.
-            #if confirmation_details:
-            #    confirmed = await self.cli_console.confirm_tool_call(tool_call_obj, tool)
-            #    if not confirmed:
-            #        cancelled_result = ToolCallResult(
-            #            call_id=tool_call.get("id", "unknown"),
-            #            error="Tool execution was cancelled by user",
-            #        )
-            #        cancelled_message = LLMMessage(
-            #            role="tool",
-            #            content="Tool execution was cancelled by user",
-            #            tool_call_id=tool_call.get("id", "unknown")
-            #        )
-            #        return cancelled_result, cancelled_message
 
-            tool_result = await tool.execute(**tool_call.get("arguments", {}))
+            is_approved, result = await self.tool_mgr.execute(tool_call["name"],tool_call.get("arguments", {}),tool)
             
             # 发送工具执行事件并更新 TODO 状态
             new_todos = emit_tool_execution_event(tool_call_obj, self.type, self.todo_items)
             if new_todos is not None:
                 self.todo_items = new_todos
 
-            if self.hook_mgr:
-                post_ok, post_msg, post_extra = await self.hook_mgr.emit(
-                    HookEvent.PostToolUse,
-                    base_payload={
-                        "session_id": getattr(self.config, "session_id", ""),
-                    },
-                    tool_name=tool_call_obj.name,
-                    tool_input=dict(tool_call_obj.arguments or {}),
-                    tool_response={
-                        "result": tool_result.result,
-                        "success": tool_result.success,
-                        "error": tool_result.error,
-                    },
-                )
-                #self.cli_console.print(post_msg, "yellow")
-                if post_extra.get("additionalContext"):
-                    self.conversation_history.append(LLMMessage(
-                        role="system",
-                        content=post_extra["additionalContext"]
-                    ))
-                if not post_ok:
-                    reason = post_msg or "PostToolUse hook blocked further processing"
-                    tool_result.error = reason
-                    tool_result.result = None
+            llm_message = LLMMessage(role="tool",  content= str(result), tool_call_id=tool_call.get("id", "unknown") )
 
-            if tool_result.success:
-                if isinstance(tool_result.result, dict):
-                    operation = tool_result.result.get('operation', '')
-                    file_path = tool_result.result.get('file_path', '')
-
-                    if operation == 'edit_file':
-                        old_text = tool_result.result.get('old_text', '')
-                        new_text = tool_result.result.get('new_text', '')
-                        content = f"SUCCESS: File {file_path} edited successfully. Changed '{old_text}' to '{new_text}'. Task completed."
-                    elif operation == 'write_file':
-                        content = f"SUCCESS: File {file_path} written successfully. Task completed."
-                    else:
-                        content = tool_result.result.get('summary', str(tool_result.result))
-                else:
-                    content = str(tool_result.result) if tool_result.result is not None else "Operation completed successfully"
-            else:
-                content = f"Error: {tool_result.error}" if tool_result.error else "Tool execution failed"
-
-            llm_message = LLMMessage(
-                role="tool",
-                content=content,
-                tool_call_id=tool_call.get("id", "unknown")
+            tc_res = ToolCallResult(
+                call_id=tool_call.get("id", "unknown"),
+                result=result,
+                error=None if is_approved else str(result),
             )
 
-            return tool_result, llm_message
+            return tc_res, llm_message
 
         except Exception as e:
             error_msg = f"Error executing tool '{tool_call['name']}': {str(e)}"

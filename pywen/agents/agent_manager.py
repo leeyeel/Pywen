@@ -1,41 +1,22 @@
 from __future__ import annotations
 import asyncio
-from typing import Optional, List, Literal,AsyncGenerator,Dict, Any
-from enum import Enum
+from typing import Optional, List, Dict, AsyncGenerator, Any
 from pywen.config.config import AppConfig
 from pywen.hooks.manager import HookManager
+from pywen.tools.tool_manager import ToolManager 
 from .base_agent import BaseAgent
 from .pywen.pywen_agent import PywenAgent
 from .claude.claude_agent import ClaudeAgent
 from .codex.codex_agent import CodexAgent
-
-EventType = Literal[
-        "waiting_for_user",
-        "task_completed",
-        "max_turns_reached",
-        "error",
-        "tool_result",
-        "tool_cancelled",
-        ]
-
-class AgentEvent(str, Enum):
-    PreToolUse = "PreToolUse"
-    PostToolUse = "PostToolUse"
-    Notification = "Notification"
-    UserPromptSubmit = "UserPromptSubmit"
-    Stop = "Stop"
-    SubagentStop = "SubagentStop"
-    PreCompact = "PreCompact"
-    SessionStart = "SessionStart"
-    SessionEnd = "SessionEnd"
 
 def _normalize_name(name: str) -> str:
     n = (name or "").strip().lower()
     return n[:-5] if n.endswith("agent") else n
 
 class AgentManager:
-    def __init__(self, config: AppConfig, hook_mgr: Optional[HookManager] = None) -> None:
+    def __init__(self, config: AppConfig, tool_mgr: ToolManager, hook_mgr: Optional[HookManager] = None) -> None:
         self._config = config
+        self._tool_mgr = tool_mgr
         self._hook_mgr = hook_mgr
         self._current: Optional[BaseAgent] = None
         self._current_name: Optional[str] = None
@@ -43,7 +24,9 @@ class AgentManager:
 
     @property
     def current(self) -> Optional[BaseAgent]:
-        return self._current
+        if not self._current:
+            raise RuntimeError("No agent is currently initialized.")
+        return self._current or BaseAgent
 
     @property
     def current_name(self) -> Optional[str]:
@@ -110,11 +93,9 @@ class AgentManager:
 
     async def _create_agent(self, normalized_name: str) -> BaseAgent:
         if normalized_name == "pywen":
-            return PywenAgent(self._config, self._hook_mgr)
+            return PywenAgent(self._config, self._tool_mgr, self._hook_mgr)
         if normalized_name == "claude":
-            return ClaudeAgent(self._config, self._hook_mgr)
+            return ClaudeAgent(self._config, self._tool_mgr, self._hook_mgr)
         if normalized_name == "codex":
-            return CodexAgent(self._config, self._hook_mgr)
+            return CodexAgent(self._config, self._tool_mgr, self._hook_mgr)
         raise ValueError(f"Unsupported agent type: {normalized_name}")
-
-

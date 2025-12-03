@@ -59,7 +59,7 @@ class PermissionManager:
             
             # 智能体工具
             "agent": {
-                "agent_tool", "architect_tool", "sub_agent"
+                "agent_tool", "architect_tool", "sub_agent", "update_plan"
             },
             
             # Git 工具
@@ -128,25 +128,22 @@ class PermissionManager:
         return None
     
     def should_auto_approve(self, tool_name: str, **kwargs) -> bool:
-        """Determine if a tool should be auto-approved based on current permission level."""
-        # Get tool category
+        # 不在定义中的工具拒绝
         category = self.get_tool_category(tool_name)
         if not category:
-            # Unknown tools default to requiring confirmation
             return False
         
-        # Get permission rule for current level
+        #不在当前权限级别定义中的工具拒绝
         rules = self.permission_rules.get(self.permission_level, {})
         rule = rules.get(category)
-        
         if not rule:
-            # No rule found, default to requiring confirmation
             return False
         
-        # Special handling for system commands based on danger level
+        # 对于系统命令，进行额外的安全检查
         if category == "system_command" and rule.auto_approve:
             return self._is_safe_system_command(tool_name, **kwargs)
-        
+
+        # 返回规则中的自动确认设置 
         return rule.auto_approve
     
     def _is_safe_system_command(self, tool_name: str, **kwargs) -> bool:

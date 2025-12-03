@@ -1,7 +1,7 @@
 """Pywen Agent implementation with streaming logic."""
 import os,subprocess, json
 from pathlib import Path
-from typing import Dict, List, Any, AsyncGenerator
+from typing import Dict, List, Any, AsyncGenerator,Mapping
 from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_basics import LLMMessage
 from pywen.llm.llm_client import LLMClient
@@ -9,7 +9,6 @@ from pywen.config.token_limits import TokenLimits
 from pywen.utils.session_stats import session_stats
 from pywen.hooks.models import HookEvent
 from pywen.llm.llm_basics import LLMResponse, ToolCall
-from pywen.tools.tool_registry import list_tools_for_provider, get_tool
 
 SYSTEM_PROMPT = f"""You are PYWEN, an interactive CLI agent who is created by PAMPAS-Lab, specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools.
 
@@ -298,8 +297,8 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
 class PywenAgent(BaseAgent):
     """Pywen Agent with streaming iterative tool calling logic."""
     
-    def __init__(self, config, hook_mgr):
-        super().__init__(config, hook_mgr)
+    def __init__(self, config, tool_mgr, hook_mgr):
+        super().__init__(config, tool_mgr, hook_mgr)
         self.type = "PywenAgent"
         session_stats.set_current_agent(self.type)
         self.current_turn_index = 0
@@ -371,7 +370,7 @@ class PywenAgent(BaseAgent):
     async def _process_turn_stream(self) -> AsyncGenerator[Dict[str, Any], None]:
         messages = [self._convert_single_message(msg) for msg in self.conversation_history]
         trajectory_msg = self.conversation_history.copy()
-        tools = [tool.build("pywen") for tool in list_tools_for_provider("pywen")]
+        tools = [tool.build("pywen") for tool in self.tool_mgr.list_for_provider("pywen")]
         completed_resp : LLMResponse = LLMResponse(content = "")
         async for event in self.llm_client.astream_response(messages= messages, tools= tools, api = "chat"):
             if event.type == "created":
@@ -423,44 +422,34 @@ class PywenAgent(BaseAgent):
     async def _process_tool_calls(self, tool_calls : List[ToolCall]) -> AsyncGenerator[Dict[str, Any], None]:
         # 2. 执行工具调用，拿到结果，填充tool LLMMessage
         for tc in tool_calls:
-            tool = get_tool(tc.name)
+            tool = self.tool_mgr.get_tool(tc.name)
             if not tool:
                 continue
-            confirmation_details = await tool.get_confirmation_details(**tc.arguments)
-            if confirmation_details:
-                print(confirmation_details)
-               # TODO. 实现用户确认逻辑
-               # confirmed = await self.cli_console.confirm_tool_call(tc, tool)
-               # if not confirmed:
-               #     tool_msg = LLMMessage(
-               #         role="tool",
-               #         content="Tool execution was cancelled by user",
-               #         tool_call_id=tc.call_id
-               #     )
-               #     self.conversation_history.append(tool_msg)
-
-               #     data = {"call_id": tc.call_id, 
-               #             "name": tc.name, 
-               #             "result": "Tool execution rejected by user",
-               #             "success": False, 
-               #             "error": "Tool execution rejected by user" }
-               #     yield {"type": "tool_result", "data": data}
-               #     continue
-
-            #实际上这里是单个执行
-            res = await tool.execute(**tc.arguments)
-            data = { 
-                    "call_id": tc.call_id, 
-                    "name": tc.name, 
-                    "result": res.result,
-                    "success": res.success, 
-                    "error": res.error,  
-                    "arguments": tc.arguments
-                    }
-            yield {"type": "tool_result", "data": data}
-            content = res.result if isinstance(res.success, str) else json.dumps(res.result)
-            tool_msg = LLMMessage(role="tool", content= str(content), tool_call_id=tc.call_id)
-            self.conversation_history.append(tool_msg)
+            name = tc.name
+            call_id = tc.call_id
+            arguments = {}
+            if isinstance(tc.arguments, Mapping):
+                arguments = dict(tc.arguments)
+            elif isinstance(tc.arguments, str) and tc.name == "apply_patch":
+                arguments = {"input": tc.arguments}
+            try:
+                is_success, result = await self.tool_mgr.execute(name, arguments, tool)
+                if not is_success:
+                    msg = LLMMessage(role="tool", content= str(result), tool_call_id= call_id)
+                    self.conversation_history.append(msg)
+                    payload = {"call_id": call_id, "name": name, "result": result, "success":False,"error": result,}
+                    yield {"type": "tool_result", "data": payload}
+                    continue
+                payload = {"call_id": call_id, "name": name, "result": result, "success": True, "error": None, "arguments": arguments,}
+                yield {"type": "tool_result", "data": payload}
+                content = result if isinstance(result, str) else json.dumps(result)
+                tool_msg = LLMMessage(role="tool", content= content, tool_call_id=tc.call_id)
+                self.conversation_history.append(tool_msg)
+            except Exception as e:
+                error_msg = f"Tool execution failed: {str(e)}"
+                tool_msg = LLMMessage(role="tool", content= error_msg, tool_call_id=tc.call_id)
+                self.conversation_history.append(tool_msg)
+                yield {"type": "tool_error", "data": {"call_id": call_id, "name": name, "error": error_msg}}
 
     def _update_system_prompt(self, system_prompt: str) -> List[LLMMessage]:
         cwd_prompt = (
@@ -474,7 +463,7 @@ class PywenAgent(BaseAgent):
 
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions."""
-        available_tools = list_tools_for_provider("pywen")
+        available_tools = self.tool_mgr.list_for_provider("pywen")
         system_prompt = SYSTEM_PROMPT 
         for tool in available_tools:
             system_prompt += f"- **{tool.name}**: {tool.description}\n"

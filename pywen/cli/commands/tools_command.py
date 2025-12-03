@@ -4,7 +4,7 @@ from typing import Dict, Any
 from rich import get_console
 from rich.table import Table
 from .base_command import BaseCommand
-from pywen.tools.tool_registry import list_tools_for_provider, get_tool
+from pywen.tools.tool_manager import ToolManager
 
 
 class ToolsCommand(BaseCommand):
@@ -22,7 +22,7 @@ class ToolsCommand(BaseCommand):
         
         try:
             provider = agent.type.lower().replace("agent", "")
-            tools = list_tools_for_provider(provider)
+            tools = ToolManager.list_for_provider(provider)
              
             table = Table(title=f"{agent.type} Available Tools")
             table.add_column("Tool Name", style="green")

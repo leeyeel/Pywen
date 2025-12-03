@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Mapping
 from .base_tool import BaseTool, ToolCallResult 
-from pywen.tools.tool_registry import register_tool
+from pywen.tools.tool_manager import register_tool
 
 class PlanItemStatus(str, Enum):
     TODO = "todo"

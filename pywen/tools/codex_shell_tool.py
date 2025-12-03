@@ -3,7 +3,7 @@ import os
 import shlex
 from typing import Any, List, Optional, override,Mapping
 from .base_tool import BaseTool, ToolCallResult, ToolRiskLevel
-from pywen.tools.tool_registry import register_tool
+from pywen.tools.tool_manager import register_tool
 
 def _assert_command_list(command: Any) -> List[str]:
     if not (isinstance(command, list) and all(isinstance(x, str) for x in command)):

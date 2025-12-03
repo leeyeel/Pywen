@@ -4,7 +4,7 @@ from typing import List, Mapping,Any,Dict
 from pywen.tools.base_tool import BaseTool
 from pywen.llm.llm_basics import ToolCallResult
 from pywen.llm.llm_basics import LLMMessage
-from pywen.tools.tool_registry import register_tool
+from pywen.tools.tool_manager import register_tool
 
 logger = logging.getLogger(__name__)
 

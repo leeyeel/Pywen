@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, override,Mapping 
 from pywen.tools.base_tool import BaseTool, ToolRiskLevel
 from pywen.llm.llm_basics import ToolCallResult
-from pywen.tools.tool_registry import register_tool
+from pywen.tools.tool_manager import register_tool
 
 BEGIN_PATCH_MARKER = "*** Begin Patch"
 END_PATCH_MARKER = "*** End Patch"

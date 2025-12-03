@@ -34,8 +34,8 @@ class CLIConsole:
     def print(self, message: str, color: str = "blue", bold: bool = False):
         self.printer.print_text(message, color, bold)
 
-    async def confirm_tool_call(self, tool_call, tool=None) -> bool:
-        return await self.approval.confirm(tool_call, tool)
+    async def confirm_tool_call(self, tool_name, tool_args, tool=None) -> bool:
+        return await self.approval.confirm(tool_name, tool_args, tool)
 
     def show_interactive_banner(self):
         self.banner.show()
@@ -432,37 +432,27 @@ class ApprovalService:
         self.tool_call_view = tool_call_view
         self.pm = permission_manager
 
-    async def confirm(self, tool_call, tool=None) -> bool:
-        name = tool_call.name if hasattr(tool_call, "name") else tool_call.get("name", "unknown")
-        args = tool_call.arguments if hasattr(tool_call, "arguments") else tool_call.get("arguments", {})
-        if self.pm and self.pm.should_auto_approve(name, **args):
+    async def confirm(self, tool_name, tool_args, tool=None) -> bool:
+        if self.pm and self.pm.should_auto_approve(tool_name, **tool_args):
             return True
 
         if tool:
-            args = getattr(tool_call, 'arguments', None) or tool_call.get('arguments', {})
-            risk_level = tool.get_risk_level(**args)
+            risk_level = tool.get_risk_level(**tool_args)
             if risk_level == ToolRiskLevel.SAFE:
                 return True
 
-        if isinstance(tool_call, dict):
-            tool_name = tool_call.get('name', 'Unknown Tool')
-            arguments = tool_call.get('arguments', {})
-        else:
-            tool_name = tool_call.name
-            arguments = tool_call.arguments
-
         if tool_name in ['write_file', 'edit_file', 'edit'] and tool:
             try:
-                confirmation_details = await tool.get_confirmation_details(**arguments)
+                confirmation_details = await tool.get_confirmation_details(**tool_args)
                 if confirmation_details and hasattr(tool, '_generate_confirmation_message'):
-                    detailed_message = await tool._generate_confirmation_message(**arguments)
+                    detailed_message = await tool._generate_confirmation_message(**tool_args)
                     self.p.print_raw(detailed_message)
                 else:
-                    self._display_basic_tool_info(tool_name, arguments)
+                    self._display_basic_tool_info(tool_name, tool_args)
             except Exception:
-                self._display_basic_tool_info(tool_name, arguments)
+                self._display_basic_tool_info(tool_name, tool_args)
         else:
-            self._display_basic_tool_info(tool_name, arguments)
+            self._display_basic_tool_info(tool_name, tool_args)
 
         self.p.print_raw("")
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Mapping
 from .base_tool import BaseTool, ToolCallResult
-from pywen.tools.tool_registry import register_tool
+from pywen.tools.tool_manager import register_tool
 
 @register_tool(name="memory", providers=["pywen"])
 class MemoryTool(BaseTool):

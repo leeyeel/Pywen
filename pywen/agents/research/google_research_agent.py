@@ -3,7 +3,6 @@ from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_basics import LLMMessage, LLMResponse
 from pywen.llm.llm_basics import ToolCallResult
 from pywen.llm.llm_client import LLMClient
-from pywen.tools.tool_registry import list_tools_for_provider
 from pywen.hooks.manager import HookManager
 from pywen.agents.research.research_prompts import (
     get_current_date,
@@ -29,8 +28,8 @@ def _extract_json(content: str) -> str:
 class GeminiResearchDemo(BaseAgent):
     """Research agent specialized for multi-step research tasks."""
     
-    def __init__(self, config, hook_mgr: HookManager):
-        super().__init__(config, hook_mgr)
+    def __init__(self, config, tool_mgr, hook_mgr: HookManager):
+        super().__init__(config, tool_mgr, hook_mgr)
 
         self.type = "GeminiResearchDemo"
 
@@ -47,7 +46,7 @@ class GeminiResearchDemo(BaseAgent):
             "iteration": 0
         }
         # Get available tools for research agent
-        self.available_tools = [tool.build("research") for tool in list_tools_for_provider("research")]
+        self.available_tools = [tool.build("research") for tool in self.tool_mgr.list_for_provider("research")]
         self.max_iterations = 3
     
     def _build_system_prompt(self) -> str:
@@ -444,12 +443,10 @@ Follow the research process step by step and use the appropriate prompts for eac
                 self.research_state["summaries"] = [final_response.content]
     async def _process_tool_calls(self, tool_calls):
         """处理工具调用"""
-        from pywen.tools.tool_registry import get_tool
-        
         for tool_call in tool_calls:
             try:
                 # 获取工具实例
-                tool = get_tool(tool_call.name)
+                tool = self.tool_mgr.get_tool(tool_call.name)
                 if not tool:
                     yield {"type": "error", "data": {"error": f"Tool not found: {tool_call.name}"}}
                     continue

@@ -82,6 +82,7 @@ class AnthropicAdapter():
         if system:
             kwargs["system"] = system
         return kwargs
+
     # 同步非流式
     def generate_response(self, messages: List[Dict[str, str]], **params) -> LLMResponse:
         model = params.get("model", self._default_model)
@@ -95,9 +96,20 @@ class AnthropicAdapter():
         model = params.get("model", self._default_model)
         kwargs = self._build_kwargs(messages, model, params)
 
+        # 用于收集完整的 usage 信息
+        input_tokens_from_start = None
+
         with self._sync.messages.stream(**kwargs) as stream:
             for event in stream:
-                evt = self._process_native_event(event)
+                # 从 message_start 提取 input_tokens（Anthropic API 风格）
+                if event.type == "message_start":
+                    message = getattr(event, "message", None)
+                    if message:
+                        usage = getattr(message, "usage", None)
+                        if usage:
+                            input_tokens_from_start = getattr(usage, "input_tokens", None)
+                
+                evt = self._process_native_event(event, input_tokens_from_start)
                 if evt:
                     yield evt
                 if event.type == "message_stop":
@@ -115,18 +127,35 @@ class AnthropicAdapter():
         model = params.get("model", self._default_model)
         kwargs = self._build_kwargs(messages, model, params)
 
+        # 用于收集完整的 usage 信息
+        input_tokens_from_start = None
+        
         async with self._async.messages.stream(**kwargs) as stream:
             async for event in stream:
-                evt = self._process_native_event(event)
+                # 从 message_start 提取 input_tokens（Anthropic API 风格）
+                if event.type == "message_start":
+                    message = getattr(event, "message", None)
+                    if message:
+                        usage = getattr(message, "usage", None)
+                        if usage:
+                            input_tokens_from_start = getattr(usage, "input_tokens", None)
+                
+                evt = self._process_native_event(event, input_tokens_from_start)
                 if evt:
                     yield evt
                 if event.type == "message_stop":
                     break
 
-    def _process_native_event(self, event) -> Optional[ResponseEvent]:
+    def _process_native_event(self, event, input_tokens_from_start: Optional[int] = None) -> Optional[ResponseEvent]:
         if event.type == "message_start":
-            message_id = getattr(event.message, "id", "")
-            return ResponseEvent.message_start({"message_id": message_id})
+            message = getattr(event, "message", None)
+            data = {}
+            if message:
+                message_id = getattr(message, "id", "")
+                if message_id:
+                    data["message_id"] = message_id
+            
+            return ResponseEvent.message_start(data) if data else None
 
         elif event.type == "content_block_start":
             block = getattr(event, "content_block", None)
@@ -141,15 +170,13 @@ class AnthropicAdapter():
 
         elif event.type == "content_block_delta":
             delta = event.delta
-            delta_type = getattr(delta, "type", None)
-            if delta_type == "text_delta":
-                text = getattr(delta, "text", "")
-                if text:
-                    return ResponseEvent.text_delta(text)
-            elif delta_type == "input_json_delta":
-                partial_json = getattr(delta, "partial_json", "")
-                if partial_json:
-                    return ResponseEvent.tool_call_delta_json(partial_json)
+            # TODO.delete
+            if delta.type == "text_delta":
+                return ResponseEvent.text_delta(delta.text)
+                #return ResponseEvent.assistant_delta(delta.text)
+            elif delta.type == "input_json_delta":
+                return ResponseEvent.tool_call_delta_json(delta.partial_json)
+                #return ResponseEvent.tool_call_delta("", "", delta.partial_json, "function")
 
         elif event.type == "content_block_stop":
             return ResponseEvent.content_block_stop({})
@@ -164,11 +191,18 @@ class AnthropicAdapter():
                 if stop_reason:
                     data["stop_reason"] = stop_reason
             if usage:
-                # usage 包含最终的 token 统计
-                # 提取所有可能的字段（Anthropic 原生 + 第三方兼容服务可能返回的字段）
+                # 统一处理 usage 信息
+                # 1. 从 message_delta.usage 提取（GLM 等 API 在这里提供完整 usage）
+                input_tokens = getattr(usage, "input_tokens", None)
+                output_tokens = getattr(usage, "output_tokens", None)
+                
+                # 2. 如果 message_delta 中没有 input_tokens，使用从 message_start 提取的值
+                if input_tokens is None and input_tokens_from_start is not None:
+                    input_tokens = input_tokens_from_start
+                
                 usage_dict = {
-                    "input_tokens": getattr(usage, "input_tokens", 0),
-                    "output_tokens": getattr(usage, "output_tokens", 0)
+                    "input_tokens": input_tokens if input_tokens is not None else 0,
+                    "output_tokens": output_tokens if output_tokens is not None else 0
                 }
 
                 data["usage"] = usage_dict

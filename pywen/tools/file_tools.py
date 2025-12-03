@@ -2,7 +2,7 @@ import os
 from typing import Any, Mapping
 from pywen.cli.highlighted_content import HighlightedContentDisplay
 from .base_tool import BaseTool, ToolCallResult, ToolRiskLevel
-from pywen.tools.tool_registry import register_tool
+from pywen.tools.tool_manager import register_tool
 
 CLAUDE_DESCRIPTION_WRITE = """
 Writes a file to the local filesystem.
