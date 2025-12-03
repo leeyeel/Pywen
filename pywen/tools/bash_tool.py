@@ -213,6 +213,14 @@ class BashTool(BaseTool):
         if directory and not os.path.isdir(directory):
             return ToolResult(call_id="", error=f"Directory does not exist: {directory}")
         
+        # 自动为 grep 命令添加 --line-buffered 选项，解决非交互式环境中的缓冲问题
+        # 这可以确保 grep 在管道或 find -exec 中立即输出，避免缓冲导致的超时问题
+        if os.name != "nt" and "grep" in command and "--line-buffered" not in command:
+            import re
+            # 为 grep 命令添加 --line-buffered 选项
+            # 匹配 "grep" 单词边界，确保不会匹配到其他包含 "grep" 的字符串
+            command = re.sub(r'\bgrep\b', 'grep --line-buffered', command)
+        
         # 括号在 bash 中创建子shell，自动处理多行语法
         if os.name == "nt":
             shell_command = f'cmd.exe /c "({command})"'
@@ -233,11 +241,24 @@ class BashTool(BaseTool):
     ) -> ToolResult:
         """前台执行命令"""
         try:
+            # 设置环境变量以禁用分页器和交互式提示，确保命令在非交互式环境中正常运行
+            env = os.environ.copy()
+            env.update({
+                "PAGER": "cat",
+                "MANPAGER": "cat",
+                "GIT_PAGER": "cat",
+                "LESS": "-R",
+                "PIP_PROGRESS_BAR": "off",
+                "TQDM_DISABLE": "1",
+                "PYTHONUNBUFFERED": "1",  # 确保 Python 立即输出，避免缓冲
+            })
+            
             process = await asyncio.create_subprocess_shell(
                 shell_command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=env,
                 start_new_session=(os.name != "nt"),
             )
             return await self._read_with_progress(process, timeout)
@@ -340,11 +361,24 @@ class BashTool(BaseTool):
                 escaped_command = command.replace("'", "'\"'\"'")
                 shell_command = f"bash -c '{escaped_command}'"
             
+            # 设置环境变量以禁用分页器和交互式提示
+            env = os.environ.copy()
+            env.update({
+                "PAGER": "cat",
+                "MANPAGER": "cat",
+                "GIT_PAGER": "cat",
+                "LESS": "-R",
+                "PIP_PROGRESS_BAR": "off",
+                "TQDM_DISABLE": "1",
+                "PYTHONUNBUFFERED": "1",  # 确保 Python 立即输出，避免缓冲
+            })
+            
             process = await asyncio.create_subprocess_shell(
                 shell_command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=env,
                 start_new_session=(os.name != "nt"),
             )
             pid = process.pid
