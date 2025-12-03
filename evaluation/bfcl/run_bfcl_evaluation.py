@@ -47,6 +47,9 @@ def run_bfcl_evaluation(
     print(f"\n🤖 创建LLM客户端...")
     try:
         llm_client, model = create_llm_client(config_path)
+        if not model:
+            print("❌ 未配置模型")
+            return None
         print(f"   LLM模型: {model}")
     except Exception as e:
         print(f"❌ 创建LLM客户端失败: {e}")

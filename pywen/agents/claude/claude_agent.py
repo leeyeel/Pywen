@@ -325,6 +325,19 @@ class ClaudeAgent(BaseAgent):
                     assistant_message = response_event["assistant_message"]
                     tool_calls = response_event["tool_calls"]
                     final_response = response_event.get("final_response")
+                elif response_event["type"] == "error":
+                    # 如果 LLM 调用失败，直接 yield error 事件并返回，不触发 task_complete
+                    yield response_event
+                    return
+
+            # 如果 LLM 调用失败（没有收到 assistant_response 且没有 error），也不应该触发 task_complete
+            if not assistant_message:
+                # 这种情况不应该发生，但为了安全起见，返回 error
+                yield {
+                    "type": "error",
+                    "data": {"error": "No assistant response received from LLM"}
+                }
+                return
 
             if assistant_message:
                 self.conversation_history.append(assistant_message)
@@ -351,8 +364,7 @@ class ClaudeAgent(BaseAgent):
                     agent_name=self.type
                 )
 
-
-            if not tool_calls:
+            if assistant_message and not tool_calls:
                 if final_response and hasattr(final_response, 'usage') and final_response.usage:
                     yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
                 yield {

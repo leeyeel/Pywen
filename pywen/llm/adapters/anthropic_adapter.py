@@ -98,21 +98,25 @@ class AnthropicAdapter():
         # 用于收集完整的 usage 信息
         input_tokens_from_start = None
 
-        with self._sync.messages.stream(**kwargs) as stream:
-            for event in stream:
-                # 从 message_start 提取 input_tokens（Anthropic API 风格）
-                if event.type == "message_start":
-                    message = getattr(event, "message", None)
-                    if message:
-                        usage = getattr(message, "usage", None)
-                        if usage:
-                            input_tokens_from_start = getattr(usage, "input_tokens", None)
-                
-                evt = self._process_native_event(event, input_tokens_from_start)
-                if evt:
-                    yield evt
-                if event.type == "message_stop":
-                    break
+        try:
+            with self._sync.messages.stream(**kwargs) as stream:
+                for event in stream:
+                    # 从 message_start 提取 input_tokens（Anthropic API 风格）
+                    if event.type == "message_start":
+                        message = getattr(event, "message", None)
+                        if message:
+                            usage = getattr(message, "usage", None)
+                            if usage:
+                                input_tokens_from_start = getattr(usage, "input_tokens", None)
+                    
+                    evt = self._process_native_event(event, input_tokens_from_start)
+                    if evt:
+                        yield evt
+                    if event.type == "message_stop":
+                        break
+        except Exception as e:
+            # Anthropic SDK 在出错时会抛出异常，需要转换为 error 事件
+            yield ResponseEvent.error(str(e), {"exception_type": type(e).__name__})
     # 异步非流式
     async def agenerate_response(self, messages: List[Dict[str, str]], **params) -> LLMResponse:
         model = params.get("model", self._default_model)
@@ -129,21 +133,25 @@ class AnthropicAdapter():
         # 用于收集完整的 usage 信息
         input_tokens_from_start = None
         
-        async with self._async.messages.stream(**kwargs) as stream:
-            async for event in stream:
-                # 从 message_start 提取 input_tokens（Anthropic API 风格）
-                if event.type == "message_start":
-                    message = getattr(event, "message", None)
-                    if message:
-                        usage = getattr(message, "usage", None)
-                        if usage:
-                            input_tokens_from_start = getattr(usage, "input_tokens", None)
-                
-                evt = self._process_native_event(event, input_tokens_from_start)
-                if evt:
-                    yield evt
-                if event.type == "message_stop":
-                    break
+        try:
+            async with self._async.messages.stream(**kwargs) as stream:
+                async for event in stream:
+                    # 从 message_start 提取 input_tokens（Anthropic API 风格）
+                    if event.type == "message_start":
+                        message = getattr(event, "message", None)
+                        if message:
+                            usage = getattr(message, "usage", None)
+                            if usage:
+                                input_tokens_from_start = getattr(usage, "input_tokens", None)
+                    
+                    evt = self._process_native_event(event, input_tokens_from_start)
+                    if evt:
+                        yield evt
+                    if event.type == "message_stop":
+                        break
+        except Exception as e:
+            # Anthropic SDK 在出错时会抛出异常，需要转换为 error 事件
+            yield ResponseEvent.error(str(e), {"exception_type": type(e).__name__})
 
     def _process_native_event(self, event, input_tokens_from_start: Optional[int] = None) -> Optional[ResponseEvent]:
         if event.type == "message_start":
