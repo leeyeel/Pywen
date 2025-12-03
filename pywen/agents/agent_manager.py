@@ -1,13 +1,38 @@
 from __future__ import annotations
 import asyncio
-from typing import Optional, List, Dict, AsyncGenerator, Any
+import threading
+from typing import Optional, List, AsyncGenerator 
 from pywen.config.config import AppConfig
 from pywen.hooks.manager import HookManager
 from pywen.tools.tool_manager import ToolManager 
+
+from .agent_events import AgentEvent
 from .base_agent import BaseAgent
 from .pywen.pywen_agent import PywenAgent
 from .claude.claude_agent import ClaudeAgent
 from .codex.codex_agent import CodexAgent
+
+
+class ExecutionState:
+    """进程内的执行状态（支持取消）"""
+    def __init__(self) -> None:
+        self.in_task: bool = False
+        self.cancel_event: threading.Event = threading.Event()
+        self.current_task: Optional[asyncio.Task] = None
+
+    def start(self) -> None:
+        self.in_task = True
+        self.cancel_event.clear()
+
+    def reset(self) -> None:
+        self.in_task = False
+        self.current_task = None
+        self.cancel_event.clear()
+
+    def request_cancel(self) -> None:
+        self.cancel_event.set()
+        if self.current_task and not self.current_task.done():
+            self.current_task.cancel()
 
 def _normalize_name(name: str) -> str:
     n = (name or "").strip().lower()
@@ -54,7 +79,7 @@ class AgentManager:
                 return self._current
             return await self._switch_impl(name)
 
-    async def agent_run(self, prompt_text: str) -> AsyncGenerator[Dict[str, Any], None]:
+    async def agent_run(self, prompt_text: str) -> AsyncGenerator[AgentEvent, None]:
         if not self._current:
             raise RuntimeError("No agent is currently initialized.")
         async for event in self._current.run(prompt_text):

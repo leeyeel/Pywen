@@ -19,7 +19,7 @@ class StatsCommand(BaseCommand):
         )
         self.console = get_console()
     
-    async def execute(self, context: Dict[str, Any], args: str) -> bool:
+    async def execute(self, context: Dict[str, Any], args: str) -> dict:
         """Execute the stats command."""
         args = args.strip().lower()
         
@@ -40,7 +40,7 @@ class StatsCommand(BaseCommand):
             panel = self._get_current_agent_stats_panel()
         
         self.console.print(panel)
-        return True
+        return {"result": True, "message": "success"}
     
     def _get_summary_panel(self) -> Panel:
         """Get formatted statistics summary panel."""

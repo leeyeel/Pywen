@@ -1,7 +1,7 @@
 import os
-from typing import Dict, List, Optional, AsyncGenerator, Any
 import datetime
 import json
+from typing import Dict, List, Optional, AsyncGenerator, Any
 from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_client import LLMClient 
 from pywen.llm.llm_basics import LLMResponse, LLMMessage
@@ -15,7 +15,6 @@ from pywen.agents.claude.system_reminder import (
     generate_system_reminders, emit_reminder_event, reset_reminder_session,
     get_system_reminder_start,emit_tool_execution_event
 )
-from pywen.hooks.models import HookEvent
 
 class ClaudeAgent(BaseAgent):
 
@@ -142,7 +141,6 @@ class ClaudeAgent(BaseAgent):
 
     def reset_conversation(self):
         self.conversation_history.clear()
-        #self.cli_console.print("Conversation history cleared", "green")
 
     async def run(self, user_message: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
         try:

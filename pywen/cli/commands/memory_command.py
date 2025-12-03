@@ -9,12 +9,12 @@ class MemoryCommand(BaseCommand):
         super().__init__("memory", "Commands for interacting with memory.")
         self.console = get_console()
     
-    async def execute(self, context, args: str) -> bool:
+    async def execute(self, context, args: str) -> dict:
         """处理内存相关命令"""
         if not args:
             self._show_memory_help()
-            return True
-        
+            return {"result": False, "message": "no arguments provided"}
+
         subcommand = args.split()[0].lower()
         
         if subcommand == "show":
@@ -26,7 +26,7 @@ class MemoryCommand(BaseCommand):
         else:
             self._show_memory_help()
         
-        return True
+        return {"result": True, "message": "success"}
     
     def _show_memory_help(self):
         """显示内存命令帮助"""

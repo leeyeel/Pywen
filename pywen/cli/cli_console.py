@@ -12,6 +12,7 @@ from prompt_toolkit.formatted_text import HTML
 from pywen.tools.base_tool import ToolRiskLevel
 from pywen.utils.permission_manager import PermissionLevel, PermissionManager
 from pywen.cli.highlighted_content import create_enhanced_tool_result_display, HighlightedContentDisplay
+from pywen.agents.agent_events import Agent_Events, AgentEvent
 
 class CLIConsole:
     """Console for displaying agent progress and handling user interactions."""
@@ -61,7 +62,6 @@ class CLIConsole:
 
     def prompt_prefix(self, session_id: str) -> HTML:
         return HTML(f'<ansiblue>✦</ansiblue><ansigreen>{session_id}</ansigreen> <ansiblue>❯</ansiblue> ')
-
 
 class Printer:
     """仅负责输出（统一入口，隔离 rich 细节）"""
@@ -503,45 +503,44 @@ class EventRouter:
         self.renderer = renderer
         self.tool_call_view = tool_call_view
 
-    def handle(self, event: dict) -> Optional[str]:
-        event_type = event.get("type") or ""
-        data = event.get("data", {})
-        if event_type == "user_message":
-            self.p.print_text(f"🔵 User:{data['message']}", "blue", True)
+    def handle(self, event: AgentEvent) -> Optional[str]:
+        data = event.data
+        if event.type == Agent_Events.USER_MESSAGE:
+            self.p.print_text(f"🔵 User:{data['text']}", "blue", True)
             self.p.print_raw("")
-        elif event_type == "task_continuation":
+        elif event.type == "task_continuation":
             self.p.print_text(f"🔄 Continuing Task (Turn {data['turn']}):", "yellow", True)
             self.p.print_text(f"{data['message']}", "blue", False)
             self.p.print_raw("")
-        elif event_type == "llm_stream_start":
+        elif event.type == Agent_Events.LLM_STREAM_START:
             self.p.print_end_chunk("🤖 ")
-        elif event_type == "llm_chunk":
+        elif event.type == Agent_Events.TEXT_DELTA:
             self.p.print_end_chunk(data["content"])
-        elif event_type == "tool_result":
+        elif event.type == Agent_Events.TOOL_RESULT:
             self._display_tool_result(data)
-        elif event_type == "turn_token_usage":
+        elif event.type == Agent_Events.TURN_TOKEN_USAGE:
             pass
-        elif event_type == "waiting_for_user":
+        elif event.type == Agent_Events.WAITING_FOR_USER:
             self.p.print_text(f"💭{data['reasoning']}", "yellow")
             self.p.print_raw("")
-        elif event_type == "model_continues":
+        elif event.type == "model_continues":
             self.p.print_text(f"🔄 Model continues: {data['reasoning']}", "cyan")
             if data.get('next_action'):
                 self.p.print_text(f"🎯 Next: {data['next_action'][:100]}...", "dim")
             self.p.print_raw("")
-        elif event_type == "task_complete":
+        elif event.type == Agent_Events.TASK_COMPLETE:
             self.p.print_text(f"\n✅ Task completed!", "green", True)
             self.p.print_raw("")
-        elif event_type == "max_turns_reached":
+        elif event.type == Agent_Events.TURN_MAX_REACHED:
             self.p.print_text(f"⚠️ Maximum turns reached", "yellow", True)
             self.p.print_raw("")
-        elif event_type == "error":
+        elif event.type == Agent_Events.ERROR:
             self.p.print_text(f"❌ Error: {data['error']}", "red")
             self.p.print_raw("")
-        elif event_type == "trajectory_saved":
+        elif event.type == "trajectory_saved":
             if data.get('is_task_start', False):
                 self.p.print_text(f"✅ Trajectory saved to: {data['path']}", "dim")
-        return event_type 
+        return event.type 
 
     def _display_tool_result(self, data: dict):
         tool_name = data.get('name', 'Tool')

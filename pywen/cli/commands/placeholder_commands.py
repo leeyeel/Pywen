@@ -10,11 +10,11 @@ class PlaceholderCommand(BaseCommand):
         super().__init__(name, description, alt_name)
         self.console = get_console()
     
-    async def execute(self, context, args: str) -> bool:
+    async def execute(self, context, args: str) -> dict:
         """显示占位符信息"""
         self.console.print(f"[yellow]Command '/{self.name}' is not yet implemented.[/yellow]")
         self.console.print(f"[dim]Description: {self.description}[/dim]")
-        return True
+        return {"result": True, "message": "success"}
 
 class PrivacyCommand(PlaceholderCommand):
     def __init__(self):

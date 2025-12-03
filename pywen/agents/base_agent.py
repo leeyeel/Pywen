@@ -9,6 +9,7 @@ from pywen.llm.llm_basics import LLMMessage
 from pywen.tools.tool_manager import ToolManager
 from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
 from pywen.hooks.manager import HookManager
+from pywen.agents.agent_events import AgentEvent 
 
 class BaseAgent(ABC):
     def __init__(self, config: AppConfig, tool_mgr :ToolManager, hook_mgr: Optional[HookManager] = None, ) -> None:
@@ -33,7 +34,7 @@ class BaseAgent(ABC):
         return {}
     
     @abstractmethod
-    def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
+    def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
         """Run the agent - must be implemented by subclasses."""
         pass
     

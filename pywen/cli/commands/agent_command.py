@@ -31,7 +31,7 @@ class AgentCommand(BaseCommand):
         #TODO. 不应该在这里获取console，应该通过context传递
         self.console = get_console()
     
-    async def execute(self, context: Dict[str, Any], args: str) -> bool:
+    async def execute(self, context: Dict[str, Any], args: str) -> dict:
         """处理agent切换命令"""
         parts = args.strip().split() if args.strip() else []
         
@@ -45,7 +45,7 @@ class AgentCommand(BaseCommand):
             self.console.print("[red]Usage: /agent [agent_type][/red]")
             self.console.print("")
         
-        return True
+        return {"result": True, "message": "success"} 
     
     def _show_available_agents(self, context: Dict[str, Any]):
         """显示可用agent列表"""
@@ -74,7 +74,12 @@ class AgentCommand(BaseCommand):
         
         try:
             # 创建新agent
-            new_agent = self._create_agent(context.get('config'), context.get('hook_mgr'), new_agent_type)
+            new_agent = self._create_agent(
+                    context.get('config'), 
+                    context.get('tool_mgr'), 
+                    context.get('hook_mgr'), 
+                    new_agent_type
+                )
             
             # 更新context中的agent
             context['agent'] = new_agent
@@ -111,21 +116,21 @@ class AgentCommand(BaseCommand):
 
         return "unknown"
     
-    def _create_agent(self, config, hook_mgr, agent_type: str):
+    def _create_agent(self, config, tool_mgr, hook_mgr, agent_type: str):
         """创建agent实例"""
         if config:
             config.set_active_agent(agent_type)
         if agent_type == "pywen":
             from pywen.agents.pywen.pywen_agent import PywenAgent
-            return PywenAgent(config, hook_mgr)
+            return PywenAgent(config, tool_mgr, hook_mgr)
         elif agent_type == "research":
             from pywen.agents.research.google_research_agent import GeminiResearchDemo
-            return GeminiResearchDemo(config)
+            return GeminiResearchDemo(config, tool_mgr, hook_mgr)
         elif agent_type == "claude":
             from pywen.agents.claude.claude_agent import ClaudeAgent
-            return ClaudeAgent(config, hook_mgr)
+            return ClaudeAgent(config, tool_mgr, hook_mgr)
         elif agent_type == "codex":
             from pywen.agents.codex.codex_agent import CodexAgent 
-            return CodexAgent(config, hook_mgr)
+            return CodexAgent(config, tool_mgr, hook_mgr)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")

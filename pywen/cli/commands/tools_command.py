@@ -12,13 +12,13 @@ class ToolsCommand(BaseCommand):
         super().__init__("tools", "list available Pywen tools")
         self.console = get_console()
     
-    async def execute(self, context: Dict[str, Any], args: str) -> bool:
+    async def execute(self, context: Dict[str, Any], args: str) -> dict:
         """显示可用工具列表"""
         agent  = context.get('agent')
         
         if not agent:
             self.console.print("[red]No agent available[/red]")
-            return True
+            return {"result": False, "message": "no agent available"}
         
         try:
             provider = agent.type.lower().replace("agent", "")
@@ -44,4 +44,5 @@ class ToolsCommand(BaseCommand):
             import traceback
             self.console.print(f"[dim]{traceback.format_exc()}[/dim]")
         
-        return True
+        return {"result": True, "message": "success"}
+

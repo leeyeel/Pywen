@@ -10,7 +10,7 @@ class ModelCommand(BaseCommand):
         super().__init__("model", "switch between different model providers")
         self.console = get_console()
     
-    async def execute(self, context: Dict[str, Any], args: str) -> bool:
+    async def execute(self, context: Dict[str, Any], args: str) -> dict:
         """处理model切换命令"""
         parts = args.strip().split() if args.strip() else []
         
@@ -24,7 +24,7 @@ class ModelCommand(BaseCommand):
             self.console.print("[red]Usage: /model [provider_name][/red]")
             self.console.print("")
         
-        return True
+        return {"result": True, "message": "success"}
     
     def _show_available_models(self, context: Dict[str, Any]):
         """显示可用model列表"""

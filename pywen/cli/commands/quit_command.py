@@ -19,7 +19,7 @@ class QuitCommand(BaseCommand):
         )
         self.console = get_console()
     
-    async def execute(self, context: Dict[str, Any], args: str) -> bool:
+    async def execute(self, context: Dict[str, Any], args: str) -> dict:
         """Execute the quit command."""
         # Create a beautiful goodbye panel
         goodbye_content = """
@@ -68,13 +68,9 @@ class QuitCommand(BaseCommand):
         self.console.print("\n")
         self.console.print(stats_panel)
         self.console.print(goodbye_panel)
-        context["control"] = "EXIT"
-        context["exit_code"] = 0
 
-        return True
+        return {"result": True, "message": "EXIT"}
 
-
-    
     def get_help(self) -> str:
         """Get help text for the quit command."""
         return """

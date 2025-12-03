@@ -55,15 +55,15 @@ class CommandProcessor:
             if cmd.alt_name:
                 self.commands[cmd.alt_name] = cmd
     
-    async def process_command(self, user_input: str, context: Dict) -> bool:
+    async def process_command(self, user_input: str, context: Dict) -> dict:
         """处理命令输入"""
-        # 检查是否是感叹号命令（shell命令）
+        # 感叹号命令, 执行shell命令
         if user_input.startswith('!'):
             return await self._handle_shell_command(user_input, context)
         
-        # 检查是否是斜杠命令
+        # 非斜杠命令, 继续正常处理
         if not user_input.startswith('/'):
-            return False
+            return {"result": False, "message": "continue"} #
         
         # 解析命令
         parts = user_input[1:].split(' ', 1)
@@ -73,8 +73,7 @@ class CommandProcessor:
         # 查找并执行命令
         if command_name in self.commands:
             command = self.commands[command_name]
-            await command.execute(context, args)
-            return True
+            return await command.execute(context, args)
         
         # 未知命令
         console = context.get('console')
@@ -82,9 +81,10 @@ class CommandProcessor:
             console.print(f"Unknown command: /{command_name}", "red")
             console.print("Type '/help' to see available commands.","dim")
         
-        return True  # 返回True表示已处理（即使是错误）
+        # 返回True表示已处理（即使是错误）
+        return {"result": True, "message": "success"} #
     
-    async def _handle_shell_command(self, user_input: str, context: Dict) -> bool:
+    async def _handle_shell_command(self, user_input: str, context: Dict) -> dict:
         """处理感叹号开头的shell命令"""
         console = context.get('console')
         
@@ -94,7 +94,7 @@ class CommandProcessor:
         if not shell_command:
             if console:
                 console.print("No command specified after '!'","red")
-            return True
+            return {"result": False, "message": "no command specified"} 
         
         # 特殊处理 cd 命令
         if shell_command.startswith('cd ') or shell_command == 'cd':
@@ -143,12 +143,10 @@ class CommandProcessor:
                 console.print(f"Error executing command: {e}", "red")
                 console.print("")  # 添加换行
         
-        return True
+        return {"result": True, "message": "success"} 
 
-    async def _handle_cd_command(self, command: str, console) -> bool:
+    async def _handle_cd_command(self, command: str, console) -> dict:
         """特殊处理 cd 命令"""
-        import os
-        from pathlib import Path
         
         # 解析 cd 命令
         parts = command.split(' ', 1)
@@ -166,7 +164,7 @@ class CommandProcessor:
                 # cd - 功能需要记录上一个目录，这里简化处理
                 if console:
                     console.print("cd - not supported, use absolute path","yellow")
-                return True
+                return {"result": True, "message": "success"} 
             else:
                 # 展开用户目录符号和相对路径
                 target_dir = os.path.expanduser(target_dir)
@@ -181,12 +179,12 @@ class CommandProcessor:
             if not os.path.exists(target_dir):
                 if console:
                     console.print(f"Directory does not exist: {target_dir}","red")
-                return True
+                return {"result": False, "message": "directory does not exist"} 
             
             if not os.path.isdir(target_dir):
                 if console:
                     console.print(f"Not a directory: {target_dir}","red")
-                return True
+                return {"result": False, "message": "not a directory"} 
             
             # 改变当前工作目录
             old_dir = os.getcwd()
@@ -205,4 +203,4 @@ class CommandProcessor:
                 console.print(f"Error changing directory: {e}", "red")
                 console.print("")  # 添加换行
         
-        return True
+        return {"result": True, "message": "success"} 

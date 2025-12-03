@@ -12,6 +12,6 @@ class BaseCommand(ABC):
         self.alt_name = alt_name
     
     @abstractmethod
-    async def execute(self, context: Dict[str, Any], args: str) -> bool:
+    async def execute(self, context: Dict[str, Any], args: str) -> dict:
         """执行命令"""
         pass
