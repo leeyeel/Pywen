@@ -224,7 +224,7 @@ class BenchmarkEvaluation:
         if home_default.exists():
             return home_default
     
-        repo_root = Path(__file__).parents[1].resolve()
+        repo_root = Path(__file__).parents[2].resolve()
         example = repo_root / "pywen_config.example.yaml"
         if example.exists():
             return example
@@ -235,7 +235,7 @@ class BenchmarkEvaluation:
         )
 
     def ensure_agent_image_and_cache(self):
-        repo_root = Path(__file__).parents[1].resolve()
+        repo_root = Path(__file__).parents[2].resolve()
         dockerfile = repo_root / AGENT_IMAGE_DOCKERFILE
         if not dockerfile.exists():
             raise FileNotFoundError(f"Missing {AGENT_IMAGE_DOCKERFILE} at repo root: {dockerfile}")

@@ -6,6 +6,8 @@ dist/
 wheels/
 *.egg-info
 
+~/gorilla/
+
 # Virtual environments
 .venv
 .memory/*
