@@ -3,6 +3,7 @@
 from rich import get_console
 from .base_command import BaseCommand
 from pywen.utils.session_stats import session_stats
+from pywen.config.config import AppConfig
 from typing import Dict, Any
 
 # 可用agent配置
@@ -116,7 +117,7 @@ class AgentCommand(BaseCommand):
 
         return "unknown"
     
-    def _create_agent(self, config, tool_mgr, hook_mgr, agent_type: str):
+    def _create_agent(self, config: AppConfig, tool_mgr, hook_mgr, agent_type: str):
         """创建agent实例"""
         if config:
             config.set_active_agent(agent_type)

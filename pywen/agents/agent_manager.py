@@ -51,7 +51,7 @@ class AgentManager:
     def current(self) -> Optional[BaseAgent]:
         if not self._current:
             raise RuntimeError("No agent is currently initialized.")
-        return self._current or BaseAgent
+        return self._current
 
     @property
     def current_name(self) -> Optional[str]:

@@ -54,6 +54,8 @@ class CodexAgent(BaseAgent):
         self.turn_index = 0
         self.history: History = History(system_prompt= self._build_system_prompt())
         self.tools = [tool.build("codex") for tool in self.tool_mgr.list_for_provider("codex")]
+        for tool in self.tools:
+            print(f"CodexAgent loaded tool: {tool.get('name')}")
         self.current_task = None
 
     def get_enabled_tools(self) -> List[str]:
