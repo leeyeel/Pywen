@@ -9,7 +9,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from pywen.agents.agent_events import Agent_Events
 from pywen.agents.agent_manager import AgentManager
 from pywen.cli.command_processor import CommandProcessor
-from pywen.config.config import AppConfig
+from pywen.config.manager import ConfigManager
 from pywen.utils.key_binding import create_key_bindings
 from pywen.llm.llm_basics import LLMMessage
 from pywen.tools.tool_manager import ToolManager
@@ -188,7 +188,7 @@ class InteractiveSession:
     """ 交互模式 """
     def __init__(self, 
                  *, 
-                 config:AppConfig, 
+                 config_mgr: ConfigManager, 
                  agent_mgr: AgentManager, 
                  hook_mgr, cli:CLIConsole, 
                  perm_mgr: PermissionManager, 
@@ -201,7 +201,7 @@ class InteractiveSession:
         self.perm_mgr = perm_mgr
         self.session_id = session_id
         self.cancel_event = CancellationToken()
-        self.config = config
+        self.config_mgr = config_mgr
         self.tool_mgr = tool_mgr
 
         self._prompt = PromptDriver(
@@ -219,7 +219,7 @@ class InteractiveSession:
         sid = self.session_id
         while True:
             perm_level = self.perm_mgr.get_permission_level()
-            model_name = self.config.active_model.model or "N/A"
+            model_name = self.config_mgr.get_active_model(None).model or "N/A"
             self.cli.show_status_bar(model_name = model_name,  permission_level= perm_level.value)
             try:
                 line = await self._prompt.read_line(self.cli.prompt_prefix(sid))
@@ -244,8 +244,8 @@ class InteractiveSession:
 
             ctx = {
                 "console": self.cli,
-                "agent": self.agent_mgr.current,
-                "config": self.config,
+                "agent_mgr": self.agent_mgr,
+                "config_mgr": self.config_mgr,
                 "hook_mgr": self.hook_mgr,
                 "tool_mgr": self.tool_mgr,
             }

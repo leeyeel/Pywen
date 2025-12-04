@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 import yaml
-from .config import AppConfig
+from .config import AppConfig, ModelConfig
 
 PLACEHOLDERS = {
     "your-qwen-api-key-here",
@@ -139,7 +139,7 @@ class ConfigManager:
         cfg = self.get_app_config(args)
         return cfg.active_agent_name
 
-    def get_active_model(self, args: Any):
+    def get_active_model(self, args: Any) -> ModelConfig: 
         """辅助方法：返回当前激活的 ModelConfig。"""
         cfg = self.get_app_config(args)
         return cfg.active_model

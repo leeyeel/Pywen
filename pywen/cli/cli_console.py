@@ -18,8 +18,7 @@ class CLIConsole:
     """Console for displaying agent progress and handling user interactions."""
 
     def __init__(self, perm_mgr: Optional[PermissionManager] = None):
-        self.console = get_console()
-        self.printer = Printer(self.console)
+        self.printer = Printer(get_console())
         self.tokens = TokenTracker(32768)
         self.banner = BannerView(self.printer)
         self.status_bar = StatusBar(self.printer, self.tokens)
@@ -65,8 +64,8 @@ class CLIConsole:
 
 class Printer:
     """仅负责输出（统一入口，隔离 rich 细节）"""
-    def __init__(self, console  = None):
-        self.console = console or get_console()
+    def __init__(self, console):
+        self.console = console
 
     def print_text(self, message: str, color: str = "blue", bold: bool = False):
         text = Text(message, style=color)
