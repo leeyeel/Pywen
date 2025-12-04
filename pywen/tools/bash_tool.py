@@ -225,8 +225,19 @@ class BashTool(BaseTool):
         if os.name == "nt":
             shell_command = f'cmd.exe /c "({command})"'
         else:
-            escaped_command = command.replace("'", "'\"'\"'")
-            shell_command = f"bash -c '(\n{escaped_command}\n)'"
+            # 对于包含换行符的命令，使用临时文件方式执行，避免转义问题
+            if '\n' in command:
+                # 使用临时文件执行多行命令，更可靠
+                import tempfile
+                import base64
+                # 将命令编码为 base64，避免转义和特殊字符问题
+                encoded = base64.b64encode(command.encode('utf-8')).decode('ascii')
+                # 使用 bash -c 执行解码后的命令
+                shell_command = f"bash -c 'eval \"$(echo {encoded} | base64 -d)\"'"
+            else:
+                # 单行命令使用原来的转义方式
+                escaped_command = command.replace("'", "'\"'\"'")
+                shell_command = f"bash -c '({escaped_command})'"
         
         if is_background:
             return await self._execute_background(command, cwd)

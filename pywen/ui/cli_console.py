@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from typing import Optional, Any, Dict
 from rich.console import Group
 from rich import get_console
@@ -458,14 +459,18 @@ class ApprovalService:
     async def confirm(self, tool_call, tool=None) -> bool:
         name = tool_call.name if hasattr(tool_call, "name") else tool_call.get("name", "unknown")
         args = tool_call.arguments if hasattr(tool_call, "arguments") else tool_call.get("arguments", {})
+        
         if self.pm and self.pm.should_auto_approve(name, **args):
             return True
 
         if tool:
-            args = getattr(tool_call, 'arguments', None) or tool_call.get('arguments', {})
-            risk_level = tool.get_risk_level(**args)
+            tool_args = getattr(tool_call, 'arguments', None) or tool_call.get('arguments', {})
+            risk_level = tool.get_risk_level(**tool_args)
             if risk_level == ToolRiskLevel.SAFE:
                 return True
+
+        if not sys.stdin.isatty() and self.pm and self.pm.permission_level == PermissionLevel.YOLO:
+            return True
 
         if isinstance(tool_call, dict):
             tool_name = tool_call.get('name', 'Unknown Tool')
