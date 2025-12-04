@@ -47,9 +47,9 @@ class ClearCommand(BaseCommand):
         os.system('cls' if os.name == 'nt' else 'clear')
         
         # 重置智能体对话历史
-        agent = context.get('agent')
-        if agent and hasattr(agent, 'reset_conversation'):
-            agent.reset_conversation()
+        agent_mgr = context.get('agent_mgr')
+        if agent_mgr and hasattr(agent_mgr.current, 'reset_conversation'):
+            agent_mgr.current.reset_conversation()
         
         console = context.get('console')
         if console:

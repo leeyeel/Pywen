@@ -14,17 +14,17 @@ class ToolsCommand(BaseCommand):
     
     async def execute(self, context: Dict[str, Any], args: str) -> dict:
         """显示可用工具列表"""
-        agent  = context.get('agent')
+        agent_mgr  = context.get('agent_mgr')
         
-        if not agent:
-            self.console.print("[red]No agent available[/red]")
-            return {"result": False, "message": "no agent available"}
+        if not agent_mgr:
+            self.console.print("[red]No agent manager available[/red]")
+            return {"result": False, "message": "no agent manager available"}
         
         try:
-            provider = agent.type.lower().replace("agent", "")
+            provider = agent_mgr.current_name.lower().replace("agent", "")
             tools = ToolManager.list_for_provider(provider)
              
-            table = Table(title=f"{agent.type} Available Tools")
+            table = Table(title=f"{agent_mgr.current_name} Available Tools")
             table.add_column("Tool Name", style="green")
             table.add_column("Display Name", style="green")
             table.add_column("Description", style="white")

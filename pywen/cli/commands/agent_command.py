@@ -4,27 +4,8 @@ from rich import get_console
 from .base_command import BaseCommand
 from pywen.utils.session_stats import session_stats
 from pywen.config.config import AppConfig
+from pywen.agents.agent_manager import AgentManager
 from typing import Dict, Any
-
-# 可用agent配置
-AVAILABLE_AGENTS = {
-    "pywen": {
-        "name": "🤖 Pywen Agent",
-        "description": "General purpose conversational and coding assistant"
-    },
-    "research": {
-        "name": "🔬 GeminiResearchDemo",
-        "description": "Gemini open-sourced Multi-step research agent demo for comprehensive information gathering"
-    },
-    "claude": {
-        "name": "🧠 Claude Code Agent",
-        "description": "AI coding assistant with advanced file operations and project understanding"
-    },
-    "codex": {
-        "name": "🛸 Codex Agent",
-        "description": "OpenAI Codex based coding assistant with file operation capabilities"
-    },
-}
 
 class AgentCommand(BaseCommand):
     def __init__(self):
@@ -50,12 +31,11 @@ class AgentCommand(BaseCommand):
     
     def _show_available_agents(self, context: Dict[str, Any]):
         """显示可用agent列表"""
-        current_agent = context.get('agent')
-        current_agent_type = self._get_current_agent_type(current_agent)
-        
+        agent_mgr: AgentManager = context.get('agent_mgr')
+        current_agent_type =  agent_mgr.current_name if agent_mgr else 'pywen'
         self.console.print("[bold]Available Agents:[/bold]")
         for agent_type, info in AVAILABLE_AGENTS.items():
-            status = "[green]✓ Current[/green]" if agent_type == current_agent_type else ""
+            status = "[green]✓ Current[/green]" if agent_type in current_agent_type.lower() else ""
             self.console.print(f"  • [cyan]{agent_type}[/cyan]: {info['name']} - {info['description']} {status}")
         self.console.print(f"\n[dim]Usage: /agent <agent_type> to switch[/dim]")
     
@@ -66,72 +46,21 @@ class AgentCommand(BaseCommand):
             self.console.print(f"[dim]Available agents: {', '.join(AVAILABLE_AGENTS.keys())}[/dim]")
             return
         
-        current_agent = context.get('agent')
-        current_agent_type = self._get_current_agent_type(current_agent)
+        agent_mgr = context.get('agent_mgr')
+        current_agent_type =  agent_mgr.current_name if agent_mgr else 'pywen'
+        self.console.print("[bold]Available Agents:[/bold]")
         
         if new_agent_type == current_agent_type:
             self.console.print(f"[yellow]Already using {AVAILABLE_AGENTS[current_agent_type]['name']}[/yellow]")
             return
         
         try:
-            # 创建新agent
-            new_agent = self._create_agent(
-                    context.get('config'), 
-                    context.get('tool_mgr'), 
-                    context.get('hook_mgr'), 
-                    new_agent_type
-                )
-            
-            # 更新context中的agent
-            context['agent'] = new_agent
-            context['current_agent_type'] = new_agent_type
-
+            await agent_mgr.switch_to(new_agent_type)
             # 更新session stats中的当前agent
-            session_stats.set_current_agent(new_agent.type)
+            session_stats.set_current_agent(new_agent_type)
 
             agent_name = AVAILABLE_AGENTS[new_agent_type]["name"]
             self.console.print(f"[green]Switched to {agent_name}[/green]")
             
         except Exception as e:
             self.console.print(f"[red]Failed to switch agent: {e}[/red]")
-    
-    def _get_current_agent_type(self, agent) -> str:
-        """获取当前agent类型"""
-        if agent is None:
-            return "unknown"
-
-        # 动态导入避免循环依赖
-        try:
-            from pywen.agents.pywen.pywen_agent import PywenAgent
-            from pywen.agents.research.google_research_agent import GeminiResearchDemo
-            from pywen.agents.claude.claude_agent import ClaudeAgent
-
-            if isinstance(agent, PywenAgent):
-                return "pywen"
-            elif isinstance(agent, GeminiResearchDemo):
-                return "research"
-            elif isinstance(agent, ClaudeAgent):
-                return "claude"
-        except ImportError:
-            pass
-
-        return "unknown"
-    
-    def _create_agent(self, config: AppConfig, tool_mgr, hook_mgr, agent_type: str):
-        """创建agent实例"""
-        if config:
-            config.set_active_agent(agent_type)
-        if agent_type == "pywen":
-            from pywen.agents.pywen.pywen_agent import PywenAgent
-            return PywenAgent(config, tool_mgr, hook_mgr)
-        elif agent_type == "research":
-            from pywen.agents.research.google_research_agent import GeminiResearchDemo
-            return GeminiResearchDemo(config, tool_mgr, hook_mgr)
-        elif agent_type == "claude":
-            from pywen.agents.claude.claude_agent import ClaudeAgent
-            return ClaudeAgent(config, tool_mgr, hook_mgr)
-        elif agent_type == "codex":
-            from pywen.agents.codex.codex_agent import CodexAgent 
-            return CodexAgent(config, tool_mgr, hook_mgr)
-        else:
-            raise ValueError(f"Unknown agent type: {agent_type}")
