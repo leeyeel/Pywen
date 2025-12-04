@@ -132,6 +132,7 @@ class AnthropicAdapter():
         
         async with self._async.messages.stream(**kwargs) as stream:
             async for event in stream:
+                print(event)
                 # 从 message_start 提取 input_tokens（Anthropic API 风格）
                 if event.type == "message_start":
                     message = getattr(event, "message", None)

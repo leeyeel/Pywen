@@ -24,6 +24,7 @@ EventType = Literal[
         "reasoning.delta",         #  推理过程增量
         "reasoning.finished",      #x 推理摘要/终止
         "metrics.token_usage",     #  令牌用量
+        "web_search_begin",
         "response.finished",       #  本次响应整体完成
         "error",                   #  任意阶段错误
 
@@ -36,7 +37,6 @@ EventType = Literal[
         "token_usage",
         "tool_call.delta",  # indicates a fragment of tool call output
         "tool_call.ready",  # indicates that a tool call is ready to be executed
-        "web_search_begin",
         "message_start",
         "content_block_start",
         "content_block_delta",
@@ -86,6 +86,10 @@ class ResponseEvent(Generic[T]):
         return ResponseEvent("reasoning.finished", summary)
 
     @staticmethod
+    def web_search_begin(call_id: str)-> ResponseEvent[Dict[str, Any]]:
+        return ResponseEvent("web_search_begin", {"call_id": call_id})
+
+    @staticmethod
     def token_usage(usage: Dict[str, Any]) -> ResponseEvent[Dict[str, Any]]:
         return ResponseEvent("metrics.token_usage", usage)
 
@@ -115,10 +119,6 @@ class ResponseEvent(Generic[T]):
     def error(message: str, extra: Optional[Dict[str, Any]] = None) -> ResponseEvent[Dict[str, Any]]:
         payload = {"message": message, **(extra or {})}
         return ResponseEvent("error", payload)
-
-    @staticmethod
-    def web_search_begin(call_id: str)-> ResponseEvent[Dict[str, Any]]:
-        return ResponseEvent("web_search_begin", {"call_id": call_id})
 
     @staticmethod
     def message_start(meta: Dict[str, Any]) -> ResponseEvent[Dict[str, Any]]:

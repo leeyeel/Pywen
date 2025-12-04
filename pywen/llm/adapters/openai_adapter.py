@@ -73,6 +73,7 @@ class OpenAIAdapter():
 
     # responses 异步 流式
     async def _responses_stream_responses_async(self, messages, model, params) -> AsyncGenerator[ResponseEvent, None]:
+        print("AAAAAAAAAAAAAAAAAAA")
         stream = await self._async.responses.create(
             model=model,
             input= messages,
@@ -80,6 +81,8 @@ class OpenAIAdapter():
             **{k: v for k, v in params.items() if k not in ("model", "api")}
         )
         async for event in stream:
+            print("BBBBBBBBBBBBBBBB ")
+            print("Responses event:", event)
             if event.type == "response.created":
                 payload = {"response_id": event.response.id}
                 yield ResponseEvent.request_started(payload)

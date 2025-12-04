@@ -38,7 +38,7 @@ class PromptDriver:
                  current_task_getter: Optional[Callable[[], Optional[asyncio.Task]]] = None,
                  exit_sentinel: str = "__PYWEN_QUIT__",
         ) -> None:
-        self._cli = cli
+        self._cli:CLIConsole = cli
         self.exit_sentinel = exit_sentinel
         kbs = create_key_bindings(
             console_getter=lambda: cli,
@@ -85,11 +85,12 @@ class CancellationToken:
 
 class EventPump:
     """把 agent 事件流 → CLI 渲染"""
-    def __init__(self, cli) -> None:
+    def __init__(self, cli : CLIConsole) -> None:
         self._cli = cli
 
     async def run(self, agent_run_aiter, cancel_token: CancellationToken) -> str:
         async for event in agent_run_aiter:
+            print("Agent Event:", event)
             if cancel_token.is_set:
                 self._cli.print("\n⚠️ Operation cancelled by user", "yellow")
                 return Agent_Events.CANCEL

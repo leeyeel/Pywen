@@ -91,7 +91,7 @@ class ConfigManager:
         self._app_config = app_cfg
         return app_cfg
 
-    def get_app_config(self, args: Any) -> AppConfig:
+    def get_app_config(self, args: Optional[Any] = None) -> AppConfig:
         """获取最终的 AppConfig 对象（带缓存）。"""
         if self._app_config is None:
             return self.resolve_effective_config(args)
@@ -139,7 +139,7 @@ class ConfigManager:
         cfg = self.get_app_config(args)
         return cfg.active_agent_name
 
-    def get_active_model(self, args: Any) -> ModelConfig: 
+    def get_active_model(self, args: Optional[Any] = None) -> ModelConfig: 
         """辅助方法：返回当前激活的 ModelConfig。"""
         cfg = self.get_app_config(args)
         return cfg.active_model

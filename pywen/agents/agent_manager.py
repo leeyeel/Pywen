@@ -3,6 +3,7 @@ import asyncio
 import threading
 from typing import Optional, List, AsyncGenerator 
 from pywen.config.config import AppConfig
+from pywen.config.manager import ConfigManager
 from pywen.hooks.manager import HookManager
 from pywen.tools.tool_manager import ToolManager 
 
@@ -39,8 +40,8 @@ def _normalize_name(name: str) -> str:
     return n[:-5] if n.endswith("agent") else n
 
 class AgentManager:
-    def __init__(self, config: AppConfig, tool_mgr: ToolManager, hook_mgr: Optional[HookManager] = None) -> None:
-        self._config = config
+    def __init__(self, cfg_mgr: ConfigManager, tool_mgr: ToolManager, hook_mgr: Optional[HookManager] = None) -> None:
+        self._config_mgr = cfg_mgr
         self._tool_mgr = tool_mgr
         self._hook_mgr = hook_mgr
         self._current: Optional[BaseAgent] = None
@@ -58,11 +59,11 @@ class AgentManager:
         return self._current_name
 
     def list_agents(self) -> List[str]:
-        return [m.agent_name for m in self._config.models]
+        return self._config_mgr.list_agent_names()
 
     def is_supported(self, name: str) -> bool:
         n = _normalize_name(name)
-        for m in self._config.models:
+        for m in self._config_mgr.get_app_config().models:
             if _normalize_name(m.agent_name) == n:
                 return True
         return False
@@ -118,9 +119,9 @@ class AgentManager:
 
     async def _create_agent(self, normalized_name: str) -> BaseAgent:
         if normalized_name == "pywen":
-            return PywenAgent(self._config, self._tool_mgr, self._hook_mgr)
+            return PywenAgent(self._config_mgr.get_app_config(), self._tool_mgr, self._hook_mgr)
         if normalized_name == "claude":
-            return ClaudeAgent(self._config, self._tool_mgr, self._hook_mgr)
+            return ClaudeAgent(self._config_mgr.get_app_config(), self._tool_mgr, self._hook_mgr)
         if normalized_name == "codex":
-            return CodexAgent(self._config, self._tool_mgr, self._hook_mgr)
+            return CodexAgent(self._config_mgr.get_app_config(), self._tool_mgr, self._hook_mgr)
         raise ValueError(f"Unsupported agent type: {normalized_name}")

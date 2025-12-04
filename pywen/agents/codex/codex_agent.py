@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Literal, Any, AsyncGenerator
 from pydantic import BaseModel
 from pywen.agents.base_agent import BaseAgent
+from pywen.agents.agent_events import AgentEvent 
 from pywen.llm.llm_client import LLMClient 
 from pywen.llm.llm_basics import ToolCall, LLMMessage
 from pywen.llm.llm_events import LLM_Events 
@@ -73,10 +74,10 @@ class CodexAgent(BaseAgent):
 
         return {"type": "message", "role": "user", "content": content}
 
-    async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
+    async def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
 
         self.turn_index = 0
-        yield {"type": "user_message", "data": {"message": user_message, "turn": self.turn_index}}
+        yield AgentEvent.user_message(user_message, self.turn_index)
 
         model_name = self.config.active_model.model or "gpt-5-codex"
         provider = self.config.active_model.provider or "openai"
@@ -96,6 +97,8 @@ class CodexAgent(BaseAgent):
         while self.turn_index < self.turn_cnt_max:
             messages = self.history.to_responses_input()
             params = {"model": model_name, "api": self.config.active_model.wire_api, "tools" : self.tools}
+            print("---- Codex Agent Messages ----")
+            print(self.config.active_model.wire_api)
 
             self.current_task = None
             for m in reversed(messages):
@@ -104,7 +107,6 @@ class CodexAgent(BaseAgent):
                     break
 
             stage = self._responses_event_process(messages= messages, params=params)
-
             async for ev in stage:
                 yield ev
 
@@ -178,15 +180,15 @@ class CodexAgent(BaseAgent):
                 agent_name = self.type,
         )
 
-    async def _responses_event_process(self, messages, params) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _responses_event_process(self, messages, params) -> AsyncGenerator[AgentEvent, None]:
         """在这里处理LLM的事件，转换为agent事件流"""
         async for event in self.llm_client.astream_response(messages, **params):
-            print(event)
+            print("LLM Event:", event)
             if event.type == LLM_Events.REQUEST_STARTED:
-                yield {"type": "llm_stream_start", "data": {"message": "LLM response stream started"}}
+                yield AgentEvent.llm_stream_start()
 
             elif event.type == LLM_Events.ASSISTANT_DELTA:
-                yield {"type": "llm_chunk", "data": {"content": event.data}}
+                yield AgentEvent.text_delta(str(event.data))
     
             elif event.type == LLM_Events.TOOL_CALL_READY:
                 if event.data is None: continue
@@ -214,16 +216,16 @@ class CodexAgent(BaseAgent):
                         has_tool_call = True
                         break
                 if has_tool_call:
-                    yield {"type": "turn_complete", "data": {"status": "completed"}}
+                    yield AgentEvent.turn_complete()
                 else:
-                    yield {"type": "task_complete", "data": {"status": "completed"}}
+                    yield AgentEvent.task_complete("completed")
             elif event.type == LLM_Events.TOKEN_USAGE:
                 #TODO. 记录token使用情况
                 print("Token usage: ", event.data)
             elif event.type == "error":
-                yield {"type": "error", "data": {"error": str(event.data)}}
+                yield AgentEvent.error(str(event.data))
 
-    async def _process_one_tool_call(self, tool_call :ToolCall) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _process_one_tool_call(self, tool_call :ToolCall) -> AsyncGenerator[AgentEvent, None]:
         name = tool_call.name
         tool = self.tool_mgr.get_tool(name)
         if not tool:
@@ -239,16 +241,14 @@ class CodexAgent(BaseAgent):
             is_success, result = await self.tool_mgr.execute(name, arguments, tool)
             if not is_success:
                 self.history.add_message(role="assistant", content= result)
-                payload = {"call_id": call_id, "name": name, "result": result, "success":False,"error": result,}
-                yield {"type": "tool_result", "data": payload}
+                yield AgentEvent.tool_result(call_id, name, result, False, arguments)
                 return
             item = {"type": "function_call_output", "call_id": call_id, "output": json.dumps({"result": result,}) }
             self.history.add_item(item)
-            payload = {"call_id": call_id, "name": name, "result": result, "success": True, "error": None, "arguments": arguments,}
-            yield {"type": "tool_result", "data": payload}
+            yield AgentEvent.tool_result(call_id, name, result, True, arguments)
         except Exception as e:
             item = {"type": "function_call_output", "call_id": call_id, "output": "tool failed"}
             self.history.add_item(item)
             error_msg = f"Tool execution failed: {str(e)}"
-            yield {"type": "tool_error", "data": {"call_id": call_id, "name": name, "error": error_msg}}
+            yield AgentEvent.tool_result(call_id, name, error_msg, False, arguments)
 

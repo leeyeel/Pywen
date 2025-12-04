@@ -78,6 +78,11 @@ class AgentEvent(Generic[T]):
         return AgentEvent(Agent_Events.TURN_MAX_REACHED , data)
 
     @staticmethod
+    def turn_complete(summary: Optional[str] = None) -> AgentEvent:
+        data = {"summary": summary} if summary is not None else {}
+        return AgentEvent(Agent_Events.TURN_COMPLETE , data)
+
+    @staticmethod
     def task_complete(summary: Optional[str] = None) -> AgentEvent:
         data = {"summary": summary} if summary is not None else {}
         return AgentEvent(Agent_Events.TASK_COMPLETE , data)
