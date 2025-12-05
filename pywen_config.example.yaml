@@ -13,12 +13,12 @@ default_agent: pywen
 
 
 # ------------------------------------------------------------
-# models: 多模型配置
+# agents: 多agent配置
 # ------------------------------------------------------------
 # Pywen 支持多个模型，可根据不同 provider（openai/anthropic/qwen/modelscope）
 # 实现多 Agent 切换、多模型切换、多 wire_api（chat/responses）切换等。
 #
-# 每个 model 块代表一个可用模型，用于代码执行/对话/工具调用任务。
+# 每个 agent 块代表一个可用模型，用于代码执行/对话/工具调用任务。
 #
 # 字段说明：
 # - agent_name: Pywen 用来选择 Agent 的逻辑名称（pywen / claudecode / codex）
@@ -33,7 +33,7 @@ default_agent: pywen
 #
 # - temperature、top_p、top_k：采样参数
 # - max_tokens：模型生成 token 上限
-models:
+agents:
 
   # ------------------------------
   # Qwen Coder / ModelScope API
