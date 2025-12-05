@@ -2,8 +2,10 @@ import asyncio
 import atexit
 import locale
 import os
+import shlex
 import signal
-from typing import Any, Mapping, Optional, Set
+import tempfile
+from typing import Any, Mapping, Optional, Set, Tuple
 from .base_tool import BaseTool, ToolResult, ToolRiskLevel
 from pywen.core.tool_registry import register_tool
 
@@ -199,6 +201,60 @@ class BashTool(BaseTool):
             )
         return output
 
+    def _prepare_command(self, command: str) -> Tuple[str, Optional[str]]:
+        """
+        准备命令执行方式，返回 (shell_command, temp_script_path)
+        
+        对于多行命令，使用临时脚本文件方式，更安全且可控。
+        对于单行命令，使用 bash -c 方式。
+        
+        Returns:
+            Tuple[str, Optional[str]]: (shell_command, temp_script_path)
+                temp_script_path 不为 None 时，需要在执行后清理临时文件
+        """
+        if os.name == "nt":
+            # Windows 使用 cmd.exe
+            return (f'cmd.exe /c "({command})"', None)
+        
+        # Unix-like 系统
+        if '\n' in command:
+            # 多行命令：使用临时脚本文件方式，避免 shell 转义和 eval 安全问题
+            try:
+                # 创建临时脚本文件
+                fd, temp_script = tempfile.mkstemp(suffix='.sh', prefix='pywen_bash_', text=True)
+                try:
+                    # 写入命令内容
+                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                        f.write('#!/bin/bash\n')
+                        f.write('set -e\n')  # 遇到错误立即退出
+                        f.write(command)
+                        f.write('\n')
+                    
+                    # 设置执行权限
+                    os.chmod(temp_script, 0o755)
+                    
+                    # 返回执行命令和临时文件路径
+                    # 使用 shlex.quote 安全转义路径，避免路径中的特殊字符导致安全问题
+                    return (f'bash {shlex.quote(temp_script)}', temp_script)
+                except Exception:
+                    # 如果写入失败，关闭文件描述符并删除临时文件
+                    try:
+                        os.close(fd)
+                        os.unlink(temp_script)
+                    except Exception:
+                        pass
+                    raise
+            except Exception as e:
+                # 如果临时文件创建失败，回退到单行转义方式（虽然不完美，但至少能执行）
+                # 将多行命令转换为单行（用分号连接）
+                single_line = '; '.join(line.strip() for line in command.split('\n') if line.strip())
+                escaped_command = single_line.replace("'", "'\"'\"'")
+                return (f"bash -c '({escaped_command})'", None)
+        else:
+            # 单行命令：使用 bash -c 方式
+            escaped_command = command.replace("'", "'\"'\"'")
+            return (f"bash -c '({escaped_command})'", None)
+
     async def execute(self, **kwargs) -> ToolResult:
         """执行 bash 命令"""
         command = kwargs.get("command")
@@ -221,28 +277,20 @@ class BashTool(BaseTool):
             # 匹配 "grep" 单词边界，确保不会匹配到其他包含 "grep" 的字符串
             command = re.sub(r'\bgrep\b', 'grep --line-buffered', command)
         
-        # 括号在 bash 中创建子shell，自动处理多行语法
-        if os.name == "nt":
-            shell_command = f'cmd.exe /c "({command})"'
-        else:
-            # 对于包含换行符的命令，使用临时文件方式执行，避免转义问题
-            if '\n' in command:
-                # 使用临时文件执行多行命令，更可靠
-                import tempfile
-                import base64
-                # 将命令编码为 base64，避免转义和特殊字符问题
-                encoded = base64.b64encode(command.encode('utf-8')).decode('ascii')
-                # 使用 bash -c 执行解码后的命令
-                shell_command = f"bash -c 'eval \"$(echo {encoded} | base64 -d)\"'"
-            else:
-                # 单行命令使用原来的转义方式
-                escaped_command = command.replace("'", "'\"'\"'")
-                shell_command = f"bash -c '({escaped_command})'"
+        # 准备命令执行方式
+        shell_command, temp_script = self._prepare_command(command)
         
-        if is_background:
-            return await self._execute_background(command, cwd)
-        
-        return await self._execute_foreground(shell_command, cwd, timeout)
+        try:
+            if is_background:
+                return await self._execute_background(shell_command, command, cwd)
+            return await self._execute_foreground(shell_command, cwd, timeout)
+        finally:
+            # 清理临时脚本文件
+            if temp_script and os.path.exists(temp_script):
+                try:
+                    os.unlink(temp_script)
+                except Exception:
+                    pass  # 忽略清理错误
 
     async def _execute_foreground(
         self, 
@@ -363,14 +411,16 @@ class BashTool(BaseTool):
             error=f"Command timed out after {timeout} seconds"
         )
 
-    async def _execute_background(self, command: str, cwd: str) -> ToolResult:
-        """后台执行命令，返回 PID 信息"""
+    async def _execute_background(self, shell_command: str, original_command: str, cwd: str) -> ToolResult:
+        """后台执行命令，返回 PID 信息
+        
+        Args:
+            shell_command: 准备好的 shell 命令（可能包含临时脚本路径）
+            original_command: 原始命令（用于显示给用户）
+            cwd: 工作目录
+        """
         try:
-            if os.name == "nt":
-                shell_command = f'start /b cmd.exe /c "{command}"'
-            else:
-                escaped_command = command.replace("'", "'\"'\"'")
-                shell_command = f"bash -c '{escaped_command}'"
+            # shell_command 已经在 execute 方法中通过 _prepare_command 准备好了
             
             # 设置环境变量以禁用分页器和交互式提示
             env = os.environ.copy()
@@ -415,7 +465,7 @@ class BashTool(BaseTool):
             track_pid(pid)
             
             result_lines = [
-                f"Command: {command}",
+                f"Command: {original_command}",
                 f"Directory: {cwd}",
                 f"Output: {initial_output.strip() if initial_output else '(starting...)'}",
                 f"PID: {pid}",
