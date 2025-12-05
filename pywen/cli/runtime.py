@@ -90,7 +90,6 @@ class EventPump:
 
     async def run(self, agent_run_aiter, cancel_token: CancellationToken) -> str:
         async for event in agent_run_aiter:
-            print("Agent Event:", event)
             if cancel_token.is_set:
                 self._cli.print("\n⚠️ Operation cancelled by user", "yellow")
                 return Agent_Events.CANCEL
@@ -220,7 +219,7 @@ class InteractiveSession:
         sid = self.session_id
         while True:
             perm_level = self.perm_mgr.get_permission_level()
-            model_name = self.config_mgr.get_active_model(None).model or "N/A"
+            model_name = self.config_mgr.get_active_model_name() or "N/A"
             self.cli.show_status_bar(model_name = model_name,  permission_level= perm_level.value)
             try:
                 line = await self._prompt.read_line(self.cli.prompt_prefix(sid))

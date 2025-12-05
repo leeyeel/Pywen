@@ -7,28 +7,28 @@ from pywen.llm.llm_client import LLMClient
 from pywen.llm.llm_basics import LLMResponse, LLMMessage
 from pywen.llm.llm_basics import ToolCall, ToolCallResult
 from pywen.utils.trajectory_recorder import TrajectoryRecorder
-from .prompts import ClaudeCodePrompts
-from .context_manager import ClaudeCodeContextManager
 from pywen.utils.session_stats import session_stats
 from pywen.config.manager import ConfigManager
+from pywen.agents.agent_events import AgentEvent 
 from pywen.agents.claude.system_reminder import (
     generate_system_reminders, emit_reminder_event, reset_reminder_session,
     get_system_reminder_start,emit_tool_execution_event
 )
+from .prompts import ClaudeCodePrompts
+from .context_manager import ClaudeCodeContextManager
 
 class ClaudeAgent(BaseAgent):
-
-    def __init__(self, config, tool_mgr, hook_mgr):
-        super().__init__(config, tool_mgr, hook_mgr)
+    def __init__(self, config_mgr:ConfigManager, tool_mgr, hook_mgr):
+        super().__init__(config_mgr, tool_mgr, hook_mgr)
         self.type = "ClaudeAgent"
-        self.llm_client = LLMClient(self.config.active_model)
+        self.llm_client = LLMClient(config_mgr.get_active_agent())
         self.prompts = ClaudeCodePrompts()
         self.project_path = os.getcwd()
-        self.max_iterations = config.max_turns
+        self.max_iterations = config_mgr.get_app_config().max_turns
         self.context_manager = ClaudeCodeContextManager(self.project_path)
         self.context = {}
         self.conversation_history: List[LLMMessage] = []
-        trajectories_dir = ConfigManager.get_trajectories_dir()
+        trajectories_dir = config_mgr.get_trajectories_dir()
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         trajectory_path = trajectories_dir / f"claude_trajectory_{timestamp}.json"
         self.trajectory_recorder = TrajectoryRecorder(trajectory_path)
@@ -78,32 +78,18 @@ class ClaudeAgent(BaseAgent):
             msgs.append(one)
         return msgs
 
-    def _build_system_prompt(self) -> str:
-        return ""
-
     def _build_claude_messages(self) -> List[LLMMessage]:
         """构建系统提示词，拼接动态信息"""
         messages = []
-
         messages.append(LLMMessage(
             role="system",
             content=self.prompts.get_system_identity()
         ))
-
         workflow_content = self.prompts.get_system_workflow()
         env_info = self.prompts.get_env_info(self.project_path)
         workflow_with_env = f"{workflow_content}\n\n{env_info}"
-
-        messages.append(LLMMessage(
-            role="system",
-            content=workflow_with_env
-        ))
-
-        messages.append(LLMMessage(
-            role="user",
-            content=get_system_reminder_start()
-        ))
-
+        messages.append(LLMMessage(role="system", content=workflow_with_env))
+        messages.append(LLMMessage(role="user", content=get_system_reminder_start() ))
         for msg in self.conversation_history[:-1]:
             messages.append(msg)
 
@@ -118,20 +104,15 @@ class ClaudeAgent(BaseAgent):
         )
         
         for reminder in dynamic_reminders:
-            reminder_message = LLMMessage(
-                role="user",
-                content=reminder.content
-            )
+            reminder_message = LLMMessage(role="user", content=reminder.content)
             messages.append(reminder_message)
             self.conversation_history.append(reminder_message)
 
         return messages
 
-
     def _update_context(self):
         try:
             self.context = self.context_manager.get_context()
-
             additional_context = self.prompts.build_context(self.project_path)
             self.context.update(additional_context)
 
@@ -142,29 +123,26 @@ class ClaudeAgent(BaseAgent):
     def reset_conversation(self):
         self.conversation_history.clear()
 
-    async def run(self, user_message: str, **kwargs) -> AsyncGenerator[Dict[str, Any], None]:
+    async def run(self, user_message: str, **kwargs) -> AsyncGenerator[AgentEvent, None]:
         try:
+            agent_config = self.config_mgr.get_active_agent()
+            model_name = self.config_mgr.get_active_model_name() or "claude-4"
             self.trajectory_recorder.start_recording(
                 task=user_message,
-                provider=self.config.active_model.provider or "anthropic",
-                model=self.config.active_model.model or "claude-3",
+                provider=agent_config.provider or "anthropic",
+                model=model_name,
                 max_steps=self.max_iterations
             )
-
             session_stats.record_task_start(self.type)
-
-            yield {"type": "user_message", "data": {"message": user_message}}
+            yield AgentEvent.user_message(user_message)
 
             # quota请求暂不发送，进行话题检查，但话题暂时无用，仅作对齐处理
             topic_info = await self._detect_new_topic(user_message)
             if topic_info and topic_info.get('isNewTopic'):
-                yield {
-                    "type": "new_topic_detected",
-                    "data": {
-                        "title": topic_info.get('title'),
-                        "isNewTopic": topic_info.get('isNewTopic')
-                    }
-                }
+                title = topic_info.get('title', 'New Topic')
+                isnew = topic_info.get('isNewTopic', False)
+                item = {"type": "new_topic", "title": title, "isNewTopic": isnew}
+                yield AgentEvent.user_defined(item)
 
             self._update_context()
             
@@ -177,49 +155,37 @@ class ClaudeAgent(BaseAgent):
 
             llm_message = LLMMessage(role="user", content=user_message)
             self.conversation_history.append(llm_message)
-
             messages = self._build_claude_messages()
-
             async for event in self._query_recursive(messages, depth=0, **kwargs):
+                print(event)
                 yield event
 
         except Exception as e:
-            yield {
-                "type": "error",
-                "data": {
-                    "error": f"Agent error: {str(e)}"
-                },
-            }
+            yield AgentEvent.error(f"Agent error: {str(e)}")
 
     async def _check_quota(self) -> bool:
         try:
+            model_name = self.config_mgr.get_active_model_name() or "claude-4"
             quota_messages = [{"role": "user", "content": "quota"}]
-
-            params = {"model": self.config.active_model.model}
+            params = {"model": model_name}
             content = ""
 
             async for evt in self.llm_client.astream_response(quota_messages, **params):
                 if evt.type == "output_text.delta":
-                    content += evt.data
+                    content += evt.data or ""
                 elif evt.type == "completed":
                     break
                 elif evt.type == "error":
                     #self.cli_console.print(f"Quota check error: {evt.data}", "yellow")
                     return False
 
-            quota_llm_response = LLMResponse(
-                content=content,
-                model=self.config.active_model.model,
-                finish_reason="stop",
-                usage=None,
-                tool_calls=[]
-            )
+            quota_llm_response = LLMResponse(content, model=model_name, finish_reason="stop", usage=None, tool_calls=[])
 
             self.trajectory_recorder.record_llm_interaction(
                 messages=[LLMMessage(role="user", content="quota")],
                 response=quota_llm_response,
-                provider=self.config.active_model.provider or "anthropic",
-                model=self.config.active_model.model or "claude-3",
+                provider=self.config_mgr.get_active_agent().provider or "anthropic",
+                model= model_name,
                 tools=None,
                 current_task="quota_check",
                 agent_name="ClaudeAgent"
@@ -232,17 +198,18 @@ class ClaudeAgent(BaseAgent):
 
     async def _detect_new_topic(self, user_input: str) -> Optional[Dict[str, Any]]:
         try:
+            model_name = self.config_mgr.get_active_model_name() or "claude-4"
             topic_messages = [
                 {"role": "system", "content": self.prompts.get_check_new_topic_prompt()},
                 {"role": "user", "content": user_input}
             ]
 
-            params = {"model": self.config.active_model.model}
+            params = {"model": model_name}
             content = ""
 
             async for evt in self.llm_client.astream_response(topic_messages, **params):
                 if evt.type == "output_text.delta":
-                    content += evt.data
+                    content += evt.data or ""
                 elif evt.type == "completed":
                     break
                 elif evt.type == "error":
@@ -251,7 +218,7 @@ class ClaudeAgent(BaseAgent):
 
             topic_llm_response = LLMResponse(
                 content=content,
-                model=self.config.active_model.model,
+                model= model_name,
                 finish_reason="stop",
                 usage=None,
                 tool_calls=[]
@@ -263,8 +230,8 @@ class ClaudeAgent(BaseAgent):
                     LLMMessage(role="user", content=user_input)
                 ],
                 response=topic_llm_response,
-                provider=self.config.active_model.provider or "anthropic",
-                model=self.config.active_model.model or "claude-3",
+                provider= self.config_mgr.get_active_agent().provider or "anthropic",
+                model= model_name,
                 tools=None,
                 current_task="topic_detection",
                 agent_name="ClaudeAgent"
@@ -281,51 +248,31 @@ class ClaudeAgent(BaseAgent):
             #self.cli_console.print(f"Topic detection failed: {e}", "yellow")
             return None  
 
-    async def _query_recursive(
-        self,
-        messages: List[LLMMessage],
-        depth: int = 0,
-        **kwargs
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _query_recursive(self, messages: List[LLMMessage], depth: int = 0, **kwargs) -> AsyncGenerator[AgentEvent, None]:
         try:
+            model_name = self.config_mgr.get_active_model_name() or "claude-4"
             if depth >= self.max_iterations:
-                yield {
-                    "type": "max_turns_reached",
-                    "data": {
-                        "max_iterations": self.max_iterations,
-                        "current_depth": depth
-                    }
-                }
+                yield AgentEvent.turn_max_reached(self.max_iterations)
                 return
 
             if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
-                yield {
-                    "type": "error",
-                    "data": {"error": "Operation was cancelled"}
-                }
+                yield AgentEvent.error("Operation was cancelled")
                 return
-
 
             assistant_message, tool_calls, final_response = None, [], None
             async for response_event in self._get_assistant_response_streaming(messages, depth=depth, **kwargs):
-                if response_event["type"] in ["llm_stream_start", "llm_chunk", "content"]:
+                if response_event.type in ["llm_stream_start", "llm_chunk", "content"]:
                     yield response_event
-                elif response_event["type"] == "assistant_response":
+                elif response_event.type == "assistant_response":
                     assistant_message = response_event["assistant_message"]
                     tool_calls = response_event["tool_calls"]
                     final_response = response_event.get("final_response")
-
             if assistant_message:
                 self.conversation_history.append(assistant_message)
-
                 llm_response = LLMResponse(
                     content=assistant_message.content or "",
-                    tool_calls=[ToolCall(
-                        call_id=tc.get("id", "unknown"),
-                        name=tc.get("name", ""),
-                        arguments=tc.get("arguments", {})
-                    ) for tc in tool_calls] if tool_calls else None,
-                    model=self.config.active_model.model,
+                    tool_calls=[ToolCall(call_id=tc.get("id", "unknown"), name=tc.get("name", ""), arguments=tc.get("arguments", {})) for tc in tool_calls] if tool_calls else None,
+                    model= model_name,
                     finish_reason="stop",
                     usage=final_response.usage if final_response and hasattr(final_response, 'usage') else None
                 )
@@ -333,8 +280,8 @@ class ClaudeAgent(BaseAgent):
                 self.trajectory_recorder.record_llm_interaction(
                     messages=messages,
                     response=llm_response,
-                    provider=self.config.active_model.provider or "anthropic",
-                    model=self.config.active_model.model or "claude-3",
+                    provider=self.config_mgr.get_active_agent().provider or "anthropic",
+                    model= model_name,
                     tools=self.tools,
                     current_task=f"Processing query at depth {depth}",
                     agent_name=self.type
@@ -342,39 +289,28 @@ class ClaudeAgent(BaseAgent):
 
 
             if not tool_calls:
-
                 if final_response and hasattr(final_response, 'usage') and final_response.usage:
-                    yield {"type": "turn_token_usage", "data": final_response.usage.total_tokens}
-                yield {
-                    "type": "task_complete",
-                    "content": assistant_message.content if assistant_message else "",
-                    
-                }
+                    yield AgentEvent.turn_token_usage(final_response.usage.total_tokens)
+                yield AgentEvent.task_complete(assistant_message.content if assistant_message else "")
 
                 return
 
             for tool_call in tool_calls:
-                yield {
-                    "type": "tool_call_start",
-                    "data": {
-                        "call_id": tool_call.get("id", "unknown"),
-                        "name": tool_call["name"],
-                        "arguments": tool_call.get("arguments", {})
-                    }
-                }
+                yield AgentEvent.tool_call(
+                    call_id=tool_call.get("id", "unknown"),
+                    name=tool_call["name"],
+                    args=tool_call.get("arguments", {})
+                )
 
             tool_results = []
             async for tool_event in self._execute_tools(tool_calls, **kwargs):
                 yield tool_event
                 
-                if tool_event["type"] == "tool_results":
+                if tool_event.type == "tool_results":
                     tool_results = tool_event["results"]
 
             if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
-                yield {
-                    "type": "error",
-                    "data": {"error": "Operation was cancelled during tool execution"}
-                }
+                yield AgentEvent.error("Operation was cancelled during tool execution")
                 return
 
             for tool_result in tool_results:
@@ -405,37 +341,21 @@ class ClaudeAgent(BaseAgent):
                 yield event
 
         except Exception as e:
-            yield {
-                "type": "error",
-                "data":{"error": f"Query error: {str(e)}"},
-            }
+            yield AgentEvent.error(f"Query error: {str(e)}")
 
-    async def _get_assistant_response_streaming(
-        self,
-        messages: List[LLMMessage],
-        depth: int = 0,
-        **kwargs
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _get_assistant_response_streaming(self, messages: List[LLMMessage], depth: int = 0, **kwargs ) -> AsyncGenerator[AgentEvent, None]:
         try:
             if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
-                yield {
-                    "type": "error",
-                    "data": {"error": "Operation was cancelled"}
-                }
+                yield AgentEvent.error("Operation was cancelled")
                 return
-
             formatted_messages = self._build_messages(messages)
 
             params = {
-                "model": self.config.active_model.model,
+                "model": self.config_mgr.get_active_model_name(),
                 "tools": self.tools,
                 "max_tokens": 4096
             }
-
-            yield {
-                "type": "llm_stream_start",
-                "data": {"depth": depth}
-            }
+            yield AgentEvent.llm_stream_start({"depth": depth})
 
             assistant_content = ""
             collected_tool_calls = []
@@ -445,15 +365,11 @@ class ClaudeAgent(BaseAgent):
 
             async for evt in self.llm_client.astream_response(formatted_messages, **params):
                 if evt.type == "output_text.delta":
-                    yield {
-                        "type": "llm_chunk",
-                        "data": {"content": evt.data}
-                    }
-                    assistant_content += evt.data
-
+                    yield AgentEvent.text_delta(evt.data or "")
+                    assistant_content += evt.data or ""
                 elif evt.type == "content_block_start":
                     block_data = evt.data
-                    if block_data.get("block_type") == "tool_use":
+                    if block_data and block_data.get("block_type") == "tool_use":
                         current_tool_call = {
                             "call_id": block_data.get("call_id"),
                             "name": block_data.get("name"),
@@ -462,7 +378,7 @@ class ClaudeAgent(BaseAgent):
 
                 elif evt.type == "tool_call.delta_json":
                     if current_tool_call:
-                        tool_json_buffer += evt.data
+                        tool_json_buffer += evt.data or ""
 
                 elif evt.type == "content_block_stop":
                     if current_tool_call:
@@ -489,26 +405,19 @@ class ClaudeAgent(BaseAgent):
                     break
 
                 elif evt.type == "error":
-                    yield {
-                        "type": "error",
-                        "data": {"error": str(evt.data)}
-                    }
+                    yield AgentEvent.error(f"LLM streaming error: {str(evt.data)}")
                     return
 
             assistant_msg = LLMMessage(
                 role="assistant",
                 content=assistant_content,
-                tool_calls=collected_tool_calls if collected_tool_calls else None
+                tool_calls=collected_tool_calls or None
             )
 
             tool_calls = []
             if collected_tool_calls:
                 for tc in collected_tool_calls:
-                    tool_calls.append({
-                        "id": tc.call_id,
-                        "name": tc.name,
-                        "arguments": tc.arguments
-                    })
+                    tool_calls.append({"id": tc.call_id, "name": tc.name, "arguments": tc.arguments})
 
             usage_obj = None
             if usage_data:
@@ -536,49 +445,23 @@ class ClaudeAgent(BaseAgent):
             }
 
         except Exception as e:
-            yield {
-                "type": "error",
-                "data": {"error": f"Streaming failed: {str(e)}"}
-            }
+            yield AgentEvent.error(f"Streaming error: {str(e)}")
 
-    async def _execute_tools(
-        self,
-        tool_calls: List[Dict[str, Any]],
-        **kwargs
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _execute_tools(self, tool_calls: List[Dict[str, Any]], **kwargs) -> AsyncGenerator[AgentEvent, None]:
         if not tool_calls:
-            yield {
-                "type": "tool_results",
-                "results": []
-            }
+            yield AgentEvent.tool_result("", "", "No tools to execute", True, {})
             return
 
-        tool_results = []
         for tool_call in tool_calls:
             try:
-                yield {
-                    "type": "tool_start",
-                    "data": {
-                        "call_id": tool_call.get("id", "unknown"),
-                        "name": tool_call["name"],
-                        "arguments": tool_call.get("arguments", {})
-                    }
-                }
-
                 tool_result, llm_message = await self._execute_single_tool_with_result(tool_call, **kwargs)
-
-                yield {
-                    "type": "tool_result",
-                    "data": {
-                        "call_id": tool_call.get("id", "unknown"),
-                        "name": tool_call["name"],
-                        "arguments": tool_call.get("arguments", {}),
-                        "result": tool_result.result if tool_result.success and isinstance(tool_result.result, dict) else str(tool_result.result or tool_result.error),
-                        "success": tool_result.success
-                    }
-                }
-
-                tool_results.append(llm_message)
+                yield AgentEvent.tool_result(
+                    call_id=tool_call.get("id", "unknown"),
+                    name=tool_call["name"],
+                    result=tool_result.result if tool_result.success and isinstance(tool_result.result, dict) else str(tool_result.result or tool_result.error),
+                    success=tool_result.success,
+                    args=tool_call.get("arguments", {})
+                )
 
                 if kwargs.get('abort_signal') and kwargs['abort_signal'].is_set():
                     break
@@ -591,24 +474,13 @@ class ClaudeAgent(BaseAgent):
                     tool_call_id=tool_call.get("id", "unknown")
                 )
 
-                yield {
-                    "type": "tool_error",
-                    "data": {
-                        "call_id": tool_call.get("id", "unknown"),
-                        "name": tool_call["name"],
-                        "error": error_msg,
-                        "success": False
-                    }
-                }
-
-                tool_results.append(error_message)
-
-        yield {
-            "type": "tool_results",
-            "results": tool_results
-        }
-
-
+                yield AgentEvent.tool_result(
+                    call_id=tool_call.get("id", "unknown"),
+                    name=tool_call["name"],
+                    result=error_msg,
+                    success=False,
+                    args=tool_call.get("arguments", {})
+                )
 
     async def _execute_single_tool_with_result(
         self,

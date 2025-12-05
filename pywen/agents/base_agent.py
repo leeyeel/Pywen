@@ -3,7 +3,8 @@ import fnmatch
 from typing import Callable, Iterable, Optional, AsyncGenerator
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
-from pywen.config.config import AppConfig, MCPConfig
+from pywen.config.config import MCPConfig
+from pywen.config.manager import ConfigManager
 from pywen.utils.trajectory_recorder import TrajectoryRecorder
 from pywen.llm.llm_basics import LLMMessage
 from pywen.tools.tool_manager import ToolManager
@@ -12,16 +13,15 @@ from pywen.hooks.manager import HookManager
 from pywen.agents.agent_events import AgentEvent 
 
 class BaseAgent(ABC):
-    def __init__(self, config: AppConfig, tool_mgr :ToolManager, hook_mgr: Optional[HookManager] = None, ) -> None:
-        self.config = config
+    def __init__(self, config_mgr: ConfigManager, tool_mgr :ToolManager, hook_mgr: Optional[HookManager] = None, ) -> None:
         self.type = "BaseAgent"
         self.conversation_history: List[LLMMessage] = []
         self.trajectory_recorder = TrajectoryRecorder()
         self._closed = False 
         self._mcp_mgr = None
         self._mcp_init_lock = asyncio.Lock()
+        self.config_mgr = config_mgr
         self.hook_mgr = hook_mgr
-        self.cli = None
         self.tool_mgr = tool_mgr
 
     async def setup_tools_mcp(self):
@@ -38,10 +38,9 @@ class BaseAgent(ABC):
         """Run the agent - must be implemented by subclasses."""
         pass
     
-    @abstractmethod
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions."""
-        pass
+        return "" 
 
     def __make_include_predicate(self, patterns: Optional[Iterable[str]]) -> Optional[Callable[[str], bool]]:
         if not patterns:
@@ -62,7 +61,7 @@ class BaseAgent(ABC):
             if self._mcp_mgr is not None:
                 return
 
-            mcp_cfg = self.config.mcp or MCPConfig()
+            mcp_cfg = self.config_mgr.get_app_config().mcp or MCPConfig()
             if not mcp_cfg.enabled:
                 self._mcp_mgr = MCPServerManager()
                 return
@@ -89,7 +88,7 @@ class BaseAgent(ABC):
 
                 try:
                     await mgr.add_stdio_server(name, command, args)
-                except Exception as e:
+                except Exception:
                     return
 
             for s in servers:

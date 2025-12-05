@@ -28,8 +28,8 @@ class AgentCommand(BaseCommand):
             if parts[0] not in agents:
                 cli.print(f"agent '{parts[0]}' not found.")
                 return {"result": False, "message": f"agent '{parts[0]}' not found."}
-            await agent_manager.switch_to(parts[0])
             config_mgr.switch_active_agent(parts[0], None)
+            await agent_manager.switch_to(parts[0])
             cli.print(f"switched to agent '{parts[0]}'.")
         
         return {"result": True, "message": "success"} 

@@ -16,6 +16,7 @@ class Agent_Events:
     TURN_MAX_REACHED     = "turn.max_reached"
     TASK_COMPLETE        = "task.complete"
     WAITING_FOR_USER     = "waiting.for_user"
+    USER_DEFINED         = "user_defined"
     CANCEL               = "cancel"
     ERROR                = "error"
 
@@ -35,7 +36,8 @@ AgentEventType = Literal[
     "task.complete",
     "waiting.for_user",
     "cancel",
-    "error"                  
+    "error",
+    "user_defined",
 ]
 
 T = TypeVar("T")
@@ -50,8 +52,8 @@ class AgentEvent(Generic[T]):
         return AgentEvent(Agent_Events.USER_MESSAGE , {"text": text, "turn": turn})
 
     @staticmethod
-    def llm_stream_start() -> AgentEvent:
-        return AgentEvent(Agent_Events.LLM_STREAM_START , {})
+    def llm_stream_start(data = None) -> AgentEvent:
+        return AgentEvent(Agent_Events.LLM_STREAM_START , None)
 
     @staticmethod
     def text_delta(content: str) -> AgentEvent:
@@ -61,6 +63,11 @@ class AgentEvent(Generic[T]):
     def text_done(content: Optional[str] = None) -> AgentEvent:
         data = {"content": content} if content is not None else {}
         return AgentEvent(Agent_Events.TEXT_DONE , data)
+
+    @staticmethod
+    def tool_call(call_id: str, name:str, args: Any) -> AgentEvent:
+        data = {"call_id": call_id, "name": name, "args": args}
+        return AgentEvent(Agent_Events.TOOL_CALL, data)
 
     @staticmethod
     def tool_result(call_id: str, name:str, result: Any, success: bool, args: Any) -> AgentEvent:
@@ -73,7 +80,7 @@ class AgentEvent(Generic[T]):
         return AgentEvent(Agent_Events.TURN_TOKEN_USAGE , data)
 
     @staticmethod
-    def trun_max_reached(max_turns: int) -> AgentEvent:
+    def turn_max_reached(max_turns: int) -> AgentEvent:
         data = {"max_turns": max_turns}
         return AgentEvent(Agent_Events.TURN_MAX_REACHED , data)
 
@@ -86,6 +93,11 @@ class AgentEvent(Generic[T]):
     def task_complete(summary: Optional[str] = None) -> AgentEvent:
         data = {"summary": summary} if summary is not None else {}
         return AgentEvent(Agent_Events.TASK_COMPLETE , data)
+
+    @staticmethod
+    def user_defined(item: Dict) ->AgentEvent:
+        data = {"user_defined": item}
+        return AgentEvent(Agent_Events.USER_DEFINED , data)
 
     @staticmethod
     def error(message: str, code: Optional[int] = None) -> AgentEvent:

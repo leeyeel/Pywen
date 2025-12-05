@@ -76,7 +76,7 @@ async def async_main() -> None:
         cli=cli,
         agent_mgr=agent_mgr,
         hook_mgr=hook_mgr,
-        config_mgr =cfg_mgr,
+        config_mgr=cfg_mgr,
         tool_mgr=tool_mgr,
         perm_mgr=perm_mgr,
         session_id=session_id,

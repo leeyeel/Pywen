@@ -298,21 +298,21 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
 class PywenAgent(BaseAgent):
     """Pywen Agent with streaming iterative tool calling logic."""
     
-    def __init__(self, config, tool_mgr, hook_mgr):
-        super().__init__(config, tool_mgr, hook_mgr)
+    def __init__(self, config_mgr, tool_mgr, hook_mgr):
+        super().__init__(config_mgr, tool_mgr, hook_mgr)
         self.type = "PywenAgent"
         session_stats.set_current_agent(self.type)
         self.current_turn_index = 0
         self.original_user_task = ""
-        self.max_turns = config.max_turns
+        self.max_turns = self.config_mgr.get_app_config().max_turns
         self.system_prompt = self.get_core_system_prompt()
-        self.llm_client = LLMClient(config.active_model)
+        self.llm_client = LLMClient(self.config_mgr.get_active_agent())
         self.conversation_history = self._update_system_prompt(self.system_prompt)
         self.file_metrics = {} 
     
     async def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
         """Run agent with streaming output and task continuation."""
-        model_name = self.config.active_model.model or ""
+        model_name = self.config_mgr.get_active_model_name() or ""
         #max_tokens = TokenLimits.get_limit("pywen", model_name)
         #set_max_context_tokens(max_tokens)
         
@@ -321,7 +321,7 @@ class PywenAgent(BaseAgent):
         session_stats.record_task_start(self.type)
         self.trajectory_recorder.start_recording(
             task=user_message,
-            provider=self.config.active_model.provider or "",
+            provider=self.config_mgr.get_active_agent().provider or "",
             model= model_name,
             max_steps=self.max_turns
         )
@@ -376,8 +376,8 @@ class PywenAgent(BaseAgent):
                 self.trajectory_recorder.record_llm_interaction(
                     messages= trajectory_msg,
                     response= completed_resp, 
-                    provider=self.config.active_model.provider or "",
-                    model=self.config.active_model.model or "",
+                    provider=self.config_mgr.get_active_agent().provider or "",
+                    model=self.config_mgr.get_active_model_name() or "",
                     tools=tools,
                     agent_name=self.type,
                 )

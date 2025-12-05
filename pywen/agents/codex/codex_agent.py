@@ -1,4 +1,5 @@
 import json,os
+import inspect
 from pathlib import Path
 from typing import Dict, List, Mapping, Literal, Any, AsyncGenerator
 from pydantic import BaseModel
@@ -46,12 +47,12 @@ class History:
         return _remove_none(self._items)
 
 class CodexAgent(BaseAgent):
-    def __init__(self, config, tool_mgr:ToolManager, hook_mgr):
-        super().__init__(config, tool_mgr, hook_mgr)
+    def __init__(self, config_mgr, tool_mgr:ToolManager, hook_mgr):
+        super().__init__(config_mgr, tool_mgr, hook_mgr)
         self.type = "CodexAgent"
-        self.llm_client = LLMClient(self.config.active_model)
+        self.llm_client = LLMClient(self.config_mgr.get_active_agent())
         session_stats.set_current_agent(self.type)
-        self.turn_cnt_max = config.max_turns
+        self.turn_cnt_max = self.config_mgr.get_app_config().max_turns
         self.turn_index = 0
         self.history: History = History(system_prompt= self._build_system_prompt())
         self.tools = [tool.build("codex") for tool in self.tool_mgr.list_for_provider("codex")]
@@ -77,10 +78,11 @@ class CodexAgent(BaseAgent):
     async def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
 
         self.turn_index = 0
+        agent_config = self.config_mgr.get_active_agent()
         yield AgentEvent.user_message(user_message, self.turn_index)
 
-        model_name = self.config.active_model.model or "gpt-5-codex"
-        provider = self.config.active_model.provider or "openai"
+        model_name = self.config_mgr.get_active_model_name() or "gpt-5-codex"
+        provider = agent_config.provider or "openai"
 
         session_stats.record_task_start(self.type)
 
@@ -95,11 +97,8 @@ class CodexAgent(BaseAgent):
         self.history.add_item(env_msg)
 
         while self.turn_index < self.turn_cnt_max:
-            messages = self.history.to_responses_input()
-            params = {"model": model_name, "api": self.config.active_model.wire_api, "tools" : self.tools}
-            print("---- Codex Agent Messages ----")
-            print(self.config.active_model.wire_api)
-
+            messages:List[HistoryItem] = self.history.to_responses_input()
+            params = {"model": model_name, "api": agent_config.wire_api, "tools" : self.tools}
             self.current_task = None
             for m in reversed(messages):
                 if m.get("role") == "user":
@@ -111,7 +110,6 @@ class CodexAgent(BaseAgent):
                 yield ev
 
     def _build_system_prompt(self) -> str:
-        import inspect
         agent_dir = Path(inspect.getfile(self.__class__)).parent
         codex_md = agent_dir / "gpt_5_codex_prompt.md"
         if not codex_md.exists():
@@ -123,6 +121,7 @@ class CodexAgent(BaseAgent):
         #1. 转换messages格式, pydantic -> dict
         converted_messages = []
         llm_msg = None
+        model_name = self.config_mgr.get_active_model_name() or "gpt-5-codex"
         for msg in messages:
             if isinstance(msg, BaseModel):
                 if msg.type in {"function_call", "custom_tool_call", "function"}:
@@ -141,7 +140,7 @@ class CodexAgent(BaseAgent):
                         )
             elif isinstance(msg, dict):
                 llm_msg = LLMMessage(
-                        role = msg.get("role", msg.get("type")),
+                        role = msg.get("role") or msg.get("type") or "user",
                         content = msg.get("content", msg.get("name")),
                         tool_calls = None,
                         tool_call_id = None,
@@ -166,24 +165,23 @@ class CodexAgent(BaseAgent):
                     content = responses.output_text,
                     tool_calls = tool_calls,
                     usage = responses.usage,
-                    model = self.config.active_model.model,
+                    model = model_name,
                     finish_reason = "completed",
                     )
 
         self.trajectory_recorder.record_llm_interaction(
                 messages = converted_messages,
                 response = resp,
-                provider = self.config.active_model.provider or "openai",
-                model = self.config.active_model.model or "gpt-5-codex",
+                provider = self.config_mgr.get_active_agent().provider or "openai",
+                model = model_name,
                 tools = self.tools,
                 current_task = self.current_task,
                 agent_name = self.type,
         )
 
-    async def _responses_event_process(self, messages, params) -> AsyncGenerator[AgentEvent, None]:
+    async def _responses_event_process(self, messages:List[HistoryItem], params) -> AsyncGenerator[AgentEvent, None]:
         """在这里处理LLM的事件，转换为agent事件流"""
         async for event in self.llm_client.astream_response(messages, **params):
-            print("LLM Event:", event)
             if event.type == LLM_Events.REQUEST_STARTED:
                 yield AgentEvent.llm_stream_start()
 

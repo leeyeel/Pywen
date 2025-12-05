@@ -51,7 +51,7 @@ class AppConfig(BaseModel):
     default_agent: Optional[str] = None
     agents: List[AgentConfig]
     permission_level: str = "locked"
-    max_turns: int = 10
+    max_turns: int = 20
     enable_logging: bool = True
     log_level: str = "INFO"
 
