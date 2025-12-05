@@ -53,7 +53,7 @@ async def async_main() -> None:
         base_payload={"session_id": session_id, "source": "startup"},
     )
 
-    agent_mgr = AgentManager(cfg_mgr, tool_mgr, hook_mgr)
+    agent_mgr = AgentManager(cfg_mgr, tool_mgr)
     await agent_mgr.init(args.agent.lower())
 
     ok, msg, _ = await hook_mgr.emit(

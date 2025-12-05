@@ -298,8 +298,8 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
 class PywenAgent(BaseAgent):
     """Pywen Agent with streaming iterative tool calling logic."""
     
-    def __init__(self, config_mgr, tool_mgr, hook_mgr):
-        super().__init__(config_mgr, tool_mgr, hook_mgr)
+    def __init__(self, config_mgr, tool_mgr):
+        super().__init__(config_mgr, tool_mgr)
         self.type = "PywenAgent"
         session_stats.set_current_agent(self.type)
         self.current_turn_index = 0

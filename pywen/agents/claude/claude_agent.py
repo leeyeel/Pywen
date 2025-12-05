@@ -18,8 +18,8 @@ from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
 
 class ClaudeAgent(BaseAgent):
-    def __init__(self, config_mgr:ConfigManager, tool_mgr, hook_mgr):
-        super().__init__(config_mgr, tool_mgr, hook_mgr)
+    def __init__(self, config_mgr:ConfigManager, tool_mgr):
+        super().__init__(config_mgr, tool_mgr)
         self.type = "ClaudeAgent"
         self.llm_client = LLMClient(config_mgr.get_active_agent())
         self.prompts = ClaudeCodePrompts()
@@ -38,6 +38,13 @@ class ClaudeAgent(BaseAgent):
         reset_reminder_session()
         self.file_metrics = {}
         self.tools = self._setup_claude_code_tools()
+
+    def create_sub_agent(self) -> 'ClaudeAgent':
+        sub_agent = ClaudeAgent(self.config_mgr, self.tool_mgr)
+        sub_agent.project_path = self.project_path
+        sub_agent.context = self.context.copy()
+        sub_agent.file_metrics = self.file_metrics.copy()
+        return sub_agent
 
     async def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
         try:
@@ -81,13 +88,10 @@ class ClaudeAgent(BaseAgent):
             yield AgentEvent.error(f"Agent error: {str(e)}")
 
     def _setup_claude_code_tools(self):
-        # TODO. 急需重构工具适配器体系
         tools = []
         task_tool = self.tool_mgr.get_tool('task_tool')
-        task_tool.set_current_agent(self)
         tools.append(task_tool.build("claude"))
         architect_tool = self.tool_mgr.get_tool('architect_tool')
-        architect_tool.set_current_agent(self)
         tools.append(architect_tool.build("claude"))
         for tool in self.tool_mgr.list_for_provider("claude"):
             if tool.name != 'task_tool' and tool.name != 'architect_tool':
@@ -447,7 +451,7 @@ class ClaudeAgent(BaseAgent):
             if not tool:
                 raise ValueError(f"Tool '{tool_call['name']}' not found")
 
-            is_approved, result = await self.tool_mgr.execute(tool_call["name"],tool_call.get("arguments", {}),tool)
+            is_approved, result = await self.tool_mgr.execute(tool_call["name"],tool_call.get("arguments", {}),tool, agent=self)
 
             # 发送工具执行事件并更新 TODO 状态
             new_todos = emit_tool_execution_event(tool_call_obj, self.type, self.todo_items)

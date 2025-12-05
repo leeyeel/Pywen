@@ -9,11 +9,10 @@ from pywen.utils.trajectory_recorder import TrajectoryRecorder
 from pywen.llm.llm_basics import LLMMessage
 from pywen.tools.tool_manager import ToolManager
 from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
-from pywen.hooks.manager import HookManager
 from pywen.agents.agent_events import AgentEvent 
 
 class BaseAgent(ABC):
-    def __init__(self, config_mgr: ConfigManager, tool_mgr :ToolManager, hook_mgr: Optional[HookManager] = None, ) -> None:
+    def __init__(self, config_mgr: ConfigManager, tool_mgr :ToolManager) -> None:
         self.type = "BaseAgent"
         self.conversation_history: List[LLMMessage] = []
         self.trajectory_recorder = TrajectoryRecorder()
@@ -21,7 +20,6 @@ class BaseAgent(ABC):
         self._mcp_mgr = None
         self._mcp_init_lock = asyncio.Lock()
         self.config_mgr = config_mgr
-        self.hook_mgr = hook_mgr
         self.tool_mgr = tool_mgr
 
     async def setup_tools_mcp(self):

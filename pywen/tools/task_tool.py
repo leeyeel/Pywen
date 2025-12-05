@@ -2,9 +2,8 @@ import logging
 import time
 import uuid
 from typing import List, Mapping, Any,Dict
+from pywen.llm.llm_basics import ToolCallResult, LLMMessage
 from pywen.tools.base_tool import BaseTool
-from pywen.llm.llm_basics import ToolCallResult
-from pywen.llm.llm_basics import LLMMessage
 from pywen.tools.tool_manager import register_tool
 
 logger = logging.getLogger(__name__)
@@ -95,9 +94,6 @@ class TaskTool(BaseTool):
         "required": ["description", "prompt"]
     }
     
-    def set_current_agent(self, agent):
-        self.current_agent = agent
-    
     def is_risky(self, **kwargs) -> bool:
         """Task tool is generally safe as it uses restricted tools"""
         return False
@@ -108,22 +104,16 @@ class TaskTool(BaseTool):
         """
         description = kwargs.get('description', '')
         prompt = kwargs.get('prompt', '')
+        agent = kwargs.get('agent')
         
         try:
             start_time = time.time()
-            if not self.current_agent or self.current_agent.type != "ClaudeAgent":
-                return ToolCallResult(
-                    call_id="task_tool",
-                    error="Task tool can only be used with Claude Code Agent",
-                    metadata={"error": "invalid_agent_type"}
-                )
             task_id = str(uuid.uuid4())[:8]
-            sub_agent = await self._create_sub_agent(self.current_agent, task_id)
             result_parts = [f"🎯 **Task Execution** `{task_id}`\n\n"]
             result_parts.append(f"|_ Task: {description}\n")
             result_parts.append("|_ Initializing sub-agent...\n")
             tool_use_count = 0
-
+            sub_agent = agent.create_sub_agent()
             system_prompt = self._get_task_system_prompt(description, task_id)
             result_parts.append("|_ Starting task execution...\n\n")
 
@@ -244,37 +234,6 @@ class TaskTool(BaseTool):
                 error=f"Task tool failed: {str(e)}",
                 metadata={"error": "task_tool_failed"}
             )
-    
-    async def _create_sub_agent(self, parent_agent, task_id: str):
-        from pywen.agents.claude.claude_agent import ClaudeAgent
-        sub_agent = ClaudeAgent(parent_agent.config, parent_agent.cli_console)
-        
-        allowed_tools = self._get_task_tools(parent_agent.tools, task_id)
-        sub_agent.tools = allowed_tools
-        
-        sub_agent.project_path = parent_agent.project_path
-        sub_agent.context = parent_agent.context.copy()
-        
-        sub_agent.task_id = task_id
-        
-        return sub_agent
-    
-    def _get_task_tools(self, parent_tools: List[Dict], task_id: str) -> List[Dict]:
-        """Get allowed tools for task agent including todo management"""
-        allowed_tool_names = [
-            'read_file', 'read_many_files', 'write_file', 'edit_file',
-            'ls', 'grep', 'glob', 'bash', 'web_fetch', 'web_search',
-            'memory_read', 'memory_write', 'todo_write', 'think'
-            ]
-
-        filtered_tools = [tool for tool in parent_tools if tool.get("name") in allowed_tool_names]
-
-        if not any(tool.get("name") == 'todo_write' for tool in filtered_tools):
-            from .todo_tool import TodoTool
-            todo_tool = TodoTool(task_id=task_id)
-            filtered_tools.append(todo_tool)
-        
-        return filtered_tools
     
     def _get_task_system_prompt(self, description: str, task_id: str) -> str:
         """Get system prompt for task agent with todo list management"""

@@ -3,7 +3,6 @@ import asyncio
 import threading
 from typing import Optional, List, AsyncGenerator 
 from pywen.config.manager import ConfigManager
-from pywen.hooks.manager import HookManager
 from pywen.tools.tool_manager import ToolManager 
 
 from .agent_events import AgentEvent
@@ -39,10 +38,9 @@ def _normalize_name(name: str) -> str:
     return n[:-5] if n.endswith("agent") else n
 
 class AgentManager:
-    def __init__(self, cfg_mgr: ConfigManager, tool_mgr: ToolManager, hook_mgr: Optional[HookManager] = None) -> None:
+    def __init__(self, cfg_mgr: ConfigManager, tool_mgr: ToolManager) -> None:
         self._config_mgr = cfg_mgr
         self._tool_mgr = tool_mgr
-        self._hook_mgr = hook_mgr
         self._current: Optional[BaseAgent] = None
         self._current_name: Optional[str] = None
         self._lock = asyncio.Lock()
@@ -92,6 +90,18 @@ class AgentManager:
             self._current = None
             self._current_name = None
 
+    async def create_sub_agent(self, name: str) -> BaseAgent:
+        normalized = _normalize_name(name)
+
+        if not self.is_supported(normalized):
+            raise ValueError(
+                f"Agent '{name}' is not declared in configuration. "
+                f"Available: {', '.join(self.list_agents()) or '(empty)'}"
+            )
+
+        new_agent = await self._create_agent(normalized)
+        return new_agent
+
     async def _switch_impl(self, name: str) -> BaseAgent:
         normalized = _normalize_name(name)
 
@@ -118,9 +128,9 @@ class AgentManager:
 
     async def _create_agent(self, normalized_name: str) -> BaseAgent:
         if normalized_name == "pywen":
-            return PywenAgent(self._config_mgr, self._tool_mgr, self._hook_mgr)
+            return PywenAgent(self._config_mgr, self._tool_mgr)
         if normalized_name == "claude":
-            return ClaudeAgent(self._config_mgr, self._tool_mgr, self._hook_mgr)
+            return ClaudeAgent(self._config_mgr, self._tool_mgr)
         if normalized_name == "codex":
-            return CodexAgent(self._config_mgr, self._tool_mgr, self._hook_mgr)
+            return CodexAgent(self._config_mgr, self._tool_mgr)
         raise ValueError(f"Unsupported agent type: {normalized_name}")

@@ -47,8 +47,8 @@ class History:
         return _remove_none(self._items)
 
 class CodexAgent(BaseAgent):
-    def __init__(self, config_mgr, tool_mgr:ToolManager, hook_mgr):
-        super().__init__(config_mgr, tool_mgr, hook_mgr)
+    def __init__(self, config_mgr, tool_mgr:ToolManager):
+        super().__init__(config_mgr, tool_mgr)
         self.type = "CodexAgent"
         self.llm_client = LLMClient(self.config_mgr.get_active_agent())
         session_stats.set_current_agent(self.type)

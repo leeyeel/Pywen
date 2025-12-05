@@ -85,7 +85,7 @@ class ToolManager:
             out.append(entry.instance)
         return out
 
-    async def execute(self, tool_name:str, tool_args: Dict[str, Any], tool:BaseTool) ->Tuple[bool, Optional[str | Dict]]:
+    async def execute(self, tool_name:str, tool_args: Dict[str, Any], tool:BaseTool, **kwargs) ->Tuple[bool, Optional[str | Dict]]:
         if self.hook_mgr:
             pre_ok, pre_msg, _ = await self.hook_mgr.emit(
                 HookEvent.PreToolUse,
@@ -101,7 +101,7 @@ class ToolManager:
             is_approved = await self.cli.confirm_tool_call(tool_name, tool_args, tool)
             if not is_approved:
                 return False, f"'{tool_name}' was rejected by the user."
-        res = await tool.execute(**tool_args)
+        res = await tool.execute(**tool_args, **kwargs)
 
         if self.hook_mgr:
             post_ok, post_msg, _= await self.hook_mgr.emit(
