@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 
-
 class ClaudeCodePrompts:
     """Manages prompts and context for Claude Code Agent"""
 

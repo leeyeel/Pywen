@@ -96,8 +96,7 @@ class AgentEvent(Generic[T]):
 
     @staticmethod
     def user_defined(item: Dict) ->AgentEvent:
-        data = {"user_defined": item}
-        return AgentEvent(Agent_Events.USER_DEFINED , data)
+        return AgentEvent(Agent_Events.USER_DEFINED , item)
 
     @staticmethod
     def error(message: str, code: Optional[int] = None) -> AgentEvent:
