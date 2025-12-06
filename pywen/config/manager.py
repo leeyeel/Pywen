@@ -121,6 +121,8 @@ class ConfigManager:
     def get_active_model_name(self, args: Any | None = None) -> str:
         return self.get_active_model(args).model_name
 
+    def get_active_model_max_tokens(self, args: Any | None = None, default: int = 4096) -> int:
+        return self.get_active_model(args).max_tokens or default
     def list_agent_names(self, args: Any | None = None) -> List[str]:
         cfg = self._app_config if self._app_config else self.resolve_effective_config(args)
         return [ag.agent_name for ag in cfg.agents]

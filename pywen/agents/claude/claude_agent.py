@@ -296,15 +296,14 @@ class ClaudeAgent(BaseAgent):
                         args=tool_call.get("arguments", {})
                         )
 
-            tool_results = []
-            async for tool_event in self._execute_tools(tool_calls):
+            tool_result_messages = []
+            async for tool_event, llm_message in self._execute_tools(tool_calls):
                 yield tool_event
+                if llm_message:
+                    tool_result_messages.append(llm_message)
 
-                if tool_event.type == "tool_results":
-                    tool_results = tool_event["results"]
-
-            for tool_result in tool_results:
-                self.conversation_history.append(tool_result)
+            for msg in tool_result_messages:
+                self.conversation_history.append(msg)
 
             #构建下一轮提示词
             has_context = bool(self.context and len(self.conversation_history) > 1)
@@ -348,9 +347,8 @@ class ClaudeAgent(BaseAgent):
             usage_data = None
 
             async for event in self.llm_client.astream_response(formatted_messages, **params):
-                if event.type == LLM_Events.REQUEST_STARTED:
-                    yield AgentEvent.llm_stream_start()
-                elif event.type == LLM_Events.ASSISTANT_DELTA:
+                if event.type == LLM_Events.ASSISTANT_DELTA:
+                    assistant_content += event.data or ""
                     yield AgentEvent.text_delta(event.data or "")
                 elif event.type == LLM_Events.TOOL_CALL_READY:
                     tool_call = event.data
@@ -408,21 +406,22 @@ class ClaudeAgent(BaseAgent):
         except Exception as e:
             yield AgentEvent.error(f"Streaming error: {str(e)}")
 
-    async def _execute_tools(self, tool_calls: List[Dict[str, Any]]) -> AsyncGenerator[AgentEvent, None]:
+    async def _execute_tools(self, tool_calls: List[Dict[str, Any]]) -> AsyncGenerator[tuple[AgentEvent, Optional[LLMMessage]], None]:
         if not tool_calls:
-            yield AgentEvent.tool_result("", "", "No tools to execute", True, {})
+            yield AgentEvent.tool_result("", "", "No tools to execute", True, {}), None
             return
 
         for tool_call in tool_calls:
             try:
                 tool_result, llm_message = await self._execute_single_tool_with_result(tool_call)
-                yield AgentEvent.tool_result(
+                event = AgentEvent.tool_result(
                         call_id=tool_call.get("id", "unknown"),
                         name=tool_call["name"],
                         result=tool_result.result if tool_result.success and isinstance(tool_result.result, dict) else str(tool_result.result or tool_result.error),
                         success=tool_result.success,
                         args=tool_call.get("arguments", {})
                         )
+                yield event, llm_message
 
             except Exception as e:
                 error_msg = f"Error executing tool '{tool_call['name']}': {str(e)}"
@@ -432,13 +431,14 @@ class ClaudeAgent(BaseAgent):
                         tool_call_id=tool_call.get("id", "unknown")
                         )
 
-                yield AgentEvent.tool_result(
+                event = AgentEvent.tool_result(
                         call_id=tool_call.get("id", "unknown"),
                         name=tool_call["name"],
                         result=error_msg,
                         success=False,
                         args=tool_call.get("arguments", {})
                         )
+                yield event, error_message
 
     async def _execute_single_tool_with_result(self, tool_call: Dict[str, Any],) -> tuple[ToolCallResult, LLMMessage]:
         try:

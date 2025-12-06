@@ -543,9 +543,14 @@ class EventRouter:
 
     def _display_tool_result(self, data: dict):
         tool_name = data.get('name', 'Tool')
+        result = data.get('result', '')
+
+        # 用户拒绝/取消的工具不显示结果面板
+        if "rejected by the user" in str(result):
+            return
+
         arguments = data.get('arguments', {})
         if data.get("success"):
-            result = data.get('result', '')
             panel = self.renderer.render_success(tool_name, result, arguments)
         else:
             error = data.get('error', 'Unknown error')
