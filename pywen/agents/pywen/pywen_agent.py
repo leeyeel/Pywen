@@ -1,15 +1,15 @@
 """Pywen Agent implementation with streaming logic."""
 import os,subprocess, json
 from pathlib import Path
-from typing import Dict, List, Any, AsyncGenerator
+from typing import Dict, List, Any, AsyncGenerator,Mapping
 from pywen.agents.base_agent import BaseAgent
+from pywen.agents.agent_events import AgentEvent 
 from pywen.llm.llm_basics import LLMMessage
 from pywen.llm.llm_client import LLMClient
+from pywen.llm.llm_events import LLM_Events
 from pywen.config.token_limits import TokenLimits
-from pywen.core.session_stats import session_stats
-from pywen.hooks.models import HookEvent
+from pywen.utils.session_stats import session_stats
 from pywen.llm.llm_basics import LLMResponse, ToolCall
-from pywen.core.tool_registry import list_tools_for_provider, get_tool
 
 SYSTEM_PROMPT = f"""You are PYWEN, an interactive CLI agent who is created by PAMPAS-Lab, specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools.
 
@@ -298,44 +298,92 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
 class PywenAgent(BaseAgent):
     """Pywen Agent with streaming iterative tool calling logic."""
     
-    def __init__(self, config, hook_mgr, cli_console=None):
-        super().__init__(config, hook_mgr, cli_console)
+    def __init__(self, config_mgr, tool_mgr):
+        super().__init__(config_mgr, tool_mgr)
         self.type = "PywenAgent"
         session_stats.set_current_agent(self.type)
         self.current_turn_index = 0
         self.original_user_task = ""
-        self.max_turns = config.max_turns
+        self.max_turns = self.config_mgr.get_app_config().max_turns
         self.system_prompt = self.get_core_system_prompt()
-        self.llm_client = LLMClient(config.active_model)
+        self.llm_client = LLMClient(self.config_mgr.get_active_agent())
         self.conversation_history = self._update_system_prompt(self.system_prompt)
-        self.file_metrics = {}  # 用于跟踪文件操作，供 file_restorer 使用
+        self.file_metrics = {} 
     
-    async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
+    async def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
         """Run agent with streaming output and task continuation."""
-        model_name = self.config.active_model.model or ""
-        max_tokens = TokenLimits.get_limit("pywen", model_name)
-        #TODO，从console剥离
-        if self.cli_console:
-            self.cli_console.set_max_context_tokens(max_tokens)
+        model_name = self.config_mgr.get_active_model_name() or ""
+        #max_tokens = TokenLimits.get_limit("pywen", model_name)
+        #set_max_context_tokens(max_tokens)
         
         self.original_user_task = user_message
         self.current_turn_index = 0
         session_stats.record_task_start(self.type)
         self.trajectory_recorder.start_recording(
             task=user_message,
-            provider=self.config.active_model.provider or "",
+            provider=self.config_mgr.get_active_agent().provider or "",
             model= model_name,
             max_steps=self.max_turns
         )
-        yield {"type": "user_message", "data": {"message": user_message, "turn": self.current_turn_index}}
+        yield AgentEvent.user_message(user_message, self.current_turn_index)
 
         self.conversation_history.append(LLMMessage(role="user", content=user_message))
 
         while self.current_turn_index < self.max_turns:
-            #data = {"message": user_message, "turn": self.current_turn_index, "reason": "Continuing task based on LLM decision" }
-            #yield {"type": "task_continuation", "data": data}
             async for event in self._process_turn_stream():
                 yield event
+
+    async def _process_turn_stream(self) -> AsyncGenerator[AgentEvent, None]:
+        messages = [self._convert_single_message(msg) for msg in self.conversation_history]
+        trajectory_msg = self.conversation_history.copy()
+        tools = [tool.build("pywen") for tool in self.tool_mgr.list_for_provider("pywen")]
+        completed_resp : LLMResponse = LLMResponse(content = "")
+        async for event in self.llm_client.astream_response(messages= messages, tools= tools, api = "chat"):
+            if event.type == LLM_Events.REQUEST_STARTED:
+                yield AgentEvent.llm_stream_start()
+            elif event.type == LLM_Events.ASSISTANT_DELTA:
+                yield AgentEvent.text_delta(str(event.data))
+            elif event.type == LLM_Events.TOOL_CALL_DELTA:
+                tc_data = event.data
+                if tc_data is None:
+                    continue
+            elif event.type == LLM_Events.TOOL_CALL_READY:
+                # 返回内容是tool_calls 字典列表
+                # 1. 填充assistant LLMMessage
+                tool_calls = event.data or {}
+                tc_list = [ToolCall.from_raw(tc) for tc in tool_calls]
+                assistant_msg = LLMMessage(
+                    role="assistant",
+                    tool_calls = tc_list,
+                    content = "",
+                )
+                self.conversation_history.append(assistant_msg)
+                # 2. 执行工具调用，拿到结果，填充tool LLMMessage
+                async for tc_event in self._process_tool_calls(tc_list):
+                    yield tc_event
+            elif event.type == LLM_Events.RESPONSE_FINISHED:
+                self.current_turn_index += 1
+                if not event.data:
+                    continue
+                # 更新 token 使用统计
+                usage = event.data.get("usage", {})
+                if usage and usage.total_tokens:
+                    #self.cli_console.update_token_usage(usage.total_tokens)
+                    yield AgentEvent.turn_token_usage(usage.total_tokens)
+                # 处理结束状态
+                finish_reason = event.data.get("finish_reason")
+                completed_resp = LLMResponse.from_raw(event.data or {})
+                self.trajectory_recorder.record_llm_interaction(
+                    messages= trajectory_msg,
+                    response= completed_resp, 
+                    provider=self.config_mgr.get_active_agent().provider or "",
+                    model=self.config_mgr.get_active_model_name() or "",
+                    tools=tools,
+                    agent_name=self.type,
+                )
+
+                if finish_reason and finish_reason != "tool_calls":
+                    yield AgentEvent.task_complete(finish_reason)
 
     def _convert_single_message(self, msg: LLMMessage) -> Dict[str, Any]:
         role = msg.role
@@ -370,98 +418,35 @@ class PywenAgent(BaseAgent):
     
         raise ValueError(f"Unsupported role for OpenAI messages: {role!r}")
  
-    async def _process_turn_stream(self) -> AsyncGenerator[Dict[str, Any], None]:
-        messages = [self._convert_single_message(msg) for msg in self.conversation_history]
-        trajectory_msg = self.conversation_history.copy()
-        tools = [tool.build("pywen") for tool in list_tools_for_provider("pywen")]
-        completed_resp : LLMResponse = LLMResponse(content = "")
-        async for event in self.llm_client.astream_response(messages= messages, tools= tools, api = "chat"):
-            if event.type == "created":
-                yield {"type": "llm_stream_start", "data": {}}
-            elif event.type == "output_text.delta":
-                yield {"type": "llm_chunk", "data": {"content": event.data}}
-            elif event.type == "tool_call.delta":
-                tc_data = event.data
-                if tc_data is None:
-                    continue
-            elif event.type == "tool_call.ready":
-                # 返回内容是tool_calls 字典列表
-                # 1. 填充assistant LLMMessage
-                tool_calls = event.data or {}
-                tc_list = [ToolCall.from_raw(tc) for tc in tool_calls]
-                assistant_msg = LLMMessage(
-                    role="assistant",
-                    tool_calls = tc_list,
-                    content = "",
-                )
-                self.conversation_history.append(assistant_msg)
-                # 2. 执行工具调用，拿到结果，填充tool LLMMessage
-                async for tc_event in self._process_tool_calls(tc_list):
-                    yield tc_event
-            elif event.type == "completed":
-                self.current_turn_index += 1
-                if not event.data:
-                    continue
-                # 更新 token 使用统计
-                usage = event.data.get("usage", {})
-                if usage and usage.total_tokens:
-                    if self.cli_console:
-                        self.cli_console.update_token_usage(usage.total_tokens)
-                    yield {"type": "turn_token_usage", "data": usage.total_tokens}
-                # 处理结束状态
-                finish_reason = event.data.get("finish_reason")
-                completed_resp = LLMResponse.from_raw(event.data or {})
-                self.trajectory_recorder.record_llm_interaction(
-                    messages= trajectory_msg,
-                    response= completed_resp, 
-                    provider=self.config.active_model.provider or "",
-                    model=self.config.active_model.model or "",
-                    tools=tools,
-                    agent_name=self.type,
-                )
-
-                if finish_reason and finish_reason != "tool_calls":
-                    yield {"type": "task_complete", "data": {"reason": finish_reason}}
-
-    async def _process_tool_calls(self, tool_calls : List[ToolCall]) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _process_tool_calls(self, tool_calls : List[ToolCall]) -> AsyncGenerator[AgentEvent, None]:
         # 2. 执行工具调用，拿到结果，填充tool LLMMessage
         for tc in tool_calls:
-            tool = get_tool(tc.name)
+            tool = self.tool_mgr.get_tool(tc.name)
             if not tool:
                 continue
-            confirmation_details = await tool.get_confirmation_details(**tc.arguments)
-            if confirmation_details and self.cli_console:
-                confirmed = await self.cli_console.confirm_tool_call(tc, tool)
-                if not confirmed:
-                    tool_msg = LLMMessage(
-                        role="tool",
-                        content="Tool execution was cancelled by user",
-                        tool_call_id=tc.call_id
-                    )
-                    self.conversation_history.append(tool_msg)
-
-                    data = {"call_id": tc.call_id, 
-                            "name": tc.name, 
-                            "result": "Tool execution rejected by user",
-                            "success": False, 
-                            "error": "Tool execution rejected by user" }
-                    yield {"type": "tool_result", "data": data}
+            name = tc.name
+            call_id = tc.call_id
+            arguments = {}
+            if isinstance(tc.arguments, Mapping):
+                arguments = dict(tc.arguments)
+            elif isinstance(tc.arguments, str) and tc.name == "apply_patch":
+                arguments = {"input": tc.arguments}
+            try:
+                is_success, result = await self.tool_mgr.execute(name, arguments, tool)
+                if not is_success:
+                    msg = LLMMessage(role="tool", content= str(result), tool_call_id= call_id)
+                    self.conversation_history.append(msg)
+                    yield AgentEvent.tool_result(call_id, name, result, False, arguments)
                     continue
-
-            #实际上这里是单个执行
-            res = await tool.execute(**tc.arguments)
-            data = { 
-                    "call_id": tc.call_id, 
-                    "name": tc.name, 
-                    "result": res.result,
-                    "success": res.success, 
-                    "error": res.error,  
-                    "arguments": tc.arguments
-                    }
-            yield {"type": "tool_result", "data": data}
-            content = res.result if isinstance(res.success, str) else json.dumps(res.result)
-            tool_msg = LLMMessage(role="tool", content= str(content), tool_call_id=tc.call_id)
-            self.conversation_history.append(tool_msg)
+                yield AgentEvent.tool_result(call_id, name, result, True, arguments)
+                content = result if isinstance(result, str) else json.dumps(result)
+                tool_msg = LLMMessage(role="tool", content= content, tool_call_id=tc.call_id)
+                self.conversation_history.append(tool_msg)
+            except Exception as e:
+                error_msg = f"Tool execution failed: {str(e)}"
+                tool_msg = LLMMessage(role="tool", content= error_msg, tool_call_id=tc.call_id)
+                self.conversation_history.append(tool_msg)
+                yield AgentEvent.tool_result(call_id, name, error_msg, False, arguments)
 
     def _update_system_prompt(self, system_prompt: str) -> List[LLMMessage]:
         cwd_prompt = (
@@ -475,7 +460,7 @@ class PywenAgent(BaseAgent):
 
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions."""
-        available_tools = list_tools_for_provider("pywen")
+        available_tools = self.tool_mgr.list_for_provider("pywen")
         system_prompt = SYSTEM_PROMPT 
         for tool in available_tools:
             system_prompt += f"- **{tool.name}**: {tool.description}\n"

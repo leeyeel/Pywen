@@ -1,7 +1,7 @@
 import os
 from typing import Any, Mapping
-from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry import register_tool
+from .base_tool import BaseTool, ToolCallResult
+from pywen.tools.tool_manager import register_tool
 
 CLAUDE_DESCRIPTION = """
 Lists files and directories in a given path. 
@@ -31,17 +31,17 @@ class LSTool(BaseTool):
         }
     }
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """List directory contents."""
         path = kwargs.get("path", ".")
         show_hidden = kwargs.get("show_hidden", False)
         
         try:
             if not os.path.exists(path):
-                return ToolResult(call_id="", error=f"Path not found: {path}")
+                return ToolCallResult(call_id="", error=f"Path not found: {path}")
             
             if not os.path.isdir(path):
-                return ToolResult(call_id="", error=f"Path is not a directory: {path}")
+                return ToolCallResult(call_id="", error=f"Path is not a directory: {path}")
             
             items = []
             for item in os.listdir(path):
@@ -55,12 +55,12 @@ class LSTool(BaseTool):
                     items.append(item)
             
             if not items:
-                return ToolResult(call_id="", result="Directory is empty")
+                return ToolCallResult(call_id="", result="Directory is empty")
             
-            return ToolResult(call_id="", result="\n".join(sorted(items)))
+            return ToolCallResult(call_id="", result="\n".join(sorted(items)))
         
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error listing directory: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error listing directory: {str(e)}")
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         if provider.lower() == "claude" or provider.lower() == "anthropic":

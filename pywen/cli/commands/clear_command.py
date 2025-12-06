@@ -1,27 +1,26 @@
 """清屏命令实现"""
-
 import os
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
 from .base_command import BaseCommand
 
 class ClearCommand(BaseCommand):
     def __init__(self):
         super().__init__("clear", "clear the screen and conversation history")
     
-    async def execute(self, context, args: str) -> bool:
+    async def execute(self, context, args: str) -> dict:
         """清屏并重置对话历史"""
         console = context.get('console')
         
         # 检查是否有 --force 或 -f 参数跳过确认
         if args and ('-f' in args or '--force' in args):
             await self._perform_clear(context)
-            return True
+            return {"result": True, "message": "success"} 
         
         # 询问用户确认
         if console:
             console.print("[yellow]This will clear the screen and reset conversation history.[/yellow]")
             try:
-                from prompt_toolkit import PromptSession
-                from prompt_toolkit.formatted_text import HTML
                 
                 session = PromptSession()
                 response = await session.prompt_async(
@@ -40,7 +39,7 @@ class ClearCommand(BaseCommand):
                 console.print(f"[dim]Clear operation cancelled: {e}[/dim]")
                 console.print("")
         
-        return True
+        return {"result": True, "message": "success"} 
     
     async def _perform_clear(self, context):
         """执行清屏操作"""
@@ -48,9 +47,9 @@ class ClearCommand(BaseCommand):
         os.system('cls' if os.name == 'nt' else 'clear')
         
         # 重置智能体对话历史
-        agent = context.get('agent')
-        if agent and hasattr(agent, 'reset_conversation'):
-            agent.reset_conversation()
+        agent_mgr = context.get('agent_mgr')
+        if agent_mgr and hasattr(agent_mgr.current, 'reset_conversation'):
+            agent_mgr.current.reset_conversation()
         
         console = context.get('console')
         if console:

@@ -4,8 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 from pywen.tools.base_tool import BaseTool
-from pywen.utils.tool_basics import ToolResult
-from pywen.core.tool_registry import register_tool
+from pywen.llm.llm_basics import ToolCallResult
+from pywen.tools.tool_manager import register_tool
 
 DESCRIPTION = """
 Use this tool to create and manage a structured task list for your current coding session. 
@@ -370,13 +370,13 @@ class TodoTool(BaseTool):
     def is_risky(self, **kwargs) -> bool:
         return False
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         todos = kwargs.get('todos', [])
         
         try:
             validation_result = self._validate_todos(todos)
             if not validation_result["valid"]:
-                return ToolResult(
+                return ToolCallResult(
                     call_id="todo_write",
                     error=f"Todo validation failed: {validation_result['error']}",
                     metadata={"error": "validation_failed"}
@@ -397,7 +397,7 @@ class TodoTool(BaseTool):
             
             todo_display = self._format_todos_for_display(todo_items)
             
-            return ToolResult(
+            return ToolCallResult(
                 call_id="todo_write",
                 result=f"{summary}\n\n{todo_display}",
                 metadata={
@@ -409,7 +409,7 @@ class TodoTool(BaseTool):
             
         except Exception as e:
             logger.error(f"Todo tool execution failed: {e}")
-            return ToolResult(
+            return ToolCallResult(
                 call_id="todo_write",
                 error=f"Todo tool failed: {str(e)}",
                 metadata={"error": "todo_tool_failed"}

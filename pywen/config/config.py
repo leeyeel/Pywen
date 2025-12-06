@@ -3,16 +3,21 @@ from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
 
 class ModelConfig(BaseModel):
-    agent_name: str
+    model_name: str
     api_key: Optional[str] = None
     base_url: Optional[str] = None
-    model: Optional[str] = None
-    provider: Literal["openai", "anthropic", None] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     top_p: Optional[float] = None
     top_k: Optional[int] = None
+    class ConfigDict:
+        extra = "allow"
+
+class AgentConfig(BaseModel):
+    agent_name: str
+    provider: Literal["openai", "anthropic", None] = None
     wire_api : Literal["chat", "responses", None] = None
+    model: ModelConfig
     class ConfigDict:
         extra = "allow"
 
@@ -44,9 +49,9 @@ class MemoryMonitorConfig(BaseModel):
 
 class AppConfig(BaseModel):
     default_agent: Optional[str] = None
-    models: List[ModelConfig]
+    agents: List[AgentConfig]
     permission_level: str = "locked"
-    max_turns: int = 10
+    max_turns: int = 20
     enable_logging: bool = True
     log_level: str = "INFO"
 
@@ -57,50 +62,3 @@ class AppConfig(BaseModel):
 
     class ConfigDict:
         extra = "allow"
-
-    @property
-    def active_agent_name(self) -> str:
-        """当前激活的 agent 名称"""
-        name = self.runtime.get("active_agent")
-        if isinstance(name, str) and name.strip():
-            return name.strip()
-
-        if isinstance(self.default_agent, str) and self.default_agent.strip():
-            return self.default_agent.strip()
-
-        if len(self.models) == 1:
-            return self.models[0].agent_name
-
-        raise ValueError(
-            "Active agent is not determined. "
-            "Set 'default_agent' in config or runtime.active_agent."
-        )
-
-    @property
-    def active_model(self) -> ModelConfig:
-        """ 
-        返回当前激活的 ModelConfig 
-        利用agentg与model的映射关系找到对应的model配置。
-        如果一个agent对应多个model配置，则此方法需要扩展。
-        """
-        name = self.active_agent_name
-        for p in self.models:
-            if p.agent_name == name:
-                return p
-        raise ValueError(f"Active agent '{name}' not found in agents.")
-
-    def set_active_agent(self, name: str) -> None:
-        """
-        切换当前激活agent。
-        只允许切到已配置的 agent，否则直接报错。
-        """
-        name = name.strip().lower()
-        if not name:
-            raise ValueError("agent name cannot be empty.")
-
-        if name.endswith("agent"):
-            name = name[: -len("agent")]
-        if not any(m.agent_name == name for m in self.models):
-            raise ValueError(f"Model '{name}' not found in models.")
-
-        self.runtime["active_agent"] = name

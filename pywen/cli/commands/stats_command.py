@@ -5,7 +5,7 @@ from rich.panel import Panel
 from rich import get_console
 from rich.table import Table
 from .base_command import BaseCommand
-from pywen.core.session_stats import session_stats
+from pywen.utils.session_stats import session_stats
 
 
 class StatsCommand(BaseCommand):
@@ -19,7 +19,7 @@ class StatsCommand(BaseCommand):
         )
         self.console = get_console()
     
-    async def execute(self, context: Dict[str, Any], args: str) -> bool:
+    async def execute(self, context: Dict[str, Any], args: str) -> dict:
         """Execute the stats command."""
         args = args.strip().lower()
         
@@ -40,7 +40,7 @@ class StatsCommand(BaseCommand):
             panel = self._get_current_agent_stats_panel()
         
         self.console.print(panel)
-        return True
+        return {"result": True, "message": "success"}
     
     def _get_summary_panel(self) -> Panel:
         """Get formatted statistics summary panel."""

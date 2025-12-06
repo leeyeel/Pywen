@@ -19,6 +19,10 @@ pywen_config.json
 pywen/trajectories/*
 trajectories/*
 !.gitkeep
-pywen_workspace
-claude_workspace
-results
+
+# evaluation
+evaluation/*/results/
+evaluation/swebench/claude_workspace/
+evaluation/swebench/pywen_workspace/
+evaluation/bfcl/gorilla/
+sb-cli-reports/

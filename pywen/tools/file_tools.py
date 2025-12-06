@@ -1,8 +1,8 @@
 import os
 from typing import Any, Mapping
-from pywen.ui.highlighted_content import HighlightedContentDisplay
-from .base_tool import BaseTool, ToolResult, ToolRiskLevel
-from pywen.core.tool_registry import register_tool
+from pywen.cli.highlighted_content import HighlightedContentDisplay
+from .base_tool import BaseTool, ToolCallResult, ToolRiskLevel
+from pywen.tools.tool_manager import register_tool
 
 CLAUDE_DESCRIPTION_WRITE = """
 Writes a file to the local filesystem.
@@ -111,16 +111,16 @@ class WriteFileTool(BaseTool):
 
             return panel
 
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Write content to a file."""
         path = kwargs.get("path")
         content = kwargs.get("content")
         
         if not path:
-            return ToolResult(call_id="", error="No path provided")
+            return ToolCallResult(call_id="", error="No path provided")
         
         if content is None:
-            return ToolResult(call_id="", error="No content provided")
+            return ToolCallResult(call_id="", error="No content provided")
         
         try:
             file_exists = os.path.exists(path)
@@ -140,7 +140,7 @@ class WriteFileTool(BaseTool):
                 f.write(content)
 
             lines_count = len(content.splitlines())
-            return ToolResult(
+            return ToolCallResult(
                 call_id="",
                 result={
                     "operation": "write_file",
@@ -154,7 +154,7 @@ class WriteFileTool(BaseTool):
                 }
             )
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error writing to file: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error writing to file: {str(e)}")
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         if provider.lower() == "claude" or provider.lower() == "anthropic":
@@ -206,24 +206,24 @@ class ReadFileTool(BaseTool):
             }
     risk_level=ToolRiskLevel.SAFE
 
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Read content from a file."""
         path = kwargs.get("path")
         
         if not path:
-            return ToolResult(call_id="", error="No path provided")
+            return ToolCallResult(call_id="", error="No path provided")
         
         try:
             if not os.path.exists(path):
-                return ToolResult(call_id="", error=f"File not found at {path}")
+                return ToolCallResult(call_id="", error=f"File not found at {path}")
             
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             
-            return ToolResult(call_id="", result=content)
+            return ToolCallResult(call_id="", result=content)
         
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error reading file: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error reading file: {str(e)}")
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         if provider.lower() == "claude" or provider.lower() == "anthropic":

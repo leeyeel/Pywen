@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import AsyncGenerator, Dict, Generator, List, Any, Optional
 from anthropic import Anthropic, AsyncAnthropic
 from pywen.llm.llm_basics import LLMResponse
-from .adapter_common import ResponseEvent
+from pywen.llm.llm_events import ResponseEvent
 
 def _to_anthropic_messages(messages: List[Dict[str, Any]]):
     """转换消息为 Anthropic 原生格式"""
@@ -154,71 +154,92 @@ class AnthropicAdapter():
             yield ResponseEvent.error(str(e), {"exception_type": type(e).__name__})
 
     def _process_native_event(self, event, input_tokens_from_start: Optional[int] = None) -> Optional[ResponseEvent]:
+        """将 Anthropic 原生事件映射到标准 LLM_Events"""
+
         if event.type == "message_start":
+            # message_start -> request.started
             message = getattr(event, "message", None)
             data = {}
             if message:
                 message_id = getattr(message, "id", "")
                 if message_id:
-                    data["message_id"] = message_id
-            
-            return ResponseEvent.message_start(data) if data else None
+                    data["response_id"] = message_id
+            return ResponseEvent.request_started(data)
 
         elif event.type == "content_block_start":
+            # content_block_start: 记录 tool_use 的 call_id 和 name
             block = getattr(event, "content_block", None)
             if block:
                 block_type = getattr(block, "type", None)
                 if block_type == "tool_use":
+                    # 保存 tool call 信息用于后续的 delta 事件
                     call_id = getattr(block, "id", "")
                     name = getattr(block, "name", "")
-                    return ResponseEvent.content_block_start({"call_id": call_id, "name": name, "block_type": block_type})
-                else:
-                    return ResponseEvent.content_block_start({"block_type": block_type})
+                    self._current_tool_call = {"call_id": call_id, "name": name, "arguments": ""}
+            return None  # 不产生事件，等待后续内容
 
         elif event.type == "content_block_delta":
             delta = event.delta
             delta_type = getattr(delta, "type", None)
             if delta_type == "text_delta":
+                # text_delta -> assistant.delta
                 text = getattr(delta, "text", "")
                 if text:
-                    return ResponseEvent.text_delta(text)
+                    return ResponseEvent.assistant_delta(text)
             elif delta_type == "input_json_delta":
+                # input_json_delta -> tool_call.delta，同时累积 arguments
                 partial_json = getattr(delta, "partial_json", "")
                 if partial_json:
-                    return ResponseEvent.tool_call_delta_json(partial_json)
+                    tool_info = getattr(self, "_current_tool_call", {})
+                    # 累积 arguments
+                    if hasattr(self, "_current_tool_call"):
+                        self._current_tool_call["arguments"] += partial_json
+                    return ResponseEvent.tool_call_delta(
+                        call_id=tool_info.get("call_id", ""),
+                        name=tool_info.get("name"),
+                        arguments=partial_json,
+                        kind="function"
+                    )
+            elif delta_type == "thinking_delta":
+                # thinking_delta -> reasoning.delta (extended thinking)
+                thinking = getattr(delta, "thinking", "")
+                if thinking:
+                    return ResponseEvent.reasoning_delta(thinking)
 
         elif event.type == "content_block_stop":
-            return ResponseEvent.content_block_stop({})
+            # content_block_stop: 如果是 tool call，发送 tool_call_ready 事件
+            if hasattr(self, "_current_tool_call") and self._current_tool_call:
+                import json
+                tool_call = self._current_tool_call.copy()
+                # 解析累积的 arguments JSON
+                try:
+                    tool_call["arguments"] = json.loads(tool_call["arguments"]) if tool_call["arguments"] else {}
+                except json.JSONDecodeError:
+                    tool_call["arguments"] = {}
+                delattr(self, "_current_tool_call")
+                return ResponseEvent.tool_call_ready(tool_call)
+            return None  # 不产生事件
 
         elif event.type == "message_delta":
-            delta = getattr(event, "delta", None)
+            # message_delta: 处理 usage 信息 -> metrics.token_usage
             usage = getattr(event, "usage", None)
-
-            data = {}
-            if delta:
-                stop_reason = getattr(delta, "stop_reason", None)
-                if stop_reason:
-                    data["stop_reason"] = stop_reason
             if usage:
-                # 统一处理 usage 信息
-                # 1. 从 message_delta.usage 提取（GLM 等 API 在这里提供完整 usage）
                 input_tokens = getattr(usage, "input_tokens", None)
                 output_tokens = getattr(usage, "output_tokens", None)
-                
-                # 2. 如果 message_delta 中没有 input_tokens，使用从 message_start 提取的值
+
+                # 如果 message_delta 中没有 input_tokens，使用从 message_start 提取的值
                 if input_tokens is None and input_tokens_from_start is not None:
                     input_tokens = input_tokens_from_start
-                
+
                 usage_dict = {
                     "input_tokens": input_tokens if input_tokens is not None else 0,
                     "output_tokens": output_tokens if output_tokens is not None else 0
                 }
-
-                data["usage"] = usage_dict
-            if data:
-                return ResponseEvent.message_delta(data)
+                return ResponseEvent.token_usage(usage_dict)
+            return None
 
         elif event.type == "message_stop":
-            return ResponseEvent.completed({})
+            # message_stop -> response.finished
+            return ResponseEvent.response_finished({})
 
         return None

@@ -1,14 +1,11 @@
 """Trajectory recording functionality."""
-
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
 from pywen.llm.llm_basics import LLMMessage, LLMResponse
-from pywen.utils.tool_basics import ToolResult, ToolCall
-from .session_stats import session_stats
-
+from pywen.llm.llm_basics import ToolCallResult, ToolCall
+from pywen.utils.session_stats import session_stats
 
 class TrajectoryRecorder:
     """Records trajectory data for agent execution and LLM interactions."""
@@ -143,7 +140,7 @@ class TrajectoryRecorder:
         llm_messages: Optional[List[LLMMessage]] = None,
         llm_response: Optional[LLMResponse] = None,
         tool_calls: Optional[List[ToolCall]] = None,
-        tool_results: Optional[List[ToolResult]] = None,
+        tool_results: Optional[List[ToolCallResult]] = None,
         reflection: Optional[str] = None,
         error: Optional[str] = None,
     ):
@@ -234,7 +231,7 @@ class TrajectoryRecorder:
             "id": getattr(tool_call, "id", None),
         }
 
-    def _serialize_tool_result(self, tool_result: ToolResult) -> Dict[str, Any]:
+    def _serialize_tool_result(self, tool_result: ToolCallResult) -> Dict[str, Any]:
         """Serialize a tool result to a dictionary."""
         return {
             "call_id": tool_result.call_id,

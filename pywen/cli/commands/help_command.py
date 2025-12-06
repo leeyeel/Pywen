@@ -9,7 +9,7 @@ class HelpCommand(BaseCommand):
         super().__init__("help", "show this help message", "h")
         self.console = get_console()
     
-    async def execute(self, context, args: str) -> bool:
+    async def execute(self, context, args: str) -> dict:
         """显示帮助信息"""
         help_content = self._build_help_content()
         
@@ -21,7 +21,7 @@ class HelpCommand(BaseCommand):
         )
         
         self.console.print(panel)
-        return True
+        return {"result": True, "message": "success"} 
     
     def _build_help_content(self) -> str:
         """构建帮助内容"""

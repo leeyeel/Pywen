@@ -11,7 +11,7 @@ class AboutCommand(BaseCommand):
         super().__init__("about", "show version info")
         self.console = get_console()
     
-    async def execute(self, context, args: str) -> bool:
+    async def execute(self, context, args: str) -> dict:
         """显示版本信息"""
         version_info = self._build_version_info()
         
@@ -23,7 +23,7 @@ class AboutCommand(BaseCommand):
         )
         
         self.console.print(panel)
-        return True
+        return {"result": True, "message": "success"} #
     
     def _build_version_info(self) -> str:
         """构建版本信息"""

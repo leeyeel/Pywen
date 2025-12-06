@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Mapping
-from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry import register_tool
+from .base_tool import BaseTool, ToolCallResult
+from pywen.tools.tool_manager import register_tool
 
 @register_tool(name="memory", providers=["pywen"])
 class MemoryTool(BaseTool):
@@ -87,53 +87,53 @@ class MemoryTool(BaseTool):
         files.sort()
         return "Memory files:\n" + "\n".join(f"- {f}" for f in files)
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Execute memory operation."""
         action = kwargs.get("action")
         file_path = kwargs.get("file_path")
         content = kwargs.get("content")
 
         if not action:
-            return ToolResult(call_id="", error="No action specified")
+            return ToolCallResult(call_id="", error="No action specified")
 
         try:
             if action == "write":
                 if not file_path:
-                    return ToolResult(call_id="", error="file_path is required for write action")
+                    return ToolCallResult(call_id="", error="file_path is required for write action")
                 if not content:
-                    return ToolResult(call_id="", error="content is required for write action")
+                    return ToolCallResult(call_id="", error="content is required for write action")
 
                 # Ensure file has .md extension
                 if not file_path.endswith('.md'):
                     file_path += '.md'
 
                 self._write_memory_file(file_path, content)
-                return ToolResult(call_id="", result=f"Successfully wrote memory file: {file_path}")
+                return ToolCallResult(call_id="", result=f"Successfully wrote memory file: {file_path}")
 
             elif action == "read":
                 if not file_path:
-                    return ToolResult(call_id="", error="file_path is required for read action")
+                    return ToolCallResult(call_id="", error="file_path is required for read action")
 
                 # Ensure file has .md extension
                 if not file_path.endswith('.md'):
                     file_path += '.md'
 
                 content = self._read_memory_file(file_path)
-                return ToolResult(call_id="", result=f"Content of {file_path}:\n\n{content}")
+                return ToolCallResult(call_id="", result=f"Content of {file_path}:\n\n{content}")
 
             elif action == "list":
                 file_list = self._list_memory_files()
-                return ToolResult(call_id="", result=file_list)
+                return ToolCallResult(call_id="", result=file_list)
 
             else:
-                return ToolResult(call_id="", error=f"Unknown action: {action}. Supported actions: write, read, list")
+                return ToolCallResult(call_id="", error=f"Unknown action: {action}. Supported actions: write, read, list")
 
         except FileNotFoundError as e:
-            return ToolResult(call_id="", error=str(e))
+            return ToolCallResult(call_id="", error=str(e))
         except ValueError as e:
-            return ToolResult(call_id="", error=str(e))
+            return ToolCallResult(call_id="", error=str(e))
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error executing memory operation: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error executing memory operation: {str(e)}")
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         if provider.lower() == "claude" or provider.lower() == "anthropic":

@@ -1,6 +1,76 @@
-from dataclasses import dataclass
-from typing import List, Optional
-from pywen.utils.tool_basics import ToolCall
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+@dataclass
+class ToolCall:
+    """Represents a tool call from the LLM."""
+    call_id: str
+    name: str
+    arguments: Optional[Dict[str, Any] | str] = None
+    type: Optional[str] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "call_id": self.call_id,
+            "name": self.name,
+            "arguments": self.arguments,
+            "type" : self.type,
+        }
+
+    @classmethod
+    def from_raw(cls, data: dict):
+        import json
+        args = data.get("arguments", "")
+        if isinstance(args, str):
+            args = json.loads(args) if args.strip() else {}
+        return cls(
+            call_id=data["call_id"],
+            name=data["name"],
+            arguments=args,
+            type=data.get("type"),
+        )
+
+class ToolCallResultDisplay:
+    """Tool result display configuration."""
+    def __init__(self, markdown: str = "", summary: str = ""):
+        self.markdown = markdown
+        self.summary = summary
+
+@dataclass
+class ToolCallConfirmationDetails:
+    """Details for tool call confirmation."""
+    type: str
+    message: str
+    is_risky: bool = False
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class ToolCallResult:
+    call_id: str
+    result: Optional[str | Dict] = None
+    error: Optional[str] = None
+    display: Optional[ToolCallResultDisplay] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    timestamp: datetime = field(default_factory=datetime.now)
+    summary: Optional[str] = None
+    
+    @property
+    def success(self) -> bool:
+        return self.error is None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "call_id": self.call_id,
+            "result": self.result,
+            "error": self.error,
+            "display": self.display.__dict__ if self.display else None,
+            "metadata": self.metadata,
+            "timestamp": self.timestamp.isoformat(),
+            "summary": self.summary,
+            "success": self.success
+        }
 
 @dataclass
 class LLMMessage:

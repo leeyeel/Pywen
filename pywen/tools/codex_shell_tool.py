@@ -2,8 +2,8 @@ import asyncio
 import os
 import shlex
 from typing import Any, List, Optional, override,Mapping
-from .base_tool import BaseTool, ToolResult, ToolRiskLevel
-from pywen.core.tool_registry import register_tool
+from .base_tool import BaseTool, ToolCallResult, ToolRiskLevel
+from pywen.tools.tool_manager import register_tool
 
 def _assert_command_list(command: Any) -> List[str]:
     if not (isinstance(command, list) and all(isinstance(x, str) for x in command)):
@@ -108,14 +108,14 @@ class CodexShellTool(BaseTool):
             msg += "\n⚠️  CAUTION: This command may modify files or system state."
         return msg
 
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         try:
             command = _assert_command_list(kwargs.get("command"))
         except Exception as e:
-            return ToolResult(call_id="", error=str(e))
+            return ToolCallResult(call_id="", error=str(e))
 
         if kwargs.get("with_escalated_permissions") and not kwargs.get("justification"):
-            return ToolResult(call_id="", error="`justification` is required when `with_escalated_permissions` is true")
+            return ToolCallResult(call_id="", error="`justification` is required when `with_escalated_permissions` is true")
 
         workdir: Optional[str] = kwargs.get("workdir") or None
         timeout_ms = kwargs.get("timeout_ms")
@@ -137,19 +137,19 @@ class CodexShellTool(BaseTool):
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                return ToolResult(call_id="", error=header + f"Timed out after {int(timeout_s or 0)}s")
+                return ToolCallResult(call_id="", error=header + f"Timed out after {int(timeout_s or 0)}s")
 
             text = (stdout or b"").decode("utf-8", errors="replace")
             code = proc.returncode or 0
             if code == 0:
-                return ToolResult(call_id="", result=header + (text or "Command executed successfully"),
+                return ToolCallResult(call_id="", result=header + (text or "Command executed successfully"),
                                   metadata={"exit_code": code})
             else:
-                return ToolResult(call_id="", error=header + (text or f"Command failed (exit {code})"),
+                return ToolCallResult(call_id="", error=header + (text or f"Command failed (exit {code})"),
                                   metadata={"exit_code": code})
 
         except Exception as e:
-            return ToolResult(call_id="", error=f"Shell execution error: {e}")
+            return ToolCallResult(call_id="", error=f"Shell execution error: {e}")
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         """ codex专用 """

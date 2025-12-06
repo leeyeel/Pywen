@@ -1,14 +1,16 @@
 import json,os
+import inspect
 from pathlib import Path
 from typing import Dict, List, Mapping, Literal, Any, AsyncGenerator
 from pydantic import BaseModel
 from pywen.agents.base_agent import BaseAgent
+from pywen.agents.agent_events import AgentEvent 
 from pywen.llm.llm_client import LLMClient 
-from pywen.utils.tool_basics import ToolCall
-from pywen.llm.llm_basics import LLMMessage
+from pywen.llm.llm_basics import ToolCall, LLMMessage
+from pywen.llm.llm_events import LLM_Events 
 from pywen.config.token_limits import TokenLimits 
-from pywen.core.session_stats import session_stats
-from pywen.core.tool_registry import list_tools_for_provider, get_tool
+from pywen.utils.session_stats import session_stats
+from pywen.tools.tool_manager import ToolManager
 
 MessageRole = Literal["system", "developer", "user", "assistant"]
 HistoryItem = Dict[str, Any]
@@ -45,15 +47,15 @@ class History:
         return _remove_none(self._items)
 
 class CodexAgent(BaseAgent):
-    def __init__(self, config, hook_mgr, cli_console=None):
-        super().__init__(config, hook_mgr, cli_console)
+    def __init__(self, config_mgr, tool_mgr:ToolManager):
+        super().__init__(config_mgr, tool_mgr)
         self.type = "CodexAgent"
-        self.llm_client = LLMClient(self.config.active_model)
+        self.llm_client = LLMClient(self.config_mgr.get_active_agent())
         session_stats.set_current_agent(self.type)
-        self.turn_cnt_max = config.max_turns
+        self.turn_cnt_max = self.config_mgr.get_app_config().max_turns
         self.turn_index = 0
         self.history: History = History(system_prompt= self._build_system_prompt())
-        self.tools = [tool.build("codex") for tool in list_tools_for_provider("codex")]
+        self.tools = [tool.build("codex") for tool in self.tool_mgr.list_for_provider("codex")]
         self.current_task = None
 
     def get_enabled_tools(self) -> List[str]:
@@ -73,19 +75,19 @@ class CodexAgent(BaseAgent):
 
         return {"type": "message", "role": "user", "content": content}
 
-    async def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
+    async def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
 
         self.turn_index = 0
-        yield {"type": "user_message", "data": {"message": user_message, "turn": self.turn_index}}
+        agent_config = self.config_mgr.get_active_agent()
+        yield AgentEvent.user_message(user_message, self.turn_index)
 
-        model_name = self.config.active_model.model or "gpt-5-codex"
-        provider = self.config.active_model.provider or "openai"
+        model_name = self.config_mgr.get_active_model_name() or "gpt-5-codex"
+        provider = agent_config.provider or "openai"
 
         session_stats.record_task_start(self.type)
 
         max_tokens = TokenLimits.get_limit("openai", model_name)
-        if self.cli_console:
-            self.cli_console.set_max_context_tokens(max_tokens)
+        #self.cli_console.set_max_context_tokens(max_tokens)
 
         self.trajectory_recorder.start_recording(
             task=user_message, provider=provider, model=model_name, max_steps=self.turn_cnt_max
@@ -95,9 +97,8 @@ class CodexAgent(BaseAgent):
         self.history.add_item(env_msg)
 
         while self.turn_index < self.turn_cnt_max:
-            messages = self.history.to_responses_input()
-            params = {"model": model_name, "api": self.config.active_model.wire_api, "tools" : self.tools}
-
+            messages:List[HistoryItem] = self.history.to_responses_input()
+            params = {"model": model_name, "api": agent_config.wire_api, "tools" : self.tools}
             self.current_task = None
             for m in reversed(messages):
                 if m.get("role") == "user":
@@ -105,12 +106,10 @@ class CodexAgent(BaseAgent):
                     break
 
             stage = self._responses_event_process(messages= messages, params=params)
-
             async for ev in stage:
                 yield ev
 
     def _build_system_prompt(self) -> str:
-        import inspect
         agent_dir = Path(inspect.getfile(self.__class__)).parent
         codex_md = agent_dir / "gpt_5_codex_prompt.md"
         if not codex_md.exists():
@@ -122,9 +121,10 @@ class CodexAgent(BaseAgent):
         #1. 转换messages格式, pydantic -> dict
         converted_messages = []
         llm_msg = None
+        model_name = self.config_mgr.get_active_model_name() or "gpt-5-codex"
         for msg in messages:
             if isinstance(msg, BaseModel):
-                if msg.type == "function_call" or msg.type == "custom_tool_call":
+                if msg.type in {"function_call", "custom_tool_call", "function"}:
                     tool_call = ToolCall(
                         call_id = msg.call_id,
                         name = msg.name,
@@ -140,7 +140,7 @@ class CodexAgent(BaseAgent):
                         )
             elif isinstance(msg, dict):
                 llm_msg = LLMMessage(
-                        role = msg.get("role", msg.get("type")),
+                        role = msg.get("role") or msg.get("type") or "user",
                         content = msg.get("content", msg.get("name")),
                         tool_calls = None,
                         tool_call_id = None,
@@ -165,121 +165,88 @@ class CodexAgent(BaseAgent):
                     content = responses.output_text,
                     tool_calls = tool_calls,
                     usage = responses.usage,
-                    model = self.config.active_model.model,
+                    model = model_name,
                     finish_reason = "completed",
                     )
 
         self.trajectory_recorder.record_llm_interaction(
                 messages = converted_messages,
                 response = resp,
-                provider = self.config.active_model.provider or "openai",
-                model = self.config.active_model.model or "gpt-5-codex",
+                provider = self.config_mgr.get_active_agent().provider or "openai",
+                model = model_name,
                 tools = self.tools,
                 current_task = self.current_task,
                 agent_name = self.type,
         )
 
-    async def _responses_event_process(self, messages, params) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _responses_event_process(self, messages:List[HistoryItem], params) -> AsyncGenerator[AgentEvent, None]:
         """在这里处理LLM的事件，转换为agent事件流"""
-        async for evt in self.llm_client.astream_response(messages, **params):
-            #print(evt)
-            if evt.type == "created":
-                yield {"type": "llm_stream_start", "data": {"message": "LLM response stream started"}}
+        async for event in self.llm_client.astream_response(messages, **params):
+            if event.type == LLM_Events.REQUEST_STARTED:
+                yield AgentEvent.llm_stream_start()
 
-            elif evt.type == "output_text.delta":
-                yield {"type": "llm_chunk", "data": {"content": evt.data}}
+            elif event.type == LLM_Events.ASSISTANT_DELTA:
+                yield AgentEvent.text_delta(str(event.data))
     
-            elif evt.type == "tool_call.ready":
-                if evt.data is None: continue
-                item = evt.data
+            elif event.type == LLM_Events.TOOL_CALL_READY:
+                if event.data is None: continue
+                item = event.data
                 self.history.add_item(item)
-                if item.type == "function_call":
+                if item.type == "function_call" or item.type == "function":
                     tc = ToolCall(item.call_id, item.name, json.loads(item.arguments), item.type)
                 elif item.type == "custom_tool_call":
                     tc = ToolCall(item.call_id, item.name, item.input, item.type)
                 else:
                     continue
-
                 async for tool_event in self._process_one_tool_call(tc):
                     yield tool_event
 
-            elif evt.type == "reasoning_summary_text.delta":
-                payload = {"reasoning": evt.data, "turn": self.turn_index}
-                yield {"type": "waiting_for_user", "data": payload}
-
-            elif evt.type == "reasoning_text.delta":
+            elif event.type == LLM_Events.REASONING_DELTA:
                 continue
 
-            elif evt.type == "completed":
+            elif event.type == LLM_Events.RESPONSE_FINISHED:
                 #一轮结束
-                self.record_turn_messages(messages, evt.data)
+                self.record_turn_messages(messages, event.data)
                 self.turn_index += 1
-                if evt.data and self.cli_console:
-                    total_tokens = evt.data.usage.total_tokens
-                    self.cli_console.update_token_usage(total_tokens)
-
                 has_tool_call = False
-                for out in evt.data.output:
-                    if out.type == "function_call" or out.type == "custom_tool_call":
+                for out in event.data.output:
+                    if out.type in{"function_call", "custom_tool_call", "function"}:
                         has_tool_call = True
                         break
                 if has_tool_call:
-                    yield {"type": "turn_complete", "data": {"status": "completed"}}
+                    yield AgentEvent.turn_complete()
                 else:
-                    yield {"type": "task_complete", "data": {"status": "completed"}}
+                    yield AgentEvent.task_complete("completed")
+            elif event.type == LLM_Events.TOKEN_USAGE:
+                #TODO. 记录token使用情况
+                print("Token usage: ", event.data)
+            elif event.type == "error":
+                yield AgentEvent.error(str(event.data))
 
-
-            elif evt.type == "error":
-                yield {"type": "error", "data": {"error": str(evt.data)}}
-
-
-
-    async def _process_one_tool_call(self, tool_call :ToolCall) -> AsyncGenerator[Dict[str, Any], None]:
-        tool = get_tool(tool_call.name)
+    async def _process_one_tool_call(self, tool_call :ToolCall) -> AsyncGenerator[AgentEvent, None]:
+        name = tool_call.name
+        tool = self.tool_mgr.get_tool(name)
         if not tool:
             return
-        if not self.cli_console:
-            return
-        #格式不一致，需要特殊处理
-        confirm_tool_call = tool_call
+        call_id = tool_call.call_id
+        arguments = {}
         if isinstance(tool_call.arguments, Mapping):
-            confirm_tool_call.arguments = dict(tool_call.arguments)
+            arguments = dict(tool_call.arguments)
         elif isinstance(tool_call.arguments, str) and tool_call.name == "apply_patch":
-            confirm_tool_call.arguments = {"input": tool_call.arguments}
+            arguments = {"input": tool_call.arguments}
 
-        confirmed = await self.cli_console.confirm_tool_call(confirm_tool_call, tool)
-        if not confirmed:
-            self.history.add_message(role="assistant", content=f"Tool call '{tool_call.name}' was rejected by the user.")
-            payload = {"call_id": tool_call.call_id, 
-                        "name": tool_call.name, 
-                        "result": "Tool execution rejected by user",
-                        "success":False,
-                        "error": "Tool execution rejuected by user",
-                        }
-            yield {"type": "tool_result", "data": payload}
-            return
         try:
-            result = await tool.execute(**confirm_tool_call.arguments)
-            payload = {"call_id": tool_call.call_id, 
-                       "name": tool_call.name, 
-                       "result": result.result,
-                       "success": result.success, 
-                       "error": result.error, 
-                       "arguments": tool_call.arguments
-                    }
-            tool_output_item = {
-                    "type": "function_call_output", 
-                    "call_id": tool_call.call_id, 
-                    "output": json.dumps({
-                            "result": result.result,
-                         })
-                    }
-            self.history.add_item(tool_output_item)
-            yield {"type": "tool_result", "data": payload}
+            is_success, result = await self.tool_mgr.execute(name, arguments, tool)
+            if not is_success:
+                self.history.add_message(role="assistant", content= result)
+                yield AgentEvent.tool_result(call_id, name, result, False, arguments)
+                return
+            item = {"type": "function_call_output", "call_id": call_id, "output": json.dumps({"result": result,}) }
+            self.history.add_item(item)
+            yield AgentEvent.tool_result(call_id, name, result, True, arguments)
         except Exception as e:
-            print("Tool execution error: ", str(e))
+            item = {"type": "function_call_output", "call_id": call_id, "output": "tool failed"}
+            self.history.add_item(item)
             error_msg = f"Tool execution failed: {str(e)}"
-            tool_output_item = {"type": "function_call_output", "call_id": tool_call.call_id, "output": "tool failed"}
-            self.history.add_item(tool_output_item)
-            yield {"type": "tool_error", "data": {"call_id": tool_call.call_id, "name": tool_call.name, "error": error_msg}}
+            yield AgentEvent.tool_result(call_id, name, error_msg, False, arguments)
 

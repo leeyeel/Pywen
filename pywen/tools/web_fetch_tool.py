@@ -3,8 +3,8 @@ import aiohttp
 import html
 import re
 from typing import Any, Mapping
-from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry import register_tool
+from .base_tool import BaseTool, ToolCallResult
+from pywen.tools.tool_manager import register_tool
 
 CLAUDE_DESCRIPTION = """
 - Fetches content from a specified URL and processes it using an AI model
@@ -72,13 +72,13 @@ class WebFetchTool(BaseTool):
                 text = text[:5000] + "...[内容已截断]"
             return text
 
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Fetch web content and extract clean text."""
         url = kwargs.get("url")
         timeout = kwargs.get("timeout", 30)
         
         if not url:
-            return ToolResult(call_id="", error="No URL provided")
+            return ToolCallResult(call_id="", error="No URL provided")
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
@@ -95,25 +95,25 @@ class WebFetchTool(BaseTool):
                     if response.status == 200:
                         html_content = await response.text()
                         clean_text = self._clean_html_content(html_content)
-                        return ToolResult(
+                        return ToolCallResult(
                             call_id="",
                             result=f"Content from {url}:\n\n{clean_text}"
                         )
                     elif response.status == 403:
-                        return ToolResult(
+                        return ToolCallResult(
                             call_id="",
                             error=f"Access denied (403) for {url}. Website may have anti-bot protection."
                         )
                     else:
-                        return ToolResult(
+                        return ToolCallResult(
                             call_id="",
                             error=f"HTTP {response.status}: Failed to fetch {url}"
                         )
         
         except asyncio.TimeoutError:
-            return ToolResult(call_id="", error=f"Timeout fetching {url}")
+            return ToolCallResult(call_id="", error=f"Timeout fetching {url}")
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error fetching {url}: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error fetching {url}: {str(e)}")
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         if provider.lower() == "claude" or provider.lower() == "anthropic":

@@ -1,8 +1,8 @@
 import os
 import re
 from typing import Any, Mapping
-from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry import register_tool
+from .base_tool import BaseTool, ToolCallResult
+from pywen.tools.tool_manager import register_tool
 
 CLAUDE_DESCRIPTION = """
 A powerful search tool built on ripgrep
@@ -48,7 +48,7 @@ class GrepTool(BaseTool):
         "required": ["pattern", "path"]
     }
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Search for text patterns."""
         pattern = kwargs.get("pattern")
         path = kwargs.get("path")
@@ -57,10 +57,10 @@ class GrepTool(BaseTool):
         use_regex = kwargs.get("regex", False)
         
         if not pattern:
-            return ToolResult(call_id="", error="No pattern provided")
+            return ToolCallResult(call_id="", error="No pattern provided")
         
         if not path or not os.path.exists(path):
-            return ToolResult(call_id="", error="No path provided")
+            return ToolCallResult(call_id="", error="No path provided")
         
         try:
             results = []
@@ -81,12 +81,12 @@ class GrepTool(BaseTool):
                             matches = self._search_in_file(item_path, pattern, case_sensitive, use_regex)
                             results.extend(matches)
             if not results:
-                return ToolResult(call_id="", result="No matches found")
+                return ToolCallResult(call_id="", result="No matches found")
             
-            return ToolResult(call_id="", result="\n".join(results))
+            return ToolCallResult(call_id="", result="\n".join(results))
         
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error searching: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error searching: {str(e)}")
     
     def _search_in_file(self, file_path: str, pattern: str, case_sensitive: bool, use_regex: bool) -> list:
         """Search for pattern in a single file."""

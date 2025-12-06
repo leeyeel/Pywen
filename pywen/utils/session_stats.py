@@ -1,9 +1,6 @@
-"""Session statistics tracking for Pywen."""
-
 from datetime import datetime
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
-
 
 @dataclass
 class TokenStats:
@@ -14,7 +11,6 @@ class TokenStats:
     cached_tokens: int = 0
     reasoning_tokens: int = 0
 
-
 @dataclass
 class APIStats:
     """API call statistics."""
@@ -24,7 +20,6 @@ class APIStats:
     @property
     def error_rate(self) -> float:
         return (self.total_errors / self.total_requests * 100) if self.total_requests > 0 else 0
-
 
 @dataclass
 class ToolStats:
@@ -38,7 +33,6 @@ class ToolStats:
     def success_rate(self) -> float:
         return (self.total_success / self.total_calls * 100) if self.total_calls > 0 else 0
 
-
 @dataclass
 class AgentStats:
     """Statistics for a specific agent."""
@@ -51,8 +45,6 @@ class AgentStats:
     last_used: datetime = field(default_factory=datetime.now)
     total_tasks: int = 0
     
-
-
 class SessionStats:
     """Tracks statistics for the entire session."""
 
@@ -144,11 +136,9 @@ class SessionStats:
 
     def record_tool_call(self, tool_name: str, success: bool, agent_name: Optional[str] = None):
         """Record a tool call."""
-        # Use current agent if not specified
         if agent_name is None:
             agent_name = self.current_agent
 
-        # Update global stats
         self.tools.total_calls += 1
 
         if success:
@@ -156,7 +146,6 @@ class SessionStats:
         else:
             self.tools.total_failures += 1
 
-        # Update per-tool stats
         if tool_name not in self.tools.by_name:
             self.tools.by_name[tool_name] = {
                 'calls': 0,
@@ -172,9 +161,7 @@ class SessionStats:
         else:
             tool_stats['failures'] += 1
 
-        # Update agent-specific stats
         if agent_name:
-            # Ensure agent exists in the dictionary
             if agent_name not in self.agents:
                 self.agents[agent_name] = AgentStats(name=agent_name)
             agent_stats = self.agents[agent_name]
@@ -186,7 +173,6 @@ class SessionStats:
             else:
                 agent_stats.tools.total_failures += 1
 
-            # Update agent per-tool stats
             if tool_name not in agent_stats.tools.by_name:
                 agent_stats.tools.by_name[tool_name] = {
                     'calls': 0,
@@ -208,7 +194,6 @@ class SessionStats:
             agent_name = self.current_agent
 
         if agent_name:
-            # Ensure agent exists in the dictionary
             if agent_name not in self.agents:
                 self.agents[agent_name] = AgentStats(name=agent_name)
 
@@ -344,6 +329,4 @@ class SessionStats:
 
         return "\n".join(lines)
 
-
-# Global session stats instance
 session_stats = SessionStats()

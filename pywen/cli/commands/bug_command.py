@@ -13,12 +13,12 @@ class BugCommand(BaseCommand):
         super().__init__("bug", "create a GitHub issue for bug reports")
         self.console = get_console()
     
-    async def execute(self, context: Dict[str, Any], args: str) -> bool:
+    async def execute(self, context: Dict[str, Any], args: str) -> dict:
         """创建 GitHub issue"""
         if not args.strip():
             self.console.print("[red]Usage: /bug <bug_description>[/red]")
             self.console.print("[dim]Example: /bug Found a memory leak in agent execution[/dim]")
-            return True
+            return {"result": True, "message": "success"} 
         
         description = args.strip()
         
@@ -30,7 +30,7 @@ class BugCommand(BaseCommand):
             self.console.print("[dim]1. Go to https://github.com/settings/tokens/ [dim]")
             self.console.print("[dim]2. Generate new token with 'repo' permissions[/dim]")
             self.console.print("[dim]3. Set: export GITHUB_TOKEN=your_token[/dim]")
-            return True
+            return {"result": True, "message": "success"} 
         
         # 显示创建中状态
         self.console.print("[yellow]🔄 Creating GitHub issue...[/yellow]")
@@ -42,7 +42,7 @@ class BugCommand(BaseCommand):
             self.console.print(f"[red]❌ Failed to create issue: {str(e)}[/red]")
             self.console.print("[dim]Please ensure your GitHub token has 'repo' permissions[/dim]")
         
-        return True
+        return {"result": True, "message": "success"} 
     
     async def _create_github_issue(self, description: str, github_token: str) -> str:
         """使用 GitHub API 创建 issue"""

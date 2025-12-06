@@ -1,22 +1,21 @@
-"""Keyboard bindings and shortcuts for the CLI interface."""
-
-import threading
-from typing import Callable, Optional
-
+import asyncio
+from asyncio import TimerHandle
+from typing import Callable, Optional, Dict, Any
 from prompt_toolkit.key_binding import KeyBindings
-from pywen.config.manager import  ConfigManager
-from pywen.ui.cli_console import CLIConsole
-from pywen.core.permission_manager import PermissionLevel,PermissionManager
-
+from pywen.cli.cli_console import CLIConsole
+from pywen.utils.permission_manager import PermissionLevel,PermissionManager
 
 def create_key_bindings(
     console_getter: Callable[[], CLIConsole], 
     perm_mgr_getter: Callable[[], PermissionManager], 
-    cancel_event_getter: Optional[Callable[[], Optional[threading.Event]]] = None, 
-    current_task_getter: Optional[Callable] = None
+    cancel_event_getter: Optional[Callable[[], Optional[Any]]] = None, 
+    current_task_getter: Optional[Callable] = None,
+    *,
+    exit_sentinel: str = "__PYWEN_QUIT__",
 ) -> KeyBindings:
     """创建键盘快捷键绑定"""
     bindings = KeyBindings()
+    loop = asyncio.get_event_loop()
     
     # Ctrl+J - 新行
     @bindings.add('c-j')
@@ -81,80 +80,60 @@ def create_key_bindings(
         console.print("Auto-accepting edits toggled (not implemented yet)","yellow")
     
     # ESC - 取消当前操作
+    # 注意，只有在编辑状态下按 ESC 才会触发此绑定
     @bindings.add('escape')
     def _(event):
         """Cancel current operation."""
-        console = console_getter()
         cancel_event = cancel_event_getter() if cancel_event_getter else None
-        
-        buffer = event.app.current_buffer
-        if buffer.text:
-            buffer.reset()
-            console.print("Input cleared","yellow")
-        elif cancel_event and not cancel_event.is_set():
-            console.print("Cancelling current operation...","yellow")
-            cancel_event.set()
-            # 如果有当前任务，也取消它
-            if current_task_getter:
-                task = current_task_getter()
-                if task and not task.done():
-                    task.cancel()
-    
-    # Ctrl+C - 智能处理：任务执行中取消任务，否则退出
-    ctrl_c_count = 0
-    ctrl_c_timer = None
-    
-    @bindings.add('c-c')
-    def _(event):
-        """Handle Ctrl+C - cancel task or quit."""
-        nonlocal ctrl_c_count, ctrl_c_timer
-        
-        console = console_getter()
-        cancel_event = cancel_event_getter() if cancel_event_getter else None
-        
-        # 检查是否有正在执行的任务
         current_task = current_task_getter() if current_task_getter else None
-        has_running_task = current_task and not current_task.done()
-        
-        if has_running_task:
-            # 如果有正在运行的任务，第一次按 Ctrl+C 取消任务
-            console.print("\nCancelling current operation... (Press Ctrl+C again to force quit)","yellow")
-            if cancel_event and not cancel_event.is_set():
-                cancel_event.set()
+        try:
             if current_task:
                 current_task.cancel()
-            
-            # 重置计数器，给用户机会再次按 Ctrl+C 强制退出
-            ctrl_c_count = 1
-            
-            def reset_count():
-                nonlocal ctrl_c_count
-                ctrl_c_count = 0
-            
-            if ctrl_c_timer:
-                ctrl_c_timer.cancel()
-            ctrl_c_timer = threading.Timer(3.0, reset_count)
-            ctrl_c_timer.start()
-            
+        except Exception:
+            pass
+        try:
+            if cancel_event and hasattr(cancel_event, "set"):
+                cancel_event.set()
+        except Exception:
+            pass
+    # Ctrl+C - 智能处理：任务执行中取消任务，否则退出
+    ctrl_c_count = {"n": 0}
+    reset_handle: Dict[str, Optional[TimerHandle]] = {"h": None}
+    def schedule_reset():
+        if reset_handle["h"] is not None:
+            reset_handle["h"].cancel()
+        reset_handle["h"] = loop.call_later(3.0, lambda: ctrl_c_count.__setitem__("n", 0))
+
+    @bindings.add('c-c')
+    def _(event):
+        console = console_getter()
+        cancel_event = cancel_event_getter() if cancel_event_getter else None
+        current_task = current_task_getter() if current_task_getter else None
+        running = bool(current_task and not current_task.done())
+
+        if running:
+            console.print("\nCancelling current operation... (Press Ctrl+C again to quit)", "yellow")
+            if cancel_event and not cancel_event.is_set():
+                cancel_event.set()
+            try:
+                if current_task and not current_task.done():
+                    current_task.cancel()
+            finally:
+                ctrl_c_count["n"] = 1
+                schedule_reset()
+            return
+
+        # 没有任务在跑：走 3 秒内双击退出
+        ctrl_c_count["n"] += 1
+        if ctrl_c_count["n"] == 1:
+            console.print("Press Ctrl+C again to quit", "yellow")
+            schedule_reset()
         else:
-            # 没有正在运行的任务，使用双击退出逻辑
-            ctrl_c_count += 1
-            
-            if ctrl_c_count == 1:
-                console.print("Press Ctrl+C again to quit","yellow")
-                
-                def reset_count():
-                    nonlocal ctrl_c_count
-                    ctrl_c_count = 0
-                
-                if ctrl_c_timer:
-                    ctrl_c_timer.cancel()
-                ctrl_c_timer = threading.Timer(3.0, reset_count)
-                ctrl_c_timer.start()
-                
-            elif ctrl_c_count >= 2:
-                console.print("Force quitting...","red")
-                event.app.exit()
+            console.print("Force quitting...", "red")
+            if reset_handle["h"] is not None:
+                reset_handle["h"].cancel()
+                reset_handle["h"] = None
+            event.app.exit(result=exit_sentinel)
     
     # Alt+Left - Jump word left
     @bindings.add('escape', 'left')

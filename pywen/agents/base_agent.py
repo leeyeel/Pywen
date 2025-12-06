@@ -3,25 +3,24 @@ import fnmatch
 from typing import Callable, Iterable, Optional, AsyncGenerator
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
-from pywen.config.config import AppConfig, MCPConfig
-from pywen.ui.cli_console import CLIConsole
-from pywen.core.trajectory_recorder import TrajectoryRecorder
+from pywen.config.config import MCPConfig
+from pywen.config.manager import ConfigManager
+from pywen.utils.trajectory_recorder import TrajectoryRecorder
 from pywen.llm.llm_basics import LLMMessage
+from pywen.tools.tool_manager import ToolManager
 from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
-from pywen.hooks.manager import HookManager
+from pywen.agents.agent_events import AgentEvent 
 
 class BaseAgent(ABC):
-    def __init__(self, config: AppConfig, hook_mgr:HookManager, cli_console: Optional[CLIConsole] =None):
-        self.config = config
-        self.cli_console = cli_console
+    def __init__(self, config_mgr: ConfigManager, tool_mgr :ToolManager) -> None:
         self.type = "BaseAgent"
         self.conversation_history: List[LLMMessage] = []
         self.trajectory_recorder = TrajectoryRecorder()
         self._closed = False 
         self._mcp_mgr = None
         self._mcp_init_lock = asyncio.Lock()
-
-        self.hook_mgr = hook_mgr
+        self.config_mgr = config_mgr
+        self.tool_mgr = tool_mgr
 
     async def setup_tools_mcp(self):
         """Setup tools based on agent configuration."""
@@ -32,19 +31,14 @@ class BaseAgent(ABC):
         """Return tool-specific configurations. Override if needed."""
         return {}
     
-    def set_cli_console(self, console):
-        """Set the CLI console for progress updates."""
-        self.cli_console = console
-    
     @abstractmethod
-    def run(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
+    def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
         """Run the agent - must be implemented by subclasses."""
         pass
     
-    @abstractmethod
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions."""
-        pass
+        return "" 
 
     def __make_include_predicate(self, patterns: Optional[Iterable[str]]) -> Optional[Callable[[str], bool]]:
         if not patterns:
@@ -65,7 +59,7 @@ class BaseAgent(ABC):
             if self._mcp_mgr is not None:
                 return
 
-            mcp_cfg = self.config.mcp or MCPConfig()
+            mcp_cfg = self.config_mgr.get_app_config().mcp or MCPConfig()
             if not mcp_cfg.enabled:
                 self._mcp_mgr = MCPServerManager()
                 return
@@ -92,8 +86,8 @@ class BaseAgent(ABC):
 
                 try:
                     await mgr.add_stdio_server(name, command, args)
-                except Exception as e:
-                    self.cli_console.print(f"[MCP] Failed to start server: {e}", "yellow")
+                except Exception:
+                    return
 
             for s in servers:
                 if not s.enabled:
@@ -105,7 +99,7 @@ class BaseAgent(ABC):
                 await sync_mcp_server_tools_into_registry(
                     server_name=name,
                     manager=mgr,
-                    tool_registry=self.tool_registry,
+                    tool_registry= None,
                     include=include_pred,
                     save_images_dir=save_dir,
                 )

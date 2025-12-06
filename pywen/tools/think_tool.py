@@ -5,8 +5,8 @@ Based on claude_code_version/tools/ThinkTool/ThinkTool.tsx
 from datetime import datetime
 from typing import Any, Mapping 
 from pywen.tools.base_tool import BaseTool
-from pywen.utils.tool_basics import ToolResult
-from pywen.core.tool_registry import register_tool
+from pywen.llm.llm_basics import ToolCallResult
+from pywen.tools.tool_manager import register_tool
 
 DESCRIPTION= """Use the tool to think about something. 
 It will not obtain new information or make any changes to the repository, 
@@ -45,7 +45,7 @@ class ThinkTool(BaseTool):
         """Think tool is completely safe"""
         return False
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         thought = kwargs.get('thought', '')
         try:
             timestamp = datetime.now().isoformat()
@@ -59,7 +59,7 @@ class ThinkTool(BaseTool):
 
             formatted_thought = f"**thinking**\n\n{thought}\n"
 
-            return ToolResult(
+            return ToolCallResult(
                 call_id="think",
                 result=formatted_thought,
                 metadata={
@@ -70,7 +70,7 @@ class ThinkTool(BaseTool):
             )
             
         except Exception as e:
-            return ToolResult(
+            return ToolCallResult(
                 call_id="think",
                 error=f"Failed to log thought: {str(e)}",
                 metadata={"error": "think_tool_failed"}

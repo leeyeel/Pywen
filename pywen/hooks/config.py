@@ -2,9 +2,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict, List
-
 from .models import HookCommand, HookGroup, HooksConfig
-
 
 def load_hooks_config(path: str | Path) -> HooksConfig:
     p = Path(path)
@@ -35,4 +33,3 @@ def load_hooks_config(path: str | Path) -> HooksConfig:
         parsed[event_name] = group_objs
 
     return HooksConfig(hooks=parsed)
-

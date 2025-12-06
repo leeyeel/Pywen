@@ -2,9 +2,9 @@ import logging
 import time
 from typing import List, Mapping,Any,Dict
 from pywen.tools.base_tool import BaseTool
-from pywen.utils.tool_basics import ToolResult
+from pywen.llm.llm_basics import ToolCallResult
 from pywen.llm.llm_basics import LLMMessage
-from pywen.core.tool_registry import register_tool
+from pywen.tools.tool_manager import register_tool
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class ArchitectTool(BaseTool):
         """Architect tool is read-only and safe"""
         return False
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """
         Execute the architect tool for technical analysis
         """
@@ -79,7 +79,7 @@ class ArchitectTool(BaseTool):
         try:
             start_time = time.time()
             if not self.current_agent or self.current_agent.type != "ClaudeAgent":
-                return ToolResult(
+                return ToolCallResult(
                     call_id="architect_tool",
                     error="Architect tool can only be used with Claude Code Agent",
                     metadata={"error": "invalid_agent_type"}
@@ -191,7 +191,7 @@ class ArchitectTool(BaseTool):
                 duration = time.time() - start_time
                 summary = f"\n\n---\n**Summary:** {tool_use_count} tool uses, {duration:.1f}s"
                 
-                return ToolResult(
+                return ToolCallResult(
                     call_id="architect_tool",
                     result=final_result + summary,
                     metadata={
@@ -203,7 +203,7 @@ class ArchitectTool(BaseTool):
                 
             except Exception as e:
                 logger.error(f"Architect execution failed: {e}")
-                return ToolResult(
+                return ToolCallResult(
                     call_id="architect_tool",
                     error=f"Architect execution failed: {str(e)}",
                     metadata={"error": "architect_execution_failed"}
@@ -211,7 +211,7 @@ class ArchitectTool(BaseTool):
                 
         except Exception as e:
             logger.error(f"Architect tool execution failed: {e}")
-            return ToolResult(
+            return ToolCallResult(
                 call_id="architect_tool",
                 error=f"Architect tool failed: {str(e)}",
                 metadata={"error": "architect_tool_failed"}

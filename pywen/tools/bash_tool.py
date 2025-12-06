@@ -2,12 +2,22 @@ import asyncio
 import atexit
 import locale
 import os
+import re
 import shlex
 import signal
 import tempfile
 from typing import Any, Mapping, Optional, Set, Tuple
-from .base_tool import BaseTool, ToolResult, ToolRiskLevel
-from pywen.core.tool_registry import register_tool
+from .base_tool import BaseTool, ToolCallResult, ToolRiskLevel
+from pywen.tools.tool_manager import register_tool
+
+# 配置常量
+MAX_OUTPUT_LENGTH = 30000
+DEFAULT_TIMEOUT = 120  # 默认超时时间（秒）
+INITIAL_WAIT_TIME = 5.0  # 初始等待时间（秒），用于检测命令是否快速完成
+READ_BUFFER_SIZE = 4096  # 读取缓冲区大小（字节）
+READ_TIMEOUT = 0.5  # 单次读取超时时间（秒）
+BACKGROUND_STARTUP_DELAY = 1.0  # 后台进程启动延迟（秒）
+BACKGROUND_READ_TIMEOUT = 1.0  # 后台进程初始输出读取超时（秒）
 
 # 配置常量
 MAX_OUTPUT_LENGTH = 30000
@@ -19,7 +29,7 @@ BACKGROUND_STARTUP_DELAY = 1.0  # 后台进程启动延迟（秒）
 BACKGROUND_READ_TIMEOUT = 1.0  # 后台进程初始输出读取超时（秒）
 
 CLAUDE_DESCRIPTION = """
-Executes a given bash command in a persistent shell session with optional timeout, 
+Executes a given bash command in a persistent shell session with optional timeout,
 ensuring proper handling and security measures.
 
 Before executing the command, please follow these steps:
@@ -107,16 +117,15 @@ def track_pid(pid: int):
 def untrack_pid(pid: int):
     """从跟踪列表移除 PID"""
     _tracked_pids.discard(pid)
-
 @register_tool(name="bash", providers=["pywen", "claude",])
 class BashTool(BaseTool):
     """Shell 命令执行工具"""
-    
+
     if os.name == "nt":
         description = """Run commands in Windows Command Prompt (cmd.exe)"""
     else:
         description = """Run commands in a bash shell. Command is executed as `bash -c <command>`."""
-    
+
     name = "bash"
     display_name = "Bash Command" if os.name != "nt" else "Windows Command"
     parameter_schema = {
@@ -144,7 +153,7 @@ class BashTool(BaseTool):
         "required": ["command"]
     }
     risk_level = ToolRiskLevel.LOW
-    
+
     def __init__(self):
         super().__init__()
         self._encoding = 'utf-8'
@@ -157,9 +166,9 @@ class BashTool(BaseTool):
                     self._encoding = 'utf-8'
             except Exception:
                 self._encoding = 'gbk'
-        
+
         self._background_processes: dict[int, asyncio.subprocess.Process] = {}
-    
+
     def get_risk_level(self, **kwargs) -> ToolRiskLevel:
         """根据命令评估风险等级"""
         command = kwargs.get("command", "")
@@ -195,8 +204,8 @@ class BashTool(BaseTool):
         if len(output) > MAX_OUTPUT_LENGTH:
             half = MAX_OUTPUT_LENGTH // 2
             return (
-                output[:half] + 
-                f"\n\n... [truncated {len(output) - MAX_OUTPUT_LENGTH} characters] ...\n\n" + 
+                output[:half] +
+                f"\n\n... [truncated {len(output) - MAX_OUTPUT_LENGTH} characters] ...\n\n" +
                 output[-half:]
             )
         return output
@@ -204,58 +213,40 @@ class BashTool(BaseTool):
     def _prepare_command(self, command: str) -> Tuple[str, Optional[str]]:
         """
         准备命令执行方式，返回 (shell_command, temp_script_path)
-        
+
         对于多行命令，使用临时脚本文件方式，更安全且可控。
         对于单行命令，使用 bash -c 方式。
-        
-        Returns:
-            Tuple[str, Optional[str]]: (shell_command, temp_script_path)
-                temp_script_path 不为 None 时，需要在执行后清理临时文件
         """
         if os.name == "nt":
-            # Windows 使用 cmd.exe
             return (f'cmd.exe /c "({command})"', None)
-        
-        # Unix-like 系统
+
         if '\n' in command:
-            # 多行命令：使用临时脚本文件方式，避免 shell 转义和 eval 安全问题
             try:
-                # 创建临时脚本文件
                 fd, temp_script = tempfile.mkstemp(suffix='.sh', prefix='pywen_bash_', text=True)
                 try:
-                    # 写入命令内容
                     with os.fdopen(fd, 'w', encoding='utf-8') as f:
                         f.write('#!/bin/bash\n')
-                        f.write('set -e\n')  # 遇到错误立即退出
+                        f.write('set -e\n')
                         f.write(command)
                         f.write('\n')
-                    
-                    # 设置执行权限
                     os.chmod(temp_script, 0o755)
-                    
-                    # 返回执行命令和临时文件路径
-                    # 使用 shlex.quote 安全转义路径，避免路径中的特殊字符导致安全问题
                     return (f'bash {shlex.quote(temp_script)}', temp_script)
                 except Exception:
-                    # 如果写入失败，关闭文件描述符并删除临时文件
                     try:
                         os.close(fd)
                         os.unlink(temp_script)
                     except Exception:
                         pass
                     raise
-            except Exception as e:
-                # 如果临时文件创建失败，回退到单行转义方式（虽然不完美，但至少能执行）
-                # 将多行命令转换为单行（用分号连接）
+            except Exception:
                 single_line = '; '.join(line.strip() for line in command.split('\n') if line.strip())
                 escaped_command = single_line.replace("'", "'\"'\"'")
                 return (f"bash -c '({escaped_command})'", None)
         else:
-            # 单行命令：使用 bash -c 方式
             escaped_command = command.replace("'", "'\"'\"'")
             return (f"bash -c '({escaped_command})'", None)
 
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """执行 bash 命令"""
         command = kwargs.get("command")
         is_background = kwargs.get("is_background", False)
@@ -263,44 +254,38 @@ class BashTool(BaseTool):
         timeout = kwargs.get("timeout", DEFAULT_TIMEOUT)
 
         if not command:
-            return ToolResult(call_id="", error="No command provided")
-        
+            return ToolCallResult(call_id="", error="No command provided")
+
         cwd = directory or os.getcwd()
         if directory and not os.path.isdir(directory):
-            return ToolResult(call_id="", error=f"Directory does not exist: {directory}")
-        
-        # 自动为 grep 命令添加 --line-buffered 选项，解决非交互式环境中的缓冲问题
-        # 这可以确保 grep 在管道或 find -exec 中立即输出，避免缓冲导致的超时问题
+            return ToolCallResult(call_id="", error=f"Directory does not exist: {directory}")
+
+        # 自动为 grep 命令添加 --line-buffered 选项
         if os.name != "nt" and "grep" in command and "--line-buffered" not in command:
-            import re
-            # 为 grep 命令添加 --line-buffered 选项
-            # 匹配 "grep" 单词边界，确保不会匹配到其他包含 "grep" 的字符串
             command = re.sub(r'\bgrep\b', 'grep --line-buffered', command)
-        
+
         # 准备命令执行方式
         shell_command, temp_script = self._prepare_command(command)
-        
+
         try:
             if is_background:
                 return await self._execute_background(shell_command, command, cwd)
             return await self._execute_foreground(shell_command, cwd, timeout)
         finally:
-            # 清理临时脚本文件
             if temp_script and os.path.exists(temp_script):
                 try:
                     os.unlink(temp_script)
                 except Exception:
-                    pass  # 忽略清理错误
+                    pass
 
     async def _execute_foreground(
-        self, 
-        shell_command: str, 
-        cwd: str, 
+        self,
+        shell_command: str,
+        cwd: str,
         timeout: float
-    ) -> ToolResult:
+    ) -> ToolCallResult:
         """前台执行命令"""
         try:
-            # 设置环境变量以禁用分页器和交互式提示，确保命令在非交互式环境中正常运行
             env = os.environ.copy()
             env.update({
                 "PAGER": "cat",
@@ -309,9 +294,9 @@ class BashTool(BaseTool):
                 "LESS": "-R",
                 "PIP_PROGRESS_BAR": "off",
                 "TQDM_DISABLE": "1",
-                "PYTHONUNBUFFERED": "1",  # 确保 Python 立即输出，避免缓冲
+                "PYTHONUNBUFFERED": "1",
             })
-            
+
             process = await asyncio.create_subprocess_shell(
                 shell_command,
                 stdout=asyncio.subprocess.PIPE,
@@ -321,22 +306,24 @@ class BashTool(BaseTool):
                 start_new_session=(os.name != "nt"),
             )
             return await self._read_with_progress(process, timeout)
-            
+
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error executing command: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error executing command: {str(e)}")
 
     async def _read_with_progress(
         self,
         process: asyncio.subprocess.Process,
         timeout: float
-    ) -> ToolResult:
-        """增量读取命令输出，支持长期运行命令的早期反馈"""
-        stdout_chunks = []
-        stderr_chunks = []
+    ) -> ToolCallResult:
+        """增量读取命令输出"""
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
         start_time = asyncio.get_event_loop().time()
         initial_wait = min(INITIAL_WAIT_TIME, timeout)
-        
-        async def read_available(stream, chunks):
+
+        async def read_available(stream, chunks: list[str]):
+            if stream is None:
+                return
             while True:
                 try:
                     data = await asyncio.wait_for(stream.read(READ_BUFFER_SIZE), timeout=READ_TIMEOUT)
@@ -345,7 +332,7 @@ class BashTool(BaseTool):
                     chunks.append(data.decode(self._encoding, errors='replace'))
                 except asyncio.TimeoutError:
                     break
-        
+
         try:
             done, pending = await asyncio.wait(
                 [asyncio.create_task(process.wait())],
@@ -358,13 +345,15 @@ class BashTool(BaseTool):
                 return self._format_result(process.returncode or 0, stdout_text, stderr_text)
         except asyncio.TimeoutError:
             pass
-        
-        await read_available(process.stdout, stdout_chunks)
-        await read_available(process.stderr, stderr_chunks)
-        
+
+        if process.stdout:
+            await read_available(process.stdout, stdout_chunks)
+        if process.stderr:
+            await read_available(process.stderr, stderr_chunks)
+
         stdout_text = ''.join(stdout_chunks)
         stderr_text = ''.join(stderr_chunks)
-        
+
         if stdout_text or stderr_text:
             track_pid(process.pid)
             result_parts = []
@@ -374,19 +363,19 @@ class BashTool(BaseTool):
                 result_parts.append(f"[stderr]: {stderr_text.strip()}")
             result_parts.append(f"\n⏳ Process still running (PID: {process.pid})")
             result_parts.append(f"💡 Use `kill {process.pid}` to stop it")
-            return ToolResult(
+            return ToolCallResult(
                 call_id="",
                 result='\n'.join(result_parts),
                 metadata={"pid": process.pid, "still_running": True}
             )
-        
+
         elapsed = asyncio.get_event_loop().time() - start_time
         remaining_timeout = timeout - elapsed
-        
+
         if remaining_timeout > 0:
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), 
+                    process.communicate(),
                     timeout=remaining_timeout
                 )
                 stdout_text = stdout.decode(self._encoding, errors='replace') if stdout else ""
@@ -394,35 +383,26 @@ class BashTool(BaseTool):
                 return self._format_result(process.returncode or 0, stdout_text, stderr_text)
             except asyncio.TimeoutError:
                 pass
-        
+
         if process.returncode is None:
             track_pid(process.pid)
-            return ToolResult(
+            return ToolCallResult(
                 call_id="",
                 result=f"⏳ Command running in background (PID: {process.pid})\n"
                        f"💡 No output yet after {timeout}s. Use `kill {process.pid}` to stop.",
                 metadata={"pid": process.pid, "still_running": True}
             )
-        
+
         process.kill()
         await process.wait()
-        return ToolResult(
+        return ToolCallResult(
             call_id="",
             error=f"Command timed out after {timeout} seconds"
         )
 
-    async def _execute_background(self, shell_command: str, original_command: str, cwd: str) -> ToolResult:
-        """后台执行命令，返回 PID 信息
-        
-        Args:
-            shell_command: 准备好的 shell 命令（可能包含临时脚本路径）
-            original_command: 原始命令（用于显示给用户）
-            cwd: 工作目录
-        """
+    async def _execute_background(self, shell_command: str, original_command: str, cwd: str) -> ToolCallResult:
+        """后台执行命令"""
         try:
-            # shell_command 已经在 execute 方法中通过 _prepare_command 准备好了
-            
-            # 设置环境变量以禁用分页器和交互式提示
             env = os.environ.copy()
             env.update({
                 "PAGER": "cat",
@@ -431,9 +411,9 @@ class BashTool(BaseTool):
                 "LESS": "-R",
                 "PIP_PROGRESS_BAR": "off",
                 "TQDM_DISABLE": "1",
-                "PYTHONUNBUFFERED": "1",  # 确保 Python 立即输出，避免缓冲
+                "PYTHONUNBUFFERED": "1",
             })
-            
+
             process = await asyncio.create_subprocess_shell(
                 shell_command,
                 stdout=asyncio.subprocess.PIPE,
@@ -443,52 +423,53 @@ class BashTool(BaseTool):
                 start_new_session=(os.name != "nt"),
             )
             pid = process.pid
-            
+
             await asyncio.sleep(BACKGROUND_STARTUP_DELAY)
-            
+
             initial_output = ""
-            try:
-                stdout_data = await asyncio.wait_for(
-                    process.stdout.read(READ_BUFFER_SIZE), 
-                    timeout=BACKGROUND_READ_TIMEOUT
-                )
-                initial_output = stdout_data.decode(self._encoding, errors='replace')
-            except asyncio.TimeoutError:
-                pass
-            
+            if process.stdout:
+                try:
+                    stdout_data = await asyncio.wait_for(
+                        process.stdout.read(READ_BUFFER_SIZE),
+                        timeout=BACKGROUND_READ_TIMEOUT
+                    )
+                    initial_output = stdout_data.decode(self._encoding, errors='replace')
+                except asyncio.TimeoutError:
+                    pass
+
             if process.returncode is not None and process.returncode != 0:
-                stderr_data = await process.stderr.read()
+                stderr_data = await process.stderr.read() if process.stderr else b""
                 stderr_text = stderr_data.decode(self._encoding, errors='replace')
-                return ToolResult(call_id="", error=f"Background process failed to start:\n{stderr_text}")
-            
+                return ToolCallResult(call_id="", error=f"Background process failed to start:\n{stderr_text}")
+
             self._background_processes[pid] = process
             track_pid(pid)
-            
+
             result_lines = [
                 f"Command: {original_command}",
                 f"Directory: {cwd}",
                 f"Output: {initial_output.strip() if initial_output else '(starting...)'}",
                 f"PID: {pid}",
             ]
-            
+
             result_text = '\n'.join(result_lines)
             result_text += "\n\n✅ Background process started"
             if os.name != "nt":
                 result_text += f"\n📝 To stop: kill {pid}"
-            
-            return ToolResult(
+
+            return ToolCallResult(
                 call_id="",
                 result=result_text,
                 metadata={"pid": pid, "is_background": True}
             )
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error starting background process: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error starting background process: {str(e)}")
 
-    def _format_result(self, exit_code: int, stdout: str, stderr: str) -> ToolResult:
+    def _format_result(self, exit_code: int, stdout: str, stderr: str) -> ToolCallResult:
         """格式化命令执行结果"""
         stdout = self._truncate_output(stdout.strip())
         stderr = self._truncate_output(stderr.strip())
-        
+
         result_parts = []
         if stdout:
             result_parts.append(stdout)
@@ -498,15 +479,15 @@ class BashTool(BaseTool):
             result_parts.append(f"[Exit Code: {exit_code}]")
         if not result_parts:
             result_parts.append("Command executed successfully (no output)")
-        
-        result_text = '\n'.join(result_parts)
-        
-        if exit_code != 0:
-            return ToolResult(call_id="", result=result_text, metadata={"exit_code": exit_code})
-        
-        return ToolResult(call_id="", result=result_text)
 
-    async def kill_background(self, pid: int) -> ToolResult:
+        result_text = '\n'.join(result_parts)
+
+        if exit_code != 0:
+            return ToolCallResult(call_id="", result=result_text, metadata={"exit_code": exit_code})
+
+        return ToolCallResult(call_id="", result=result_text)
+
+    async def kill_background(self, pid: int) -> ToolCallResult:
         """终止后台进程"""
         try:
             if os.name == "nt":
@@ -516,9 +497,9 @@ class BashTool(BaseTool):
             untrack_pid(pid)
             if pid in self._background_processes:
                 del self._background_processes[pid]
-            return ToolResult(call_id="", result=f"Process {pid} terminated")
+            return ToolCallResult(call_id="", result=f"Process {pid} terminated")
         except Exception as e:
-            return ToolResult(call_id="", error=f"Failed to kill process: {e}")
+            return ToolCallResult(call_id="", error=f"Failed to kill process: {e}")
 
     def build(self, provider: str = "", func_type: str = "") -> Mapping[str, Any]:
         if provider.lower() == "claude" or provider.lower() == "anthropic":

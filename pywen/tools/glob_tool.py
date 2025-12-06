@@ -1,7 +1,7 @@
 import glob
 from typing import Any, Mapping
-from .base_tool import BaseTool, ToolResult
-from pywen.core.tool_registry import register_tool
+from .base_tool import BaseTool, ToolCallResult
+from pywen.tools.tool_manager import register_tool
 
 CLAUDE_DESCRIPTION = """
 - Fast file pattern matching tool that works with any codebase size
@@ -33,13 +33,13 @@ class GlobTool(BaseTool):
         "required": ["pattern"]
     }
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Find files using glob pattern."""
         pattern = kwargs.get("pattern")
         recursive = kwargs.get("recursive", True)
         
         if not pattern:
-            return ToolResult(call_id="", error="No pattern provided")
+            return ToolCallResult(call_id="", error="No pattern provided")
         
         try:
             if recursive:
@@ -48,14 +48,14 @@ class GlobTool(BaseTool):
                 matches = glob.glob(pattern)
             
             if not matches:
-                return ToolResult(call_id="", result="No files found matching pattern")
+                return ToolCallResult(call_id="", result="No files found matching pattern")
             
             matches.sort()
             
-            return ToolResult(call_id="", result="\n".join(matches))
+            return ToolCallResult(call_id="", result="\n".join(matches))
         
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error finding files: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error finding files: {str(e)}")
 
     def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
         if provider.lower() == "claude" or provider.lower() == "anthropic":
