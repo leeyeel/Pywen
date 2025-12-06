@@ -20,4 +20,5 @@ pywen/trajectories/*
 trajectories/*
 !.gitkeep
 pywen_workspace
+claude_workspace
 results
