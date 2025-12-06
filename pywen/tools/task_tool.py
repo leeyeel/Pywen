@@ -1,10 +1,11 @@
 import logging
 import time
 import uuid
-from typing import List, Mapping, Any,Dict
+from typing import Mapping, Any
 from pywen.llm.llm_basics import ToolCallResult, LLMMessage
 from pywen.tools.base_tool import BaseTool
 from pywen.tools.tool_manager import register_tool
+from pywen.agents.agent_events import Agent_Events
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,6 @@ class TaskTool(BaseTool):
         description = kwargs.get('description', '')
         prompt = kwargs.get('prompt', '')
         agent = kwargs.get('agent')
-        
         try:
             start_time = time.time()
             task_id = str(uuid.uuid4())[:8]
@@ -114,6 +114,7 @@ class TaskTool(BaseTool):
             result_parts.append("|_ Initializing sub-agent...\n")
             tool_use_count = 0
             sub_agent = agent.create_sub_agent()
+            sub_agent._setup_claude_code_tools(["task_tool"])
             system_prompt = self._get_task_system_prompt(description, task_id)
             result_parts.append("|_ Starting task execution...\n\n")
 
@@ -121,23 +122,18 @@ class TaskTool(BaseTool):
             task_completed = False
             error_occurred = False
 
-            async for event in sub_agent._query_recursive(
-                messages=[
+            messages=[
                     LLMMessage(role="system", content=system_prompt),
                     LLMMessage(role="user", content=prompt)
-                ],
-                system_prompt=system_prompt,
-                max_iterations=10
-            ):
-                event_type = event.get("type", "")
-
-                if event_type == "content":
-                    content = event.get("content", "")
+            ],
+            async for event in sub_agent._query_recursive(messages=messages, depth=0):
+                if event.type == Agent_Events.TEXT_DELTA:
+                    content = event.data
                     if content.strip():
                         result_parts.append(content)
                         final_content += content
-                elif event_type == "tool_call_start":
-                    tool_data = event.get("data", {})
+                elif event.type == Agent_Events.TOOL_CALL:
+                    tool_data = event.data or {}
                     tool_name = tool_data.get("name", "unknown")
                     tool_args = tool_data.get("arguments", {})
                     
@@ -164,25 +160,22 @@ class TaskTool(BaseTool):
                         result_parts.append(f"|_ 🔧 Using {tool_name} tool\n")
                     
                     tool_use_count += 1
-                elif event_type == "tool_call_end":
+                elif event.type == Agent_Events.TOOL_RESULT:
                     tool_data = event.get("data", {})
                     tool_name = tool_data.get("name", "unknown")
                     success = tool_data.get("success", True)
-                    
                     if success:
                         result_parts.append(f"|_ ✅ Completed {tool_name}\n")
                     else:
                         result_parts.append(f"|_ ❌ Failed {tool_name}\n")
-                elif event_type in ["final", "task_complete"]:
-                    if event.get("content"):
-                        final_event_content = event["content"]
-                        result_parts.append(final_event_content)
-                        final_content += final_event_content
+                elif event.type == Agent_Events.TASK_COMPLETE:
+                    if event.data:
+                        result_parts.append(event.data)
+                        final_content += event.data 
                     task_completed = True
                     break
-                elif event_type == "error":
-                    error_content = event.get("content", "Task encountered an error")
-                    result_parts.append(f"|_ Error: {error_content}\n")
+                elif event.type == Agent_Events.ERROR:
+                    result_parts.append(f"|_ Error: {event.data}\n")
                     error_occurred = True
                     break
 

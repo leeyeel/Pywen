@@ -37,7 +37,7 @@ class ClaudeAgent(BaseAgent):
         self.todo_items = []
         reset_reminder_session()
         self.file_metrics = {}
-        self.tools = self._setup_claude_code_tools()
+        self._setup_claude_code_tools()
 
     def create_sub_agent(self) -> 'ClaudeAgent':
         sub_agent = ClaudeAgent(self.config_mgr, self.tool_mgr)
@@ -87,16 +87,14 @@ class ClaudeAgent(BaseAgent):
         except Exception as e:
             yield AgentEvent.error(f"Agent error: {str(e)}")
 
-    def _setup_claude_code_tools(self):
-        tools = []
-        task_tool = self.tool_mgr.get_tool('task_tool')
-        tools.append(task_tool.build("claude"))
-        architect_tool = self.tool_mgr.get_tool('architect_tool')
-        tools.append(architect_tool.build("claude"))
+    def _setup_claude_code_tools(self, except_tools: Optional[List[str]] = None) -> List[Any]:
+        self.tools = []
+        exclude = set(except_tools or [])
         for tool in self.tool_mgr.list_for_provider("claude"):
-            if tool.name != 'task_tool' and tool.name != 'architect_tool':
-                tools.append(tool.build("claude"))
-        return tools
+            if tool.name in exclude:
+                continue
+            self.tools.append(tool.build("claude"))
+        return self.tools
 
     def _build_messages(self, messages: List[LLMMessage]) -> List[Dict[str, Any]]:
         msgs: List[Dict[str, Any]] = []
