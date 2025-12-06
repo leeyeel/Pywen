@@ -258,6 +258,10 @@ class ClaudeAgent(BaseAgent):
             async for event in self._get_assistant_response_streaming(messages, depth=depth):
                 if event.type in [Agent_Events.LLM_STREAM_START, Agent_Events.TEXT_DELTA]:
                     yield event
+                elif event.type == Agent_Events.ERROR:
+                    # 将流式阶段的错误直接透传给上层，避免后续空响应误报
+                    yield event
+                    return
                 elif event.type == Agent_Events.USER_DEFINED:
                     if event.data and event.data["type"] == "assistant_response":
                         assistant_message = event.data["assistant_message"]
@@ -284,6 +288,11 @@ class ClaudeAgent(BaseAgent):
                         )
 
             if not tool_calls:
+                preview = assistant_message.content[:200] if assistant_message and assistant_message.content else ""
+                # 如果没有工具调用且内容为空，视为异常，返回错误而不是直接完成
+                if not preview:
+                    yield AgentEvent.error("LLM returned empty response with no tool calls")
+                    return
                 if final_response and hasattr(final_response, 'usage') and final_response.usage:
                     yield AgentEvent.turn_token_usage(final_response.usage.total_tokens)
                 yield AgentEvent.task_complete(assistant_message.content if assistant_message else "")
@@ -335,10 +344,11 @@ class ClaudeAgent(BaseAgent):
     async def _get_assistant_response_streaming(self, messages: List[LLMMessage], depth: int = 0, **kwargs ) -> AsyncGenerator[AgentEvent, None]:
         try:
             formatted_messages = self._build_messages(messages)
+            active_agent = self.config_mgr.get_active_agent()
             params = {
                     "model": self.config_mgr.get_active_model_name(), 
                     "tools": self.tools,
-                    "max_tokens": 4096,
+                    "max_tokens": self.config_mgr.get_active_model_max_tokens(),
             }
             yield AgentEvent.llm_stream_start({"depth": depth})
 
@@ -364,7 +374,14 @@ class ClaudeAgent(BaseAgent):
                 elif event.type == LLM_Events.RESPONSE_FINISHED:
                     break
                 elif event.type == LLM_Events.ERROR:
-                    yield AgentEvent.error(f"LLM streaming error: {str(event.data)}")
+                    err_payload = event.data
+                    err_msg = ""
+                    if isinstance(err_payload, dict):
+                        err_msg = err_payload.get("message") or str(err_payload)
+                    else:
+                        err_msg = str(err_payload)
+                    composed = f"LLM error (provider={getattr(active_agent, 'provider', None)} model={params.get('model')}): {err_msg}"
+                    yield AgentEvent.error(composed)
                     return
 
             assistant_msg = LLMMessage(

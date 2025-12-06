@@ -100,7 +100,8 @@ class AgentEvent(Generic[T]):
 
     @staticmethod
     def error(message: str, code: Optional[int] = None) -> AgentEvent:
-        data = {"message": message, "code": None}
+        # 同时填充 message 与 error 字段，兼容旧的消费端
+        data = {"message": message, "error": message, "code": None}
         if code is not None:
             data["code"] = code
         return AgentEvent(Agent_Events.ERROR , data)

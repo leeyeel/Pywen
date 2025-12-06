@@ -535,7 +535,13 @@ class EventRouter:
             self.p.print_text(f"⚠️ Maximum turns reached", "yellow", True)
             self.p.print_raw("")
         elif event.type == Agent_Events.ERROR:
-            self.p.print_text(f"❌ Error: {data['error']}", "red")
+            # 兼容不同错误载荷：优先 message，其次 error，最后整体转字符串
+            msg = ""
+            if isinstance(data, dict):
+                msg = data.get("message") or data.get("error") or ""
+            if not msg:
+                msg = str(data)
+            self.p.print_text(f"❌ Error: {msg}", "red")
             self.p.print_raw("")
         elif event.type == "trajectory_saved":
             if data.get('is_task_start', False):
