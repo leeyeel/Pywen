@@ -27,24 +27,6 @@ EventType = Literal[
         "web_search_begin",
         "response.finished",       #  本次响应整体完成
         "error",                   #  任意阶段错误
-
-        "created", 
-        "output_text.delta",
-        "output_item.done",
-        "completed",
-        "error",
-        "rate_limits",
-        "token_usage",
-        "tool_call.delta",  # indicates a fragment of tool call output
-        "tool_call.ready",  # indicates that a tool call is ready to be executed
-        "message_start",
-        "content_block_start",
-        "content_block_delta",
-        "content_block_stop",
-        "message_delta",
-        "tool_call.delta_json",
-        "reasoning_text.delta",
-        "reasoning_summary_text.delta",
         ]
 
 T = TypeVar("T")

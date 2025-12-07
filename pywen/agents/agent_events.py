@@ -4,7 +4,7 @@ from typing import Any, Dict, Literal, Optional, Generic, TypeVar
 
 class Agent_Events:
     USER_MESSAGE         = "user.message"
-    LLM_STREAM_START     = "llm.stream.start"
+    LLM_STREAM_START     = "stream.start"
     TEXT_DELTA           = "text.delta"
     TEXT_DONE            = "text.done"
     REASONING_DELTA      = "reasoning.delta"
@@ -23,7 +23,7 @@ class Agent_Events:
 
 AgentEventType = Literal[
     "user.message",
-    "llm.stream.start",
+    "stream.start",
     "text.delta",
     "text.done",
     "reasoning.delta",
