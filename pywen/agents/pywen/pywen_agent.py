@@ -431,6 +431,8 @@ class PywenAgent(BaseAgent):
                 arguments = dict(tc.arguments)
             elif isinstance(tc.arguments, str) and tc.name == "apply_patch":
                 arguments = {"input": tc.arguments}
+           
+            yield AgentEvent.tool_call(call_id, name, arguments)
             try:
                 is_success, result = await self.tool_mgr.execute(name, arguments, tool)
                 if not is_success:

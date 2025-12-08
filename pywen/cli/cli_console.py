@@ -516,6 +516,11 @@ class EventRouter:
             self.p.print_end_chunk("🤖 ")
         elif event.type == Agent_Events.TEXT_DELTA:
             self.p.print_end_chunk(data["content"])
+        elif event.type == Agent_Events.TOOL_CALL:
+            # 显示工具调用开始提示
+            tool_name = data.get('name', 'Tool')
+            self.p.print_text(f"🔧 Calling {tool_name} tool...", "cyan", False)
+            self.p.print_raw("")
         elif event.type == Agent_Events.TOOL_RESULT:
             self._display_tool_result(data)
         elif event.type == Agent_Events.TURN_TOKEN_USAGE:

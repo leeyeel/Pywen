@@ -235,6 +235,7 @@ class CodexAgent(BaseAgent):
         elif isinstance(tool_call.arguments, str) and tool_call.name == "apply_patch":
             arguments = {"input": tool_call.arguments}
 
+        yield AgentEvent.tool_call(call_id, name, arguments)
         try:
             is_success, result = await self.tool_mgr.execute(name, arguments, tool)
             if not is_success:
