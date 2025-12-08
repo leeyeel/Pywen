@@ -385,7 +385,7 @@ conda activate testbed && \
 --config /results/{self.config_dest.name} \
 --permission-mode yolo \
 --agent {shlex.quote(self.agent_name)} \
-{quoted_prompt}
+-p {quoted_prompt}
 """
             output = ops.exec_sh(container, run_cmd, check=False)
             (instance_res_dir / "run.log").write_text(output, encoding="utf-8")
