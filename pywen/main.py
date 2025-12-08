@@ -6,8 +6,6 @@ from pywen.utils.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
 from pywen.agents.agent_manager import AgentManager
 from pywen.cli.cli_console import CLIConsole
-from pywen.memory.memory_monitor import MemoryMonitor
-from pywen.memory.file_restorer import IntelligentFileRestorer
 from pywen.hooks.config import load_hooks_config
 from pywen.hooks.manager import HookManager
 from pywen.hooks.models import HookEvent
@@ -37,9 +35,6 @@ async def async_main() -> None:
 
     cli = CLIConsole(perm_mgr)
 
-    mem_monitor = MemoryMonitor(config, cli, verbose=False)
-    file_restorer = IntelligentFileRestorer()
-
     session_id = args.session_id or str(uuid.uuid4())[:8]
 
     hooks_cfg = load_hooks_config(cfg_mgr.get_default_hooks_path())
@@ -53,7 +48,7 @@ async def async_main() -> None:
         base_payload={"session_id": session_id, "source": "startup"},
     )
 
-    agent_mgr = AgentManager(cfg_mgr, tool_mgr)
+    agent_mgr = AgentManager(cfg_mgr, cli, tool_mgr)
     await agent_mgr.init(args.agent.lower())
 
     ok, msg, _ = await hook_mgr.emit(

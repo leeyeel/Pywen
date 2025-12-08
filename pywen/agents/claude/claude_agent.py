@@ -3,11 +3,11 @@ import datetime
 import json
 from typing import Dict, List, Optional, AsyncGenerator, Any
 from pywen.agents.base_agent import BaseAgent
-from pywen.llm.llm_client import LLMClient 
 from pywen.llm.llm_basics import LLMResponse, LLMMessage, ToolCall, ToolCallResult
 from pywen.llm.llm_events import LLM_Events
 from pywen.utils.trajectory_recorder import TrajectoryRecorder
 from pywen.utils.session_stats import session_stats
+from pywen.config.token_limits import TokenLimits
 from pywen.config.manager import ConfigManager
 from pywen.agents.agent_events import AgentEvent, Agent_Events
 from pywen.agents.claude.system_reminder import (
@@ -18,10 +18,9 @@ from .prompts import ClaudeCodePrompts
 from .context_manager import ClaudeCodeContextManager
 
 class ClaudeAgent(BaseAgent):
-    def __init__(self, config_mgr:ConfigManager, tool_mgr):
-        super().__init__(config_mgr, tool_mgr)
+    def __init__(self, config_mgr:ConfigManager, cli, tool_mgr):
+        super().__init__(config_mgr, cli, tool_mgr)
         self.type = "ClaudeAgent"
-        self.llm_client = LLMClient(config_mgr.get_active_agent())
         self.prompts = ClaudeCodePrompts()
         self.project_path = os.getcwd()
         self.max_iterations = config_mgr.get_app_config().max_turns
@@ -40,7 +39,7 @@ class ClaudeAgent(BaseAgent):
         self._setup_claude_code_tools()
 
     def create_sub_agent(self) -> 'ClaudeAgent':
-        sub_agent = ClaudeAgent(self.config_mgr, self.tool_mgr)
+        sub_agent = ClaudeAgent(self.config_mgr, self.cli, self.tool_mgr)
         sub_agent.project_path = self.project_path
         sub_agent.context = self.context.copy()
         sub_agent.file_metrics = self.file_metrics.copy()
@@ -50,6 +49,8 @@ class ClaudeAgent(BaseAgent):
         try:
             agent_config = self.config_mgr.get_active_agent()
             model_name = self.config_mgr.get_active_model_name() or "claude-4"
+            max_tokens = TokenLimits.get_limit("anthropic", model_name)
+            self.cli.set_max_context_tokens(max_tokens)
             self.trajectory_recorder.start_recording(
                     task=user_message,
                     provider=agent_config.provider or "anthropic",
@@ -292,6 +293,7 @@ class ClaudeAgent(BaseAgent):
                     yield AgentEvent.error("LLM returned empty response with no tool calls")
                     return
                 if final_response and hasattr(final_response, 'usage') and final_response.usage:
+                    self.cli.update_token_usage(final_response.usage.total_tokens)
                     yield AgentEvent.turn_token_usage(final_response.usage.total_tokens)
                 yield AgentEvent.task_complete(assistant_message.content if assistant_message else "")
                 return

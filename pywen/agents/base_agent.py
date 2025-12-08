@@ -5,14 +5,17 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 from pywen.config.config import MCPConfig
 from pywen.config.manager import ConfigManager
+from pywen.llm.llm_client import LLMClient 
 from pywen.utils.trajectory_recorder import TrajectoryRecorder
 from pywen.llm.llm_basics import LLMMessage
 from pywen.tools.tool_manager import ToolManager
 from pywen.tools.mcp_tool import MCPServerManager, sync_mcp_server_tools_into_registry
 from pywen.agents.agent_events import AgentEvent 
+from pywen.memory.memory_monitor import MemoryMonitor
+from pywen.cli.cli_console import CLIConsole
 
 class BaseAgent(ABC):
-    def __init__(self, config_mgr: ConfigManager, tool_mgr :ToolManager) -> None:
+    def __init__(self, config_mgr: ConfigManager, cli:CLIConsole, tool_mgr :ToolManager) -> None:
         self.type = "BaseAgent"
         self.conversation_history: List[LLMMessage] = []
         self.trajectory_recorder = TrajectoryRecorder()
@@ -20,7 +23,9 @@ class BaseAgent(ABC):
         self._mcp_mgr = None
         self._mcp_init_lock = asyncio.Lock()
         self.config_mgr = config_mgr
+        self.cli = cli
         self.tool_mgr = tool_mgr
+        self.llm_client = LLMClient(self.config_mgr.get_active_agent())
 
     async def setup_tools_mcp(self):
         """Setup tools based on agent configuration."""
@@ -35,6 +40,14 @@ class BaseAgent(ABC):
     def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
         """Run the agent - must be implemented by subclasses."""
         pass
+
+    async def context_compact(self, mem: MemoryMonitor, turn:int) -> None:
+        history = self.conversation_history
+        tokens_used = self.cli.get_current_tokens()
+        used, summary = await mem.run_monitored(self.llm_client, history, tokens_used, turn)
+        if used > 0 and summary:
+            self.conversation_history = [LLMMessage(role="user", content=summary)]
+            self.cli.set_current_tokens(used)
     
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions."""

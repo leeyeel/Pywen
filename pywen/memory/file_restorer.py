@@ -85,7 +85,6 @@ class IntelligentFileRestorer():
             return doc_extensions[extension]
         return 30
 
-
     def find_best_fit_file(self, files, remaining_tokens):
         sorted_files = sorted(files, key=lambda f: f["score"], reverse=True)
         for f in sorted_files:
@@ -130,6 +129,7 @@ class IntelligentFileRestorer():
             "efficiency": (total_tokens / self.total_token_limit) * 100 if self.total_token_limit > 0 else 0
         }
 
+    # API
     def file_recover(self, file_counter) -> str:
         if not file_counter:
             #print("⚠️ 暂无文件记录，无法恢复。")
@@ -165,6 +165,7 @@ class IntelligentFileRestorer():
 
         return "".join(contents)
 
+    # API
     def update_file_metrics(self, arguments, result, file_metrics, tool_name):
         try:
             # 1) 取文件路径

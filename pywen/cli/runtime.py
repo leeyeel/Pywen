@@ -16,6 +16,7 @@ from pywen.tools.tool_manager import ToolManager
 from pywen.hooks.models import HookEvent
 from pywen.utils.permission_manager import PermissionLevel, PermissionManager
 from pywen.cli.cli_console import CLIConsole
+from pywen.memory.memory_monitor import MemoryMonitor
 
 class RunEndType(str, Enum):
     COMPLETED = "completed"
@@ -213,10 +214,12 @@ class InteractiveSession:
 
         self._router = CommandRouter()
         self._runner = TurnRunner(agent_mgr, hook_mgr, cli)
+        self.mm = MemoryMonitor(config_mgr)
 
     async def run(self) -> None:
         self.cli.start_interactive_mode()
         sid = self.session_id
+        turn :int= 0
         while True:
             perm_level = self.perm_mgr.get_permission_level()
             model_name = self.config_mgr.get_active_model_name() or "N/A"
@@ -263,6 +266,8 @@ class InteractiveSession:
             )
 
             if outcome.end in (RunEndType.COMPLETED, RunEndType.TASK_COMPLETE, RunEndType.TURN_MAX_REACHED):
+                turn += 1
+                await self.agent_mgr.agent_context_compact(self.mm, turn=turn)
                 continue
             if outcome.end is RunEndType.WAITING_FOR_USER:
                 continue

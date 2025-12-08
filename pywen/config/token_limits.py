@@ -4,6 +4,7 @@ class TokenLimits:
         "qwen": {
             "qwen3-coder-plus": 1000000,
             "Qwen/Qwen3-Coder-480B-A35B-Instruct": 1000000,
+            "Qwen/Qwen3-Coder-30B-A3B-Instruct": 1000,
         },
         "openai": {
             "gpt-4": 8192,

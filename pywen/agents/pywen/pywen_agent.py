@@ -5,7 +5,6 @@ from typing import Dict, List, Any, AsyncGenerator,Mapping
 from pywen.agents.base_agent import BaseAgent
 from pywen.agents.agent_events import AgentEvent 
 from pywen.llm.llm_basics import LLMMessage
-from pywen.llm.llm_client import LLMClient
 from pywen.llm.llm_events import LLM_Events
 from pywen.config.token_limits import TokenLimits
 from pywen.utils.session_stats import session_stats
@@ -298,23 +297,22 @@ Your core function is efficient and safe assistance. Balance extreme conciseness
 class PywenAgent(BaseAgent):
     """Pywen Agent with streaming iterative tool calling logic."""
     
-    def __init__(self, config_mgr, tool_mgr):
-        super().__init__(config_mgr, tool_mgr)
+    def __init__(self, config_mgr, cli, tool_mgr):
+        super().__init__(config_mgr, cli, tool_mgr)
         self.type = "PywenAgent"
         session_stats.set_current_agent(self.type)
         self.current_turn_index = 0
         self.original_user_task = ""
         self.max_turns = self.config_mgr.get_app_config().max_turns
         self.system_prompt = self.get_core_system_prompt()
-        self.llm_client = LLMClient(self.config_mgr.get_active_agent())
         self.conversation_history = self._update_system_prompt(self.system_prompt)
         self.file_metrics = {} 
     
     async def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
         """Run agent with streaming output and task continuation."""
         model_name = self.config_mgr.get_active_model_name() or ""
-        #max_tokens = TokenLimits.get_limit("pywen", model_name)
-        #set_max_context_tokens(max_tokens)
+        max_tokens = TokenLimits.get_limit("qwen", model_name)
+        self.cli.set_max_context_tokens(max_tokens)
         
         self.original_user_task = user_message
         self.current_turn_index = 0
@@ -368,7 +366,7 @@ class PywenAgent(BaseAgent):
                 # 更新 token 使用统计
                 usage = event.data.get("usage", {})
                 if usage and usage.total_tokens:
-                    #self.cli_console.update_token_usage(usage.total_tokens)
+                    self.cli.update_token_usage(usage.total_tokens)
                     yield AgentEvent.turn_token_usage(usage.total_tokens)
                 # 处理结束状态
                 finish_reason = event.data.get("finish_reason")

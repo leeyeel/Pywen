@@ -1,7 +1,6 @@
 """CLI Console for displaying agent progress."""
 from __future__ import annotations
 import os
-import sys
 from typing import Optional, Any, Dict
 from rich.console import Group
 from rich import get_console
@@ -57,6 +56,12 @@ class CLIConsole:
     def set_max_context_tokens(self, max_tokens: int):
         self.tokens.set_max(max_tokens)
 
+    def set_current_tokens(self, value:int):
+        self.tokens.reset(value)
+
+    def get_current_tokens(self) -> int:
+        return self.tokens.current
+
     async def handle_events(self, event):
         return self.router.handle(event)
 
@@ -97,6 +102,8 @@ class TokenTracker:
             return 100
         return max(0, 100 - (self.current * 100 // self.max))
 
+    def reset(self, value:int):
+        self.current = value
 
 class BannerView:
     def __init__(self, printer: Printer):

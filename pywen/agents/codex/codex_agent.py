@@ -5,7 +5,6 @@ from typing import Dict, List, Mapping, Literal, Any, AsyncGenerator
 from pydantic import BaseModel
 from pywen.agents.base_agent import BaseAgent
 from pywen.agents.agent_events import AgentEvent 
-from pywen.llm.llm_client import LLMClient 
 from pywen.llm.llm_basics import ToolCall, LLMMessage
 from pywen.llm.llm_events import LLM_Events 
 from pywen.config.token_limits import TokenLimits 
@@ -47,10 +46,9 @@ class History:
         return _remove_none(self._items)
 
 class CodexAgent(BaseAgent):
-    def __init__(self, config_mgr, tool_mgr:ToolManager):
-        super().__init__(config_mgr, tool_mgr)
+    def __init__(self, config_mgr, cli, tool_mgr:ToolManager):
+        super().__init__(config_mgr, cli, tool_mgr)
         self.type = "CodexAgent"
-        self.llm_client = LLMClient(self.config_mgr.get_active_agent())
         session_stats.set_current_agent(self.type)
         self.turn_cnt_max = self.config_mgr.get_app_config().max_turns
         self.turn_index = 0
@@ -82,12 +80,11 @@ class CodexAgent(BaseAgent):
         yield AgentEvent.user_message(user_message, self.turn_index)
 
         model_name = self.config_mgr.get_active_model_name() or "gpt-5-codex"
+        max_tokens = TokenLimits.get_limit("openai", model_name)
+        self.cli.set_max_context_tokens(max_tokens)
         provider = agent_config.provider or "openai"
 
         session_stats.record_task_start(self.type)
-
-        max_tokens = TokenLimits.get_limit("openai", model_name)
-        #self.cli_console.set_max_context_tokens(max_tokens)
 
         self.trajectory_recorder.start_recording(
             task=user_message, provider=provider, model=model_name, max_steps=self.turn_cnt_max
@@ -219,7 +216,8 @@ class CodexAgent(BaseAgent):
                     yield AgentEvent.task_complete("completed")
             elif event.type == LLM_Events.TOKEN_USAGE:
                 #TODO. 记录token使用情况
-                print("Token usage: ", event.data)
+                usage = event.data
+                self.cli.update_token_usage(usage.total_tokens if usage else 0)
             elif event.type == "error":
                 yield AgentEvent.error(str(event.data))
 
