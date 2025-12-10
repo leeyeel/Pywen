@@ -331,6 +331,9 @@ class PywenAgent(BaseAgent):
             async for event in self._process_turn_stream():
                 yield event
 
+            tokens_used = sum(self.approx_token_count(m.content or "") for m in self.conversation_history)
+            self.cli.set_current_tokens(tokens_used)
+
     async def _process_turn_stream(self) -> AsyncGenerator[AgentEvent, None]:
         messages = [self._convert_single_message(msg) for msg in self.conversation_history]
         trajectory_msg = self.conversation_history.copy()
@@ -359,16 +362,16 @@ class PywenAgent(BaseAgent):
                 # 2. 执行工具调用，拿到结果，填充tool LLMMessage
                 async for tc_event in self._process_tool_calls(tc_list):
                     yield tc_event
+            elif event.type == LLM_Events.TOKEN_USAGE:
+                # 更新 token 使用统计
+                usage = event.data or {}
+                total = usage.get("total_tokens", 0)
+                yield AgentEvent.turn_token_usage(total)
             elif event.type == LLM_Events.RESPONSE_FINISHED:
                 self.current_turn_index += 1
                 if not event.data:
                     continue
-                # 更新 token 使用统计
-                usage = event.data.get("usage", {})
-                if usage and usage.total_tokens:
-                    self.cli.update_token_usage(usage.total_tokens)
-                    yield AgentEvent.turn_token_usage(usage.total_tokens)
-                # 处理结束状态
+               # 处理结束状态
                 finish_reason = event.data.get("finish_reason")
                 completed_resp = LLMResponse.from_raw(event.data or {})
                 self.trajectory_recorder.record_llm_interaction(

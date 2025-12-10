@@ -55,7 +55,7 @@ class OpenAIAdapter():
     def stream_respons(self, messages: List[Dict[str, str]], **params) -> Generator[ResponseEvent, None, None]:
         yield ResponseEvent.error("error")
 
-    #异步流式,目前唯一使用方式
+    #异步流式,实现
     async def astream_response(self, messages: List[Dict[str, Any]], **params) -> AsyncGenerator[ResponseEvent, None]:
         api_choice = self._pick_api(params.get("api"))
         model = params.get("model", self._default_model)
@@ -116,6 +116,13 @@ class OpenAIAdapter():
                     yield ResponseEvent.web_search_begin(call_id)
 
             elif event.type == "response.completed":
+                resp_usage = event.response.usage
+                usage = {
+                            "input_tokens": resp_usage.input_tokens if resp_usage else 0, 
+                            "output_tokens": resp_usage.output_tokens if resp_usage else 0, 
+                            "token_usage": resp_usage.total_tokens if resp_usage else 0,
+                         }
+                yield ResponseEvent.token_usage(usage)
                 yield ResponseEvent.response_finished(event.response)
                 break
 
@@ -165,7 +172,12 @@ class OpenAIAdapter():
                         tc["arguments"] = {}
                 payload["tool_calls"] = list(tool_calls.values())
                 yield ResponseEvent.tool_call_ready(list(tool_calls.values()))
-                yield ResponseEvent.token_usage(chunk.usage.model_dump() if chunk.usage else {})
+                usage = {
+                            "input_tokens": 0, 
+                            "output_tokens": 0, 
+                            "total_tokens": chunk.usage.total_tokens if chunk.usage and chunk.usage.total_tokens else 0,
+                         }
+                yield ResponseEvent.token_usage(usage)
             if finish_reason is not None:
                 # 包含tool_calls信息, tool_call中包含call_id, name, arguments, type
                 yield ResponseEvent.response_finished(payload)

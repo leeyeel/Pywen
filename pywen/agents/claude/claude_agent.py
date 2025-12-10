@@ -293,7 +293,6 @@ class ClaudeAgent(BaseAgent):
                     yield AgentEvent.error("LLM returned empty response with no tool calls")
                     return
                 if final_response and hasattr(final_response, 'usage') and final_response.usage:
-                    self.cli.update_token_usage(final_response.usage.total_tokens)
                     yield AgentEvent.turn_token_usage(final_response.usage.total_tokens)
                 yield AgentEvent.task_complete(assistant_message.content if assistant_message else "")
                 return
@@ -335,6 +334,8 @@ class ClaudeAgent(BaseAgent):
                     LLMMessage(role="system", content=get_system_reminder_start())
                     ] + self.conversation_history.copy()
 
+            tokens_used = sum(self.approx_token_count(m.content or "") for m in self.conversation_history)
+            self.cli.set_current_tokens(tokens_used)
             async for event in self._query_recursive(updated_messages, depth=depth+1):
                 yield event
 
@@ -371,6 +372,10 @@ class ClaudeAgent(BaseAgent):
                     collected_tool_calls.append(tc)
                 elif event.type == LLM_Events.TOKEN_USAGE:
                     usage_data = event.data
+                    usage = event.data or {}
+                    total = usage.get("total_tokens", 0)
+                    self.cli.update_token_usage(total)
+                    yield AgentEvent.turn_token_usage(total)
                 elif event.type == LLM_Events.RESPONSE_FINISHED:
                     break
                 elif event.type == LLM_Events.ERROR:

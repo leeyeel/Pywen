@@ -164,7 +164,7 @@ class TurnRunner:
             self.cli.print("\n⚠️ Operation interrupted by user", "yellow")
             return RunOutcome(RunEndType.CANCELLED)
         except Exception as e:
-            self.cli.print(f"\nError111: {e}", "red")
+            self.cli.print(f"\nError: {e}", "red")
             return RunOutcome(RunEndType.ERROR, e)
 
 class HeadlessRunner:

@@ -7,6 +7,7 @@ from .prompt import (
     first_downgrade_prompt,
     second_downgrade_prompt,
 )
+from pywen.config.token_limits import TokenLimits
 from pywen.llm.llm_basics import LLMMessage
 from pywen.llm.llm_events import LLM_Events
 from pywen.config.manager import ConfigManager
@@ -16,132 +17,115 @@ class MemoryMonitor:
         self.cfg_mgr = config_mgr
         mm = self.cfg_mgr.get_app_config().memory_monitor
         self.check_interval: int = (mm.check_interval if mm and mm.check_interval else 5)
-        self.max_tokens: int = (mm.maximum_capacity if mm and mm.maximum_capacity else 4096)
-        self.rules: List[Tuple[float, int]] = (mm.rules if mm and getattr(mm, "rules", None) else [])
-        if not self.rules:
-            self.rules = [(0.92, 1), (0.80, 2), (0.60, 3), (0.0, 5)]
+        self.rules: List[Tuple[float, int]] = mm.rules if mm and mm.rules else [(0.92, 1), (0.80, 2), (0.60, 3), (0.0, 5)]
         self._last_checked_turn = 0
 
-    async def run_monitored(self, llm_client, history: List[LLMMessage], tokens_used: int, turn: int) ->Tuple[int, str]:
+    async def run_monitored(self, llm_client, cli, history: List[LLMMessage], tokens_used: int, turn: int) -> Tuple[int, str]:
+        """
+        对当前对话的记忆使用情况进行监控，并在必要时执行压缩。
+        参数:
+            llm_client: LLM 客户端实例。
+            history: 当前对话的消息历史列表。
+            tokens_used: 当前对话使用的总 token 数。
+            turn: 当前对话的轮次编号。
+        返回:
+            Tuple[int, str]: 返回压缩后使用的 token 数和压缩后的对话内容。
+        """
         if (turn - self._last_checked_turn) % self.check_interval != 0:
             return 0, ""
 
-        ratio = self._safe_ratio(tokens_used, self.max_tokens)
-        alert = self._make_alert(ratio)
-        self.check_interval = alert["check_interval"]
+        model_name = self.cfg_mgr.get_active_model_name() or ""
+        agent_name = self.cfg_mgr.get_active_agent_name() or ""
+        max_tokens = TokenLimits.get_limit(agent_name, model_name)
+        ratio = 0.0 if max_tokens <= 0 else max(0.0, min(1.0, tokens_used / max_tokens))
+
+        interval = next((interval for r, interval in self.rules if ratio >= r), self.rules[-1][1])
+        self.check_interval = interval
         self._last_checked_turn = turn
 
-        if alert["level"] != "compress":
+        if ratio < 0.92:
             return 0, ""
 
-        original_text = self._flatten_history(history)
-        tokens_used, summary_text = await self._ask_user_prompt(llm_client, compression_prompt.format(original_text))
+        history_text = "\n".join(f"{m.role}: {m.content}" for m in history)
+        prompt_text = compression_prompt.replace("<<HISTORY>>", history_text)
+
+        cli.print(f"⏳ context compacting...", "yellow")
+        _, summary_text = await self._llm_ask_user_prompt(llm_client, prompt_text)
         if not summary_text:
-            return 0, self._retain_latest_messages(history)
+            return 0, self._fallback_compact_history(history)
 
-        return await self._validate_and_maybe_downgrade(llm_client, summary_text, original_text, tokens_used)
+        return await self._produce_valid_summary(
+            llm_client, summary_text, history_text, tokens_used
+        )
 
-    def _safe_ratio(self, used: int, cap: int) -> float:
-        if cap <= 0:
-            return 0.0
-        return max(0.0, min(1.0, used / cap))
-
-    def _pick_interval(self, ratio: float) -> int:
-        for r, interval in self.rules:
-            if ratio >= r:
-                return interval
-        return self.rules[-1][1]
-
-    def _make_alert(self, ratio: float) -> Dict[str, Any]:
-        if ratio >= 0.92:
-            level = "compress"
-        elif ratio >= 0.80:
-            level = "high"
-        elif ratio >= 0.60:
-            level = "moderate"
-        else:
-            level = ""
-
-        interval = self._pick_interval(ratio)
-        if level == "compress":
-            suggestion = "Memory usage reached threshold. Executing compression."
-        elif level == "high":
-            suggestion = f"Memory usage high; next check every {interval} turn(s)."
-        elif level == "moderate":
-            suggestion = f"Memory usage moderate; next check every {interval} turn(s)."
-        else:
-            suggestion = f"Memory usage low; next check every {interval} turn(s)."
-
-        return {"level": level, "check_interval": interval, "suggestion": suggestion}
-
-    def _flatten_history(self, history: List[LLMMessage]) -> str:
-        return "\n".join(f"{m.role}: {m.content}" for m in history if getattr(m, "content", None))
-
-    async def _ask_user_prompt(self, llm_client, prompt_text: str) -> Tuple[int, str]:
+    async def _llm_ask_user_prompt(self, llm_client, prompt_text: str) -> Tuple[int, str]:
+        """ 
+        使用 LLM 客户端发送用户提示词并获取响应。
+        参数: prompt_text - 用户提示词文本
+        返回: 使用的 token 数以及模型回复文本
+        """
         messages = [{"role": "user", "content": prompt_text}]
         model = self.cfg_mgr.get_active_model_name()
         buf: List[str] = []
-        tokens_used : int = 0
+        tokens_used: int = 0
+        #TODO. 应该返回更详细的 usage 信息
+        #usage = {"input": 0, "output": 0, "total": 0}
         try:
-            async for event in llm_client.astream_response(
-                messages=messages, api="chat", model=model, temperature=0, top_p=0.7
-            ):
+            async for event in llm_client.astream_response(messages=messages, api="chat", model=model):
                 if event.type == LLM_Events.ASSISTANT_DELTA and event.data:
                     buf.append(str(event.data))
-                elif event.type in (LLM_Events.ERROR, LLM_Events.RESPONSE_FINISHED, LLM_Events.ASSISTANT_FINISHED):
+                elif event.type in (
+                    LLM_Events.ERROR,
+                    LLM_Events.RESPONSE_FINISHED,
+                    LLM_Events.ASSISTANT_FINISHED,
+                ):
                     break
                 elif event.type == LLM_Events.TOKEN_USAGE and event.data:
-                    tokens_used += int(event.data.get("total_tokens", 0))
-        except Exception as e:
+                    tokens_used += int(event.data.get("input_tokens", 0)) + int(event.data.get("output_tokens", 0))
+        except Exception:
             return 0, ""
 
         return tokens_used, "".join(buf).strip()
 
-    def _section_score(self, txt: str) -> float:
+    async def _score_summary_quality(self, llm_client, summary_text: str, history_text: str, summary_tokens: int) -> Dict[str, Any]:
+        """ 
+        对模型生成的摘要文本（summary_text）进行综合质量评估 
+            参数: summary_text - 模型生成的摘要文本
+                  history_text - 原始对话历史文本
+                  summary_tokens - 摘要所使用的 token 数
+            返回: 包含质量评估结果的字典
+        """
         required = [
-            "Primary Request and Intent",
-            "Key Technical Concepts",
-            "Files and Code Sections",
-            "Errors and fixes",
-            "Problem Solving",
-            "All user messages",
-            "Pending Tasks",
-            "Current Work",
+            "Primary Request and Intent", "Key Technical Concepts", "Files and Code Sections", "Errors and fixes",
+            "Problem Solving", "All user messages", "Pending Tasks", "Current Work",
         ]
-        found = sum(1 for s in required if re.search(rf"\b{re.escape(s)}\b", txt, re.I))
-        return found / len(required)
-
-    async def _keyword_continuity(self, llm_client, summary: str, original: str) -> Tuple[float, float]:
-        """
-        期望模型返回: "Result: <keyword_score> <continuity_score>"
-        失败则返回 (0.0, 0.0)。
-        """
-        _, reply = await self._ask_user_prompt(llm_client, keyword_continuity_score_prompt.format(summary, original))
-        if not reply.startswith("Result"):
-            return (0.0, 0.0)
-        try:
-            _, tail = reply.split("Result", 1)
-            nums = tail.replace(":", " ").split()
-            return (float(nums[0]), float(nums[1]))
-        except Exception:
-            return (0.0, 0.0)
-
-    def _estimate_tokens(self, text: str) -> int:
-        # 粗估：约 4 字符 ≈ 1 token
-        return max(1, len(text) // 4)
-
-    async def _quality(self, llm_client, summary_text: str, original: str, tokens_used: int) -> Dict[str, Any]:
-        section_ratio = self._section_score(summary_text)
-        keyword_ratio, continuity_ratio = await self._keyword_continuity(llm_client, summary_text, original)
-        est_summary_tokens = self._estimate_tokens(summary_text)
-        ratio_score = (est_summary_tokens / tokens_used) if tokens_used > 0 else 1.0
-
+        hit_keywords_num = sum(1 for s in required if re.search(rf"\b{re.escape(s)}\b", summary_text, re.I))
+        section_ratio = hit_keywords_num / len(required)
+        
+        prompt_text = keyword_continuity_score_prompt.replace("<<SUMMARY>>",summary_text).replace("<<ORIGINAL>>", history_text)
+        _, resp = await self._llm_ask_user_prompt(llm_client, prompt_text)
+        
+        if resp.startswith("Result"):
+            try:
+                _, tail = resp.split("Result", 1)
+                nums = tail.replace(":", " ").split()
+                keyword_ratio = float(nums[0])
+                continuity_ratio = float(nums[1])
+            except Exception:
+                keyword_ratio, continuity_ratio = 0.0, 0.0
+        else:
+            keyword_ratio, continuity_ratio = 0.0, 0.0
+        
+        est_summary_tokens = max(1, len(summary_text) // 4) #TODO. 更改估算方法，需要llm返回，llm无法返回再估算
+        ratio_score = (est_summary_tokens / summary_tokens) if summary_tokens > 0 else 1.0
+        
         fidelity = int(
             section_ratio * 100 * 0.3
             + keyword_ratio * 100 * 0.4
             + continuity_ratio * 100 * 0.2
             + (100 if ratio_score <= 0.15 else 50) * 0.1
         )
+        
         return {
             "valid": fidelity >= 80,
             "fidelity": fidelity,
@@ -151,33 +135,39 @@ class MemoryMonitor:
             "ratio_score": ratio_score,
         }
 
-    async def _validate_and_maybe_downgrade(self, llm_client, summary_text: str, original_text: str, tokens_used: int,)-> Tuple[int, str]:
+    async def _produce_valid_summary(self, llm_client, summary_text: str, original_text: str, tokens_used: int) -> Tuple[int, str]:
+        """ 
+        对模型生成的 summary 进行多轮质量评估，不达标则依次投入不同强度的提示词进行“降级修补”，
+        以最大化得到一个可用的摘要。
+        """
         # 第一次质量评估
-        q = await self._quality(llm_client, summary_text, original_text, tokens_used)
+        q = await self._score_summary_quality(llm_client, summary_text, original_text, tokens_used)
         if q["valid"]:
             return tokens_used, summary_text
 
         # 降级 1
-        tokens_used, d1_text = await self._ask_user_prompt(llm_client, first_downgrade_prompt.format(summary_text, original_text))
+        tokens_used, d1_text = await self._llm_ask_user_prompt(
+            llm_client, first_downgrade_prompt.replace("<<SUMMARY>>",summary_text).replace("<<ORIGINAL>>", original_text)
+        )
         if d1_text:
-            q1 = await self._quality(llm_client, d1_text, original_text, tokens_used)
+            q1 = await self._score_summary_quality(llm_client, d1_text, original_text, tokens_used)
             if q1["fidelity"] >= 75:
                 return tokens_used, d1_text
 
         # 降级 2
         base = d1_text if d1_text else summary_text
-        tokens_used, d2_text = await self._ask_user_prompt(llm_client, second_downgrade_prompt.format(base, original_text))
+        tokens_used, d2_text = await self._llm_ask_user_prompt(
+            llm_client, second_downgrade_prompt.replace("<<SUMMARY>>",base).replace("<<ORIGINAL>>",original_text)
+        )
         if d2_text:
-            q2 = await self._quality(llm_client, d2_text, original_text, tokens_used)
+            q2 = await self._score_summary_quality(llm_client, d2_text, original_text, tokens_used)
             if q2["fidelity"] >= 70:
-                return True, d2_text
+                return tokens_used, d2_text
 
         return 0, ""
 
-    def _retain_latest_messages(self, history: List[LLMMessage]) -> str:
-        """
-        兜底：返回最近 30%，并从最近的 user 起拼接。
-        """
+    def _fallback_compact_history(self, history: List[LLMMessage]) -> str:
+        """ 兜底：返回最近 30%，并从最近的 user 起拼接。 """
         if not history:
             return ""
 
@@ -196,4 +186,6 @@ class MemoryMonitor:
         else:
             retained = candidates[first_user_idx:]
 
-        return "\n".join(f"{m.role}: {m.content}" for m in retained if getattr(m, "content", None))
+        return "\n".join(
+            f"{m.role}: {m.content}" for m in retained if getattr(m, "content", None)
+        )

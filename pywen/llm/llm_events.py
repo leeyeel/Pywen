@@ -61,7 +61,7 @@ class ResponseEvent(Generic[T]):
 
     @staticmethod
     def reasoning_delta(delta: str) -> ResponseEvent[str]:
-        return ResponseEvent("reasoning_text.delta", delta)
+        return ResponseEvent("reasoning.delta", delta)
 
     @staticmethod
     def reasoning_finished(summary: str) -> ResponseEvent:
@@ -72,60 +72,14 @@ class ResponseEvent(Generic[T]):
         return ResponseEvent("web_search_begin", {"call_id": call_id})
 
     @staticmethod
-    def token_usage(usage: Dict[str, Any]) -> ResponseEvent[Dict[str, Any]]:
+    def token_usage(usage: Dict[str, int]) -> ResponseEvent[Dict[str, Any]]:
         return ResponseEvent("metrics.token_usage", usage)
 
     @staticmethod
     def response_finished(resp: Any = None) -> ResponseEvent[Dict[str, Any]]:
         return ResponseEvent("response.finished", resp) 
 
-    # ========== Additional Events, 需要逐步去除 ==========
-
-    @staticmethod
-    def created(meta: Optional[Dict[str, Any]] = None) -> ResponseEvent:
-        return ResponseEvent("created", meta or {})
-
-    @staticmethod
-    def output_item_done(meta: Dict[str, Any]) -> ResponseEvent:
-        return ResponseEvent("output_item.done", meta) 
-
-    @staticmethod
-    def text_delta(delta: str) -> ResponseEvent[str]:
-        return ResponseEvent("output_text.delta", delta)
-
-    @staticmethod
-    def completed(resp: Any = None) -> ResponseEvent:
-        return ResponseEvent("completed", resp)
-
     @staticmethod
     def error(message: str, extra: Optional[Dict[str, Any]] = None) -> ResponseEvent[Dict[str, Any]]:
         payload = {"message": message, **(extra or {})}
         return ResponseEvent("error", payload)
-
-    @staticmethod
-    def message_start(meta: Dict[str, Any]) -> ResponseEvent[Dict[str, Any]]:
-        return ResponseEvent("message_start", meta)
-
-    @staticmethod
-    def content_block_start(meta: Dict[str, Any]) -> ResponseEvent[Dict[str, Any]]:
-        return ResponseEvent("content_block_start", meta)
-
-    @staticmethod
-    def content_block_delta(meta: Dict[str, Any]) -> ResponseEvent[Dict[str, Any]]:
-        return ResponseEvent("content_block_delta", meta)
-
-    @staticmethod
-    def content_block_stop(meta: Dict[str, Any]) -> ResponseEvent[Dict[str, Any]]:
-        return ResponseEvent("content_block_stop", meta)
-
-    @staticmethod
-    def message_delta(meta: Dict[str, Any]) -> ResponseEvent[Dict[str, Any]]:
-        return ResponseEvent("message_delta", meta)
-
-    @staticmethod
-    def tool_call_delta_json(partial_json: str) -> ResponseEvent[str]:
-        return ResponseEvent("tool_call.delta_json", partial_json)
-
-    @staticmethod 
-    def reasoning_summary_text_delta(meta: Optional[Dict[str, Any]] = None) -> ResponseEvent:
-        return ResponseEvent("reasoning_summary_text.delta", meta or {})

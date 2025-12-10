@@ -1,3 +1,4 @@
+import re
 import asyncio
 import fnmatch
 from typing import Callable, Iterable, Optional, AsyncGenerator
@@ -43,11 +44,12 @@ class BaseAgent(ABC):
 
     async def context_compact(self, mem: MemoryMonitor, turn:int) -> None:
         history = self.conversation_history
-        tokens_used = self.cli.get_current_tokens()
-        used, summary = await mem.run_monitored(self.llm_client, history, tokens_used, turn)
+        tokens_used = sum(self.approx_token_count(m.content or "") for m in history)
+        used, summary = await mem.run_monitored(self.llm_client, self.cli, history, tokens_used, turn)
         if used > 0 and summary:
             self.conversation_history = [LLMMessage(role="user", content=summary)]
             self.cli.set_current_tokens(used)
+
     
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions."""
@@ -119,6 +121,25 @@ class BaseAgent(ABC):
 
             self._mcp_mgr = mgr
 
+    def approx_token_count(self, text: str) -> int:
+        if not text:
+            return 0
+    
+        words = re.findall(r"\S+", text)
+        word_count = len(words)
+        punct_count = len(re.findall(r"[,\.\!\?\:\;\(\)\[\]\{\}\-]", text))
+        special_char_count = len(re.findall(r"[^A-Za-z0-9\s]", text))
+    
+        length_factor = len(text) // 20 
+    
+        estimate = (
+            word_count
+            + punct_count
+            + special_char_count // 2
+            + length_factor
+        )
+        return max(estimate, word_count)
+    
     async def aclose(self):
         if self._closed:
             return 

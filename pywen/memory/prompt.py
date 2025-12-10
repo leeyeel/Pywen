@@ -15,7 +15,7 @@ Your summary should include the following sections:
 7. Pending Tasks: Outline any pending tasks that you have explicitly been asked to work on.
 8. Current Work: Describe in detail precisely what was being worked on immediately before this summary request.
 
-The conversation history is as follows: \n {}
+The conversation history is as follows: \n <<HISTORY>>
 """
 
 
@@ -40,11 +40,11 @@ Instructions
 4. Return exactly one line beginning with "Result:" followed by keyword_score and continuity_score, each as a fixed-point number rounded to two decimals.
 
 <summary>
-{}
+<<SUMMARY>>
 </summary>
 
 <original>
-{}
+<<ORIGINAL>>
 </original>
 """
 
@@ -70,11 +70,11 @@ Output **only** the following 8 sections:
 8. Current Work  
 
 <summary>
-{}
+<<SUMMARY>>
 </summary>
 
 <original>
-{}
+<<ORIGINAL>>
 </original>
 """
 
@@ -103,10 +103,10 @@ Structure your output as:
 <!-- repeat as needed -->
 
 <summary>
-{}
+<<SUMMARY>>
 </summary>
 
 <original>
-{}
+<<ORIGINAL>>
 </original>
 """

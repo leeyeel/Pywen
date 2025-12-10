@@ -1,7 +1,7 @@
 import json,os
 import inspect
 from pathlib import Path
-from typing import Dict, List, Mapping, Literal, Any, AsyncGenerator
+from typing import Dict, List, Mapping, Literal, Any, AsyncGenerator,override
 from pydantic import BaseModel
 from pywen.agents.base_agent import BaseAgent
 from pywen.agents.agent_events import AgentEvent 
@@ -10,6 +10,7 @@ from pywen.llm.llm_events import LLM_Events
 from pywen.config.token_limits import TokenLimits 
 from pywen.utils.session_stats import session_stats
 from pywen.tools.tool_manager import ToolManager
+from pywen.memory.memory_monitor import MemoryMonitor
 
 MessageRole = Literal["system", "developer", "user", "assistant"]
 HistoryItem = Dict[str, Any]
@@ -45,6 +46,43 @@ class History:
             return [x for x in items if x is not None]
         return _remove_none(self._items)
 
+    def to_llm_messages(self) -> List[LLMMessage]:
+        llm_messages = []
+        for msg in self._items[1:]:  #跳过system
+            role, content, tool_calls, tool_call_id = "", "", None, None
+            if msg.get("type") in {"function_call", "custom_tool_call", "function"}:
+                role = "assistant"
+                arguments = json.loads(msg.get("arguments", "")) if msg.get("type") in ["function_call", "function"] else msg.get("input")
+                content = ""
+                tool_call = ToolCall(
+                    call_id = msg.get("call_id", ""),
+                    name = msg.get("name", ""),
+                    arguments = arguments,
+                    type = msg.get("type"),
+                )
+                tool_calls = [tool_call]
+                tool_call_id = msg.get("call_id")
+            elif msg.get('type') == "message":
+                role = msg.get("role", "user")
+                if role in ["user", "system"]: 
+                    content = msg.get("content", "")
+                elif role == "assistant":
+                    ctx = msg.get("content", {})
+                    for c in ctx:
+                        if c.get("type") == "output_text":
+                            content += c.get("text", "")
+            else:
+                continue
+
+            llm_msg = LLMMessage(
+                role = role,
+                content = content,
+                tool_calls = tool_calls,
+                tool_call_id = tool_call_id,
+            )
+            llm_messages.append(llm_msg)
+        return llm_messages
+
 class CodexAgent(BaseAgent):
     def __init__(self, config_mgr, cli, tool_mgr:ToolManager):
         super().__init__(config_mgr, cli, tool_mgr)
@@ -52,7 +90,8 @@ class CodexAgent(BaseAgent):
         session_stats.set_current_agent(self.type)
         self.turn_cnt_max = self.config_mgr.get_app_config().max_turns
         self.turn_index = 0
-        self.history: History = History(system_prompt= self._build_system_prompt())
+        self.system_prompt = self._build_system_prompt()
+        self.history: History = History(system_prompt= self.system_prompt)
         self.tools = [tool.build("codex") for tool in self.tool_mgr.list_for_provider("codex")]
         self.current_task = None
 
@@ -60,7 +99,7 @@ class CodexAgent(BaseAgent):
         return ['shell_tool', 'update_plan', 'apply_patch',]
 
     def build_environment_context(self, cwd: str, approval_policy: str = "on-request", 
-            sandbox_mode: str = "workspace-write", network_access: str = "restricted", shell: str = "zsh", ) -> Dict:
+            sandbox_mode: str = "workspace-write", network_access: str = "restricted", shell: str = "zsh", ) -> str:
         content = (
             "<environment_context>\n"
             f"  <cwd>{cwd}</cwd>\n"
@@ -71,8 +110,21 @@ class CodexAgent(BaseAgent):
             "</environment_context>"
             )
 
-        return {"type": "message", "role": "user", "content": content}
+        return content
 
+    @override
+    async def context_compact(self, mem: MemoryMonitor, turn:int) -> None:
+        history = self.history.to_llm_messages()
+        tokens_used = sum(self.approx_token_count(m.content or "") for m in history)
+        used, summary = await mem.run_monitored(self.llm_client, self.cli, history, tokens_used, turn)
+        if used > 0 and summary:
+            self.conversation_history = [
+                    LLMMessage(role="system", content=self.system_prompt),
+                    LLMMessage(role="user", content=self.build_environment_context(cwd=os.getcwd(),shell=os.environ.get("SHELL", "bash"))),
+                    LLMMessage(role="user", content=summary)
+            ]
+            self.cli.set_current_tokens(used)
+ 
     async def run(self, user_message: str) -> AsyncGenerator[AgentEvent, None]:
 
         self.turn_index = 0
@@ -91,7 +143,7 @@ class CodexAgent(BaseAgent):
         )
         self.history.add_message(role="user", content=user_message)
         env_msg = self.build_environment_context(cwd=os.getcwd(),shell=os.environ.get("SHELL", "bash"))
-        self.history.add_item(env_msg)
+        self.history.add_message(role="user", content=env_msg)
 
         while self.turn_index < self.turn_cnt_max:
             messages:List[HistoryItem] = self.history.to_responses_input()
@@ -105,6 +157,10 @@ class CodexAgent(BaseAgent):
             stage = self._responses_event_process(messages= messages, params=params)
             async for ev in stage:
                 yield ev
+
+            history = self.history.to_llm_messages()  #更新history
+            tokens_used = sum(self.approx_token_count(m.content or "") for m in history)
+            self.cli.set_current_tokens(tokens_used)
 
     def _build_system_prompt(self) -> str:
         agent_dir = Path(inspect.getfile(self.__class__)).parent
@@ -215,9 +271,9 @@ class CodexAgent(BaseAgent):
                 else:
                     yield AgentEvent.task_complete("completed")
             elif event.type == LLM_Events.TOKEN_USAGE:
-                #TODO. 记录token使用情况
-                usage = event.data
-                self.cli.update_token_usage(usage.total_tokens if usage else 0)
+                usage = event.data or {}
+                total = usage.get("total_tokens", 0)
+                yield AgentEvent.turn_token_usage(total)
             elif event.type == "error":
                 yield AgentEvent.error(str(event.data))
 

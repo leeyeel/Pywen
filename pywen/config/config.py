@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Tuple
 from pydantic import BaseModel, Field
 
 class ModelConfig(BaseModel):
@@ -42,7 +42,7 @@ class MCPConfig(BaseModel):
 class MemoryMonitorConfig(BaseModel):
     check_interval: int = 60
     maximum_capacity: int = 4096
-    rules: List[List[float]] = Field(default_factory=list)
+    rules: List[Tuple[float, int]] = Field(default_factory=list)
     model: Optional[str] = None
     class ConfigDict:
         extra = "allow"
