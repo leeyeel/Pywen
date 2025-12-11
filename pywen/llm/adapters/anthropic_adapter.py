@@ -232,14 +232,14 @@ class AnthropicAdapter():
                     input_tokens = input_tokens_from_start
 
                 usage_dict = {
-                    "input_tokens": input_tokens if input_tokens is not None else 0,
-                    "output_tokens": output_tokens if output_tokens is not None else 0
+                    "input_tokens": input_tokens if input_tokens else 0,
+                    "output_tokens": output_tokens if output_tokens is not None else 0,
                 }
+                usage_dict["total_tokens"] = usage_dict["input_tokens"] + usage_dict["output_tokens"]
                 return ResponseEvent.token_usage(usage_dict)
             return None
 
         elif event.type == "message_stop":
-            # message_stop -> response.finished
             return ResponseEvent.response_finished({})
 
         return None

@@ -4,13 +4,14 @@ import threading
 from typing import Optional, List, AsyncGenerator 
 from pywen.config.manager import ConfigManager
 from pywen.tools.tool_manager import ToolManager 
+from pywen.cli.cli_console import CLIConsole
+from pywen.memory.memory_monitor import MemoryMonitor
 
 from .agent_events import AgentEvent
 from .base_agent import BaseAgent
 from .pywen.pywen_agent import PywenAgent
 from .claude.claude_agent import ClaudeAgent
 from .codex.codex_agent import CodexAgent
-
 
 class ExecutionState:
     """进程内的执行状态（支持取消）"""
@@ -38,8 +39,9 @@ def _normalize_name(name: str) -> str:
     return n[:-5] if n.endswith("agent") else n
 
 class AgentManager:
-    def __init__(self, cfg_mgr: ConfigManager, tool_mgr: ToolManager) -> None:
+    def __init__(self, cfg_mgr: ConfigManager, cli:CLIConsole, tool_mgr: ToolManager) -> None:
         self._config_mgr = cfg_mgr
+        self._cli = cli
         self._tool_mgr = tool_mgr
         self._current: Optional[BaseAgent] = None
         self._current_name: Optional[str] = None
@@ -82,6 +84,11 @@ class AgentManager:
             raise RuntimeError("No agent is currently initialized.")
         async for event in self._current.run(prompt_text):
             yield event
+
+    async def agent_context_compact(self, mem: MemoryMonitor, turn:int) -> None:
+        if not self._current:
+            raise RuntimeError("No agent is currently initialized.")
+        await self._current.context_compact(mem, turn)
 
     async def close(self) -> None:
         """关闭当前 agent 并清理状态。"""
@@ -128,9 +135,9 @@ class AgentManager:
 
     async def _create_agent(self, normalized_name: str) -> BaseAgent:
         if normalized_name == "pywen":
-            return PywenAgent(self._config_mgr, self._tool_mgr)
+            return PywenAgent(self._config_mgr, self._cli, self._tool_mgr)
         if normalized_name == "claude":
-            return ClaudeAgent(self._config_mgr, self._tool_mgr)
+            return ClaudeAgent(self._config_mgr, self._cli, self._tool_mgr)
         if normalized_name == "codex":
-            return CodexAgent(self._config_mgr, self._tool_mgr)
+            return CodexAgent(self._config_mgr, self._cli, self._tool_mgr)
         raise ValueError(f"Unsupported agent type: {normalized_name}")
