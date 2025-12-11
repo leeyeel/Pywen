@@ -1,17 +1,26 @@
 from __future__ import annotations
-import os
+import os,sys
 import yaml
+import stat
+import shutil
+import importlib.resources as pkgres
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 from .config import AppConfig, AgentConfig, ModelConfig
+
 PLACEHOLDERS = {
     "your-qwen-api-key-here",
     "changeme",
     "placeholder",
     "YOUR_API_KEY_HERE",
 }
-
 ENV_PREFIX = "PYWEN"
+EDIT_HINT_FIELDS = (
+    "model_name",
+    "api_key",
+    "base_url",
+)
 
 class ConfigError(RuntimeError):
     """配置相关错误。"""
@@ -73,10 +82,11 @@ class ConfigManager:
 
         missing = self._find_missing_required_fields(active_agent_cfg)
         if missing:
-            raise ConfigError(
+            print(
                 f"Missing required fields in agent '{active_name}': {missing}. "
                 "Please update your YAML/ENV/CLI."
             )
+            sys.exit(2)
 
         runtime = raw.setdefault("runtime", {})
         runtime["active_agent"] = active_name
@@ -161,6 +171,13 @@ class ConfigManager:
         return app_cfg
 
     def _resolve_config_path(self) -> Path:
+        """
+        寻找最终配置文件路径：
+        1) 若 self.config_path 存在 → 返回
+        2) 若可在默认/工作目录/父目录找到 → 返回
+        3) 否则尝试寻找 example，找到则复制到 ~/.pywen/pywen_config.yaml 并提示
+        4) 都没有 → 抛出包含操作指引的 ConfigError
+        """
         if self.config_path and self.config_path.exists():
             return self.config_path
 
@@ -171,12 +188,37 @@ class ConfigManager:
             self.config_path = found
             return found
 
+        example = self._locate_example_config()
+        if example is not None:
+            target = self.get_default_config_path()
+            if not target.exists():
+                try:
+                    self._atomic_copy(example, target)
+                    self._chmod_private(target)
+                    self._print_copy_hint(example, target)
+                    self.config_path = target
+                    return target
+                except Exception as e:
+                    raise ConfigError(
+                        "Found example config but failed to copy to default location.\n"
+                        f"Source: {example}\nTarget: {target}\nError: {e}"
+                    ) from e
+            else:
+                self.config_path = target
+                return target
+
+        default_path = self.get_default_config_path()
+        searched = [default_path, Path.cwd() / "pywen_config.yaml", *[p / "pywen_config.yaml" for p in Path.cwd().parents]]
+        searched_list = "\n  - " + "\n  - ".join(str(p) for p in searched)
         raise ConfigError(
             "Pywen config file not found.\n"
-            "Please copy an example YAML config "
-            "(e.g. pywen_config.example.yaml) "
-            "to ~/.pywen/pywen_config.yaml or your project, "
-            "or pass --config /path/to/config.yaml."
+            "Searched locations:" + searched_list + "\n"
+            f'You may copy an example file named one of pywen_config.example.yaml into "{default_path}".\n'
+            "Or set environment variables to run without a file:\n"
+            "  export PYWEN_MODEL='gpt-4.1'\n"
+            "  export PYWEN_API_KEY='sk-...'\n"
+            "  export PYWEN_BASE_URL='https://api.openai.com/v1/'\n"
+            "Or pass --config /path/to/pywen_config.yaml\n"
         )
 
     def _load_raw(self) -> Dict[str, Any]:
@@ -360,4 +402,68 @@ class ConfigManager:
                     else:
                         m[field] = self._normalize_field(field, env_val)
 
+    @classmethod
+    def _locate_example_config(cls) -> Optional[Path]:
+        """
+        只在 Pywen 项目根目录寻找 example：
+        1) <repo_root>/pywen_config.example.yaml  （优先，符合你的要求）
+        2) <repo_root>/pywen/pywen_config.example.yaml  （常见备选）
+        3) 兜底：如果 example 被打进包里，从包资源读取
+        """
+        here = Path(__file__).resolve()
+        # manager.py -> config -> pywen -> <repo_root>
+        # parents[0]=config, [1]=pywen(包根), [2]=项目根
+        try:
+            pkg_root = here.parents[1]     # .../pywen
+            repo_root = here.parents[2]    # .../<repo_root>
+        except IndexError:
+            pkg_root = here.parent
+            repo_root = pkg_root.parent
 
+        EXAMPLE_FILENAME = "pywen_config.example.yaml"
+
+        candidates = [
+            repo_root / EXAMPLE_FILENAME,      # 首选：项目根
+            pkg_root / EXAMPLE_FILENAME,       # 备选：包根
+        ]
+        for p in candidates:
+            if p.exists():
+                return p
+
+        try:
+            res = pkgres.files("pywen").joinpath(EXAMPLE_FILENAME)
+            if res.is_file():
+                with pkgres.as_file(res) as fp:
+                    return Path(fp)
+        except Exception:
+            pass
+
+        return None
+
+    def _atomic_copy(self, src: Path, dst: Path) -> None:
+        """原子复制，避免并发读写时的半成品文件。"""
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("wb", delete=False, dir=str(dst.parent)) as tf:
+            with open(src, "rb") as sf:
+                shutil.copyfileobj(sf, tf)
+            tmp = Path(tf.name)
+        os.replace(tmp, dst)
+
+    def _chmod_private(self, path: Path) -> None:
+        """在 *nix 上将权限收紧到 0o600；Windows 忽略。"""
+        try:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        except Exception:
+            pass
+
+    def _print_copy_hint(self, example_src: Path, target: Path) -> None:
+        """在交互终端输出一次拷贝提示与需要修改的关键字段。"""
+        if sys.stderr.isatty():
+            print(
+                    "\n[Pywen] 未找到配置文件，已从示例复制默认配置：\n"
+                    f"  源: {example_src}\n"
+                    f"  目标: {target}\n\n"
+                    "请至少检查/修改以下字段以确保可用：\n"
+                    + "".join(f"  - {f}\n" for f in EDIT_HINT_FIELDS),
+                    file=sys.stderr,
+            )
