@@ -42,7 +42,6 @@ class MemoryMonitor:
         interval = next((interval for r, interval in self.rules if ratio >= r), self.rules[-1][1])
         self.check_interval = interval
         self._last_checked_turn = turn
-
         if ratio < 0.92:
             return 0, ""
 

@@ -50,7 +50,6 @@ class BaseAgent(ABC):
             self.conversation_history = [LLMMessage(role="user", content=summary)]
             self.cli.set_current_tokens(used)
 
-    
     def _build_system_prompt(self) -> str:
         """Build system prompt with tool descriptions."""
         return "" 

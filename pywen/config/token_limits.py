@@ -4,7 +4,7 @@ class TokenLimits:
         "qwen": {
             "qwen3-coder-plus": 1000000,
             "Qwen/Qwen3-Coder-480B-A35B-Instruct": 1000000,
-            "Qwen/Qwen3-Coder-30B-A3B-Instruct": 4096,
+            "Qwen/Qwen3-Coder-30B-A3B-Instruct": 20000,
         },
         "openai": {
             "gpt-4": 8192,
@@ -30,7 +30,7 @@ class TokenLimits:
     def get_limit(cls, provider: str, model: str) -> int:
         """Get token limit for a specific model."""
         provider_limits = cls.MODEL_LIMITS.get(provider, {})
-        return provider_limits.get(model, 4096)
+        return provider_limits.get(model, 40000)
     
     @classmethod
     def estimate_tokens(cls, text: str) -> int:

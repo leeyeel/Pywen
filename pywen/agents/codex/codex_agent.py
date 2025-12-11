@@ -158,10 +158,6 @@ class CodexAgent(BaseAgent):
             async for ev in stage:
                 yield ev
 
-            history = self.history.to_llm_messages()  #更新history
-            tokens_used = sum(self.approx_token_count(m.content or "") for m in history)
-            self.cli.set_current_tokens(tokens_used)
-
     def _build_system_prompt(self) -> str:
         agent_dir = Path(inspect.getfile(self.__class__)).parent
         codex_md = agent_dir / "gpt_5_codex_prompt.md"
@@ -234,6 +230,10 @@ class CodexAgent(BaseAgent):
 
     async def _responses_event_process(self, messages:List[HistoryItem], params) -> AsyncGenerator[AgentEvent, None]:
         """在这里处理LLM的事件，转换为agent事件流"""
+
+        history = self.history.to_llm_messages()
+        tokens_used = sum(self.approx_token_count(m.content or "") for m in history)
+        self.cli.set_current_tokens(tokens_used)
         async for event in self.llm_client.astream_response(messages, **params):
             if event.type == LLM_Events.REQUEST_STARTED:
                 yield AgentEvent.llm_stream_start()

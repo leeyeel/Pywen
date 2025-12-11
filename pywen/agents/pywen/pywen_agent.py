@@ -331,14 +331,14 @@ class PywenAgent(BaseAgent):
             async for event in self._process_turn_stream():
                 yield event
 
-            tokens_used = sum(self.approx_token_count(m.content or "") for m in self.conversation_history)
-            self.cli.set_current_tokens(tokens_used)
-
     async def _process_turn_stream(self) -> AsyncGenerator[AgentEvent, None]:
         messages = [self._convert_single_message(msg) for msg in self.conversation_history]
         trajectory_msg = self.conversation_history.copy()
         tools = [tool.build("pywen") for tool in self.tool_mgr.list_for_provider("pywen")]
         completed_resp : LLMResponse = LLMResponse(content = "")
+
+        tokens_used = sum(self.approx_token_count(m.content or "") for m in self.conversation_history)
+        self.cli.set_current_tokens(tokens_used)
         async for event in self.llm_client.astream_response(messages= messages, tools= tools, api = "chat"):
             if event.type == LLM_Events.REQUEST_STARTED:
                 yield AgentEvent.llm_stream_start()
