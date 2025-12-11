@@ -39,9 +39,9 @@ agents:
   # Qwen Coder / ModelScope API
   # ------------------------------
   - agent_name: pywen
-    model: ""                                  # 模型名称由 CLI 决定时可留空
-    api_key: "your-qwen-api-key-here"          # 填 ModelScope 的 key
-    base_url: "https://api-inference.modelscope.cn/v1"   # ModelScope API 地址
+    model: ""                                  # 模型名称
+    api_key: "your-qwen-api-key-here"          # 模型api_key
+    base_url: ""                               # 模型base_url
     provider: openai                           # 因为使用 OpenAI 风格接口，所以 provider=openai
     wire_api: chat                             # 使用 /chat/completions 的调用方式
 
@@ -51,9 +51,9 @@ agents:
   # ------------------------------
   - agent_name: claude
     provider: anthropic                        # Claude 使用 anthropic provider
-    model: "xx"                                # 如 claude-3.5-sonnet
-    api_key: "xx"
-    base_url: "xx"                             # 典型：https://api.anthropic.com/v1
+    model: ""                                # 如 claude-3.5-sonnet
+    api_key: ""
+    base_url: ""                             # 典型：https://api.anthropic.com/v1
     wire_api: chat                             # Anthropic 默认使用 chat schema（Claude Messages API）
 
 
