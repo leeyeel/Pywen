@@ -23,6 +23,7 @@ class AgentConfig(BaseModel):
 
 class MCPServerConfig(BaseModel):
     name: str
+    type: str = "stdio"
     command: str
     args: List[str] = Field(default_factory=list)
     enabled: bool = True

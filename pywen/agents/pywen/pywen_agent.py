@@ -313,7 +313,7 @@ class PywenAgent(BaseAgent):
         model_name = self.config_mgr.get_active_model_name() or ""
         max_tokens = TokenLimits.get_limit("qwen", model_name)
         self.cli.set_max_context_tokens(max_tokens)
-        
+        await self.setup_tools_mcp()
         self.original_user_task = user_message
         self.current_turn_index = 0
         session_stats.record_task_start(self.type)

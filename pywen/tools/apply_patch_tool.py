@@ -466,7 +466,6 @@ class ApplyPatchTool(BaseTool):
     display_name="Apply Patch"
     description= CUSTOM_DESCRIPTION
     parameter_schema= GRAMMAR_SCHEMA
-    can_update_output=False
     risk_level=ToolRiskLevel.MEDIUM
 
     def get_risk_level(self, **kwargs) -> ToolRiskLevel:

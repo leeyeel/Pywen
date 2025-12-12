@@ -1,15 +1,21 @@
+from __future__ import annotations
 import os
 import json
 import base64
 import asyncio
+import fnmatch
 import shutil
-from typing import Any, Dict, Optional, Iterable, Callable, List 
+import contextlib
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Dict, Iterable, Optional, List, Tuple,Mapping
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-
-from pywen.tools.base_tool import BaseTool
+from mcp.client.streamable_http import streamablehttp_client
+from pywen.tools.base_tool import BaseTool, ToolRiskLevel
 from pywen.llm.llm_basics import ToolCallResult, ToolCallResultDisplay
+from pywen.config.manager import ConfigManager
+from pywen.tools.tool_manager import register_instance 
 
 def _make_tool_result(
     call_id: str,
@@ -20,20 +26,10 @@ def _make_tool_result(
     metadata: Optional[Dict[str, Any]] = None,
     display_markdown: Optional[str] = None,
 ) -> ToolCallResult:
-    """
-    统一创建符合项目规范的 ToolCallResult：
-    - call_id: 必填，来自本次 tool_call 的 id
-    - message: 正文（成功时作为 result，失败时作为 error）
-    - is_error: 标记是否为错误
-    - summary: 可选的简短摘要
-    - metadata: 额外元信息（例如保存的文件路径、耗时等）
-    - display_markdown: 若提供，则用于展示层；否则默认与 message 相同
-    """
     display = ToolCallResultDisplay(
         markdown=display_markdown if display_markdown is not None else message,
         summary=summary or ""
     )
-
     return ToolCallResult(
         call_id=call_id,
         result=None if is_error else message,
@@ -53,133 +49,167 @@ def _is_executable(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 class MCPServerManager:
-    """管理多个 MCP server 的连接与调用（正确管理 async context）。"""
+    """
+    - 启动/维护多个 MCP stdio server
+    - 暴露 list_tools / call_tool
+    - 统一关闭（可多次调用、并发安全）
+    """
     def __init__(self) -> None:
         self._sessions: Dict[str, ClientSession] = {}
         self._ctxs: Dict[str, Any] = {}
         self._locks: Dict[str, asyncio.Lock] = {}
-        self._tasks = {}
-        self._stops = {}
-        self._ready = {}
+        self._tasks: Dict[str, asyncio.Task] = {}
+        self._stops: Dict[str, asyncio.Event] = {}
+        self._ready: Dict[str, asyncio.Event] = {}
+        self._closed = False
+        self._close_lock = asyncio.Lock()
 
-    async def add_stdio_server(self, name: str, command: str, args: Iterable[str]) -> None:
-        """启动并连接一个以 stdio 暴露的 MCP server。"""
+    async def add_http_server(self, name: str, command: str) -> None:
         if name in self._sessions:
             return
-        if not _is_executable(command):
-            hint = (
-                f"Command '{command}' not found or not executable. "
-                f"Please install it first."
-            )
-            raise MCPServerLaunchError(hint)
         self._locks.setdefault(name, asyncio.Lock())
         async with self._locks[name]:
             if name in self._sessions:
                 return
 
             stop = asyncio.Event()
-            ready = asyncio.Event()
             self._stops[name] = stop
-            self._ready[name] = ready
-            task = asyncio.create_task(
-                    self._session_owner_task(name, command, args, ready, stop)
+
+            async def _owner():
+                ctx = streamablehttp_client(command)
+                self._ctxs[name] = ctx
+                async with ctx as (read, write, _):
+                    async with ClientSession(read, write) as sess:
+                        await sess.initialize() 
+                        self._sessions[name] = sess
+                        self._ready[name].set()
+                        await stop.wait()
+                self._sessions.pop(name, None)
+                self._ctxs.pop(name, None)
+
+            self._ready[name] = asyncio.Event()
+            task = asyncio.create_task(_owner())
+            self._tasks[name] = task
+
+            await asyncio.wait_for(self._ready[name].wait(), timeout=30.0)
+
+    async def add_stdio_server(self, name: str, command: str, args: Iterable[str], *, timeout: float = 30.0) -> None:
+        """
+        启动并连接一个以 stdio 暴露的 MCP server。
+        幂等：重复调用同名 server 不会重复启动。
+        """
+        if self._closed:
+            raise MCPServerLaunchError("MCPServerManager is closed.")
+
+        if name in self._sessions:
+            return
+
+        if not _is_executable(command):
+            raise MCPServerLaunchError(
+                f"Command '{command}' not found or not executable. Please install or fix PATH."
             )
-            self._tasks[name] = task 
+
+        lock = self._locks.setdefault(name, asyncio.Lock())
+        async with lock:
+            if name in self._sessions:
+                return
+
+            stop_evt = asyncio.Event()
+            ready_evt = asyncio.Event()
+            self._stops[name] = stop_evt
+            self._ready[name] = ready_evt
+
+            task = asyncio.create_task(
+                self._owner_task(name, command, list(args), ready_evt, stop_evt),
+                name=f"mcp-owner::{name}"
+            )
+            self._tasks[name] = task
 
             try:
-                await asyncio.wait_for(ready.wait(), timeout=30.0)
+                await asyncio.wait_for(ready_evt.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 task.cancel()
-                try:
+                with contextlib.suppress(Exception, asyncio.CancelledError):
                     await task
-                except Exception:
-                    pass
-                # 清理痕迹
                 self._tasks.pop(name, None)
                 self._stops.pop(name, None)
                 self._ready.pop(name, None)
                 raise MCPServerLaunchError(
-                    f"Timed out waiting for MCP server '{name}' to become ready "
-                    f"(command='{command}', args={list(args)}, timeout={30}s). "
-                    "Check that the command is valid and can start without prompts."
+                    f"Timed out waiting for MCP server '{name}' to become ready (timeout={timeout}s)."
                 )
 
             if task.done() and task.exception():
                 ex = task.exception()
-                # 清理
                 self._tasks.pop(name, None)
                 self._stops.pop(name, None)
                 self._ready.pop(name, None)
                 raise MCPServerLaunchError(
-                    f"Failed to start MCP server '{name}' (command='{command}'): {ex}"
+                    f"Failed to start MCP server '{name}': {ex}"
                 )
 
-    async def _session_owner_task(self, name, command, args, ready_evt, stop_evt):
-            params = StdioServerParameters(command=command, args=list(args))
-            ctx = stdio_client(params)
+    async def _owner_task(
+        self,
+        name: str,
+        command: str,
+        args: List[str],
+        ready_evt: asyncio.Event,
+        stop_evt: asyncio.Event,
+    ):
+        params = StdioServerParameters(command=command, args=args)
+        ctx = stdio_client(params)
+        try:
             async with ctx as (read, write):
                 async with ClientSession(read, write) as sess:
                     await sess.initialize()
-                    self._ctxs[name] = ctx 
-                    self._sessions[name] = sess 
+                    self._ctxs[name] = ctx
+                    self._sessions[name] = sess
                     ready_evt.set()
                     await stop_evt.wait()
+        finally:
             self._sessions.pop(name, None)
             self._ctxs.pop(name, None)
 
     async def list_tools(self, server: str):
-        return await self._sessions[server].list_tools()
+        sess = self._sessions.get(server)
+        if not sess:
+            raise MCPServerLaunchError(f"MCP server '{server}' is not ready.")
+        return await sess.list_tools()
 
     async def call_tool(self, server: str, tool_name: str, args: Dict[str, Any]):
-        return await self._sessions[server].call_tool(tool_name, args or {})
+        sess = self._sessions.get(server)
+        if not sess:
+            raise MCPServerLaunchError(f"MCP server '{server}' is not ready.")
+        return await sess.call_tool(tool_name, args or {})
 
     async def close(self, *, timeout: float = 10.0) -> None:
-        """
-        关闭所有已启动的 MCP server 连接。
-        - 先向每个 owner task 发送 stop 信号（通过 Event）
-        - 等待 owner task 在给定超时时间内退出（它们会在 *同一个* task 内执行 __aexit__）
-        - 超时则取消该 task，并做兜底清理
-        - 幂等：重复调用无副作用
-        """
-        if getattr(self, "_closed", False):
+        if self._closed:
             return
-        lock = getattr(self, "_close_lock", None)
-        if lock is None:
-            self._close_lock = asyncio.Lock()
-            lock = self._close_lock
-
-        async with lock:
-            if getattr(self, "_closed", False):
+        async with self._close_lock:
+            if self._closed:
                 return
 
-            names: List[str] = list(getattr(self, "_tasks", {}).keys())
+            names = list(self._tasks.keys())
+            for n in names:
+                evt = self._stops.get(n)
+                if evt and not evt.is_set():
+                    evt.set()
 
-            for name in names:
-                stop_evt = self._stops.get(name)
-                if stop_evt and not stop_evt.is_set():
-                    stop_evt.set()
-
-            for name in names:
-                task = self._tasks.get(name)
+            for n in names:
+                task = self._tasks.get(n)
                 if not task:
                     continue
                 try:
                     await asyncio.wait_for(task, timeout=timeout)
                 except asyncio.TimeoutError:
                     task.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await task
-                    except asyncio.CancelledError:
-                        pass
                 except Exception:
                     pass
 
-            # 兜底
-            for name, ctx in list(self._ctxs.items()):
-                try:
+            for _, ctx in list(self._ctxs.items()):
+                with contextlib.suppress(Exception):
                     await ctx.__aexit__(None, None, None)
-                except Exception:
-                    pass
 
             self._sessions.clear()
             self._ctxs.clear()
@@ -188,130 +218,241 @@ class MCPServerManager:
             self._ready.clear()
             self._closed = True
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
+@dataclass
+class _RemoteSpec:
+    """缓存远端工具的描述，用于构造本地工具的声明。"""
+    name: str
+    description: str
+    input_schema: Dict[str, Any]
+
 class MCPRemoteTool(BaseTool):
     """
-    把某个 MCP server 上的一个具体工具（name/schema/desc）包装为本地工具。
-    - execute() 内部通过 MCP 调用远端工具，并把结果序列化为 ToolCallResult。
-    - 可在 config 中传入:
-        - server: MCP server 名
-        - manager: MCPServerManager 实例
-        - save_images_dir: 若远端返回 image/blob，落盘到该目录并把路径写回文本
+    将 MCP server 上的某个具体工具包装为本地工具：
+    - execute() 内部调用远端 server 的 tool
+    - build() 生成 LLM 可消费的函数/工具声明（按 provider 适配）
     """
     def __init__(
         self,
         *,
         server: str,
         manager: MCPServerManager,
-        name: str,
-        description: str,
-        parameter_schema: Dict[str, Any],
+        spec: _RemoteSpec,
         display_name: Optional[str] = None,
-        can_update_output: bool = False,
-    ):
-        super().__init__(
-            name=name,
-            display_name=display_name or name,
-            description=description,
-            parameter_schema=parameter_schema,
-            can_update_output=can_update_output,
-        )
+        save_images_dir: Optional[str] = None,
+        risk_level: ToolRiskLevel = ToolRiskLevel.MEDIUM,
+        providers: Optional[Iterable[str]] = None,  # 仅用于注册可见性
+    ) -> None:
+        # BaseTool 基本字段
+        self.name = spec.name
+        self.display_name = display_name or spec.name
+        self.description = spec.description or f"MCP tool '{spec.name}' from '{server}'."
+        self.parameter_schema = spec.input_schema or {"type": "object", "properties": {}}
+        self.risk_level = risk_level
+
         self._server = server
         self._manager = manager
-        self._save_images_dir = "./"
+        self._save_images_dir = save_images_dir
+        self._providers = set(providers or {"*"})
 
     async def execute(self, **kwargs) -> ToolCallResult:
-        # 远端调用
-        res = await self._manager.call_tool(self._server, self.name, kwargs or {})
+        call_id = kwargs.pop("call_id", None) or f"mcp::{self._server}::{self.name}"
+        try:
+            res = await self._manager.call_tool(self._server, self.name, kwargs or {})
+        except Exception as e:
+            return _make_tool_result(
+                call_id=call_id,
+                message=f"[MCP CALL ERROR] {e}",
+                is_error=True,
+                metadata={"server": self._server, "tool": self.name},
+            )
 
         parts: List[str] = []
         is_err = bool(getattr(res, "isError", False))
-        content = getattr(res, "content", [])
+        content = getattr(res, "content", []) or []
 
         if is_err:
             parts.append("[MCP ERROR]")
 
         for item in content:
-            t = getattr(item, "type", "")
+            t = getattr(item, "type", "") or (item.get("type", "") if isinstance(item, dict) else "")
             if t == "text":
-                parts.append(getattr(item, "text", ""))
-            elif t in ("image", "blob"):
-                data = getattr(item, "data", None) or getattr(item, "base64_data", None)
-                mime = getattr(item, "mimeType", "image/png")
-                if data and self._save_images_dir:
+                txt = getattr(item, "text", None) or (item.get("text") if isinstance(item, dict) else "") or ""
+                parts.append(txt)
+            elif t in ("image", "blob", "binary", "resource"):
+                b64 = (
+                    getattr(item, "data", None)
+                    or getattr(item, "base64_data", None)
+                    or (item.get("data") if isinstance(item, dict) else None)
+                    or (item.get("base64_data") if isinstance(item, dict) else None)
+                )
+                mime = (
+                    getattr(item, "mimeType", None)
+                    or (item.get("mimeType") if isinstance(item, dict) else None)
+                    or "application/octet-stream"
+                )
+                if self._save_images_dir and b64:
                     os.makedirs(self._save_images_dir, exist_ok=True)
-                    ext = ".png" if "png" in mime else ".jpg"
-                    path = os.path.join(self._save_images_dir, f"mcp_{self.name}_{hash(data)%10_000_000}{ext}")
+                    ext = _guess_ext_from_mime(mime)
+                    path = os.path.join(
+                        self._save_images_dir,
+                        f"mcp_{self._server}_{self.name}_{abs(hash(b64)) % 10_000_000}{ext}"
+                    )
                     try:
+                        raw = base64.b64decode(b64)
                         with open(path, "wb") as f:
-                            f.write(base64.b64decode(data))
-                        parts.append(f"[{t} saved to {path}]")
-                    except Exception as e:
-                        parts.append(f"[{t} decode failed: {e}]")
+                            f.write(raw)
+                        parts.append(f"[{t} saved: {path}]")
+                    except Exception as de:
+                        parts.append(f"[{t} decode failed: {de}]")
                 else:
                     parts.append(f"[{t} {mime} base64 omitted]")
-
             else:
-                # 兜底可读化
                 try:
-                    parts.append(json.dumps(item, ensure_ascii=False))
+                    parts.append(json.dumps(_safe_to_dict(item), ensure_ascii=False))
                 except Exception:
                     parts.append(str(item))
 
         text = "\n".join([p for p in parts if p]).strip() or "(no content)"
-        is_err = bool(getattr(res, "isError", False))
-        call_id = kwargs.pop("__call_id", None) or f"mcp::{self._server}::{self.name}"
         return _make_tool_result(
             call_id=call_id,
             message=text,
             is_error=is_err,
-            summary=None,
-            metadata={
-                "server": self._server,
-                "tool": self.name,
-            },
+            metadata={"server": self._server, "tool": self.name},
             display_markdown=text,
         )
-    def build(self) -> Dict[str, Any]:
-        return {
-            "type": "function",
-            "function": self.get_function_declaration()
-        }
 
-async def sync_mcp_server_tools_into_registry(
-    *,
-    server_name: str,
-    manager: MCPServerManager,
-    tool_registry,
-    include: Optional[Callable[[str], bool]] = None,
-    save_images_dir: Optional[str] = None,
-    display_name_map: Optional[Callable[[str], str]] = None,
-) -> None:
+    def build(self, provider: str = "", func_type: str = "") -> Mapping[str, Any]:
+        res = {}
+        if provider.lower() in {"pywen", "codex", "openai"}:
+            res = {
+                "type": "function",
+                "function": {
+                    "name": self.name,
+                    "description": self.description,
+                    "parameters": self.parameter_schema
+                }
+            }
+        elif provider.lower() in {"anthropic", "claude"}:
+            res = {
+                "name": self.name,
+                "description": self.description,
+                "input_schema": self.parameter_schema or {"type": "object", "properties": {}},
+            }
+        return res
+
+    @property
+    def providers(self) -> set[str]:
+        return set(self._providers)
+
+def _match_includes(name: str, patterns: Optional[List[str]]) -> bool:
+    """include: ["browser_*", "files.read", "*"] -> 是否匹配。None/空表示不过滤。"""
+    if not patterns:
+        return True
+    return any(fnmatch.fnmatch(name, p) for p in patterns)
+
+def _guess_ext_from_mime(mime: str) -> str:
+    mime = (mime or "").lower()
+    if "png" in mime:
+        return ".png"
+    if "jpeg" in mime or "jpg" in mime:
+        return ".jpg"
+    if "gif" in mime:
+        return ".gif"
+    if "webp" in mime:
+        return ".webp"
+    if "svg" in mime:
+        return ".svg"
+    if "pdf" in mime:
+        return ".pdf"
+    return ".bin"
+
+def _safe_to_dict(obj: Any) -> Dict[str, Any]:
+    if isinstance(obj, dict):
+        return obj
+    out = {}
+    for k in dir(obj):
+        if k.startswith("_"):
+            continue
+        with contextlib.suppress(Exception):
+            v = getattr(obj, k)
+            if callable(v):
+                continue
+            out[k] = v
+    return out
+
+async def sync_mcp_servers(*, cfg_mgr: ConfigManager, overwrite: bool = True,) -> Tuple[MCPServerManager, List[str]]:
     """
-    - 拉取 server 的工具清单（真实 name/desc/schema）
-    - 为每个工具创建一个 MCPRemoteTool，并注册到本地 registry
-    - include(name) 可选过滤（例如只要 browser_* 工具）
-    - save_images_dir 若传入，截图类的 base64 会自动落盘
-    - display_name_map(name)->str 可自定义显示名
+    根据 config.mcp：
+      - 启动 enabled 的 MCP servers
+      - 拉取工具清单
+      - 按 include 过滤
+      - 将每个远端 tool 注册为本地工具
+    返回：
+      (MCPServerManager, 已注册工具名列表)
     """
-    tools_desc = await manager.list_tools(server_name)
-    for t in tools_desc.tools:
-        name = t.name
-        if include and not include(name):
+    mcp_cfg = cfg_mgr.get_app_config().mcp 
+    if not mcp_cfg or not mcp_cfg.enabled:
+        return MCPServerManager(), []
+
+    mcp_mgr = MCPServerManager()
+    registered: List[str] = []
+
+    servers = mcp_cfg.servers or []
+    for srv in servers:
+        if not srv.enabled:
             continue
 
-        schema = getattr(t, "input_schema", None) or getattr(t, "inputSchema", None) or {"type": "object", "properties": {}}
-        desc = getattr(t, "description", "") or f"MCP tool {name} from {server_name}"
-        display = display_name_map(name) if display_name_map else name
+        name: str = srv.name
+        command: str = srv.command
+        args: List[str] = srv.args or []
+        include: List[str] = srv.include or []
+        save_dir: Optional[str] = srv.save_images_dir or None
 
-        tool = MCPRemoteTool(
-            server=server_name,
-            manager=manager,
-            name=name,
-            description=desc,
-            parameter_schema=schema,
-            display_name=display,
-            can_update_output=False,
-            config={"save_images_dir": save_images_dir} if save_images_dir else {}
-        )
+        # 1. 启动 server
+        if srv.type == "http":
+            await mcp_mgr.add_http_server(name, command)
+        else:
+            await mcp_mgr.add_stdio_server(name, command, args)
 
-        tool_registry.register(tool)
+        # 2. 拉取工具清单
+        desc = await mcp_mgr.list_tools(name)
+        tools = getattr(desc, "tools", None) or []
+
+        for t in tools:
+            tool_name = getattr(t, "name", None)
+            if not tool_name or not _match_includes(tool_name, include):
+                continue
+
+            input_schema = (
+                getattr(t, "input_schema", None)
+                or getattr(t, "inputSchema", None)
+                or {"type": "object", "properties": {}}
+            )
+            description = getattr(t, "description", "") or ""
+
+            local_tool = MCPRemoteTool(
+                server=name,
+                manager=mcp_mgr,
+                spec=_RemoteSpec(
+                    name=tool_name,
+                    description=description,
+                    input_schema=input_schema,
+                ),
+                save_images_dir=save_dir,
+                risk_level=ToolRiskLevel.MEDIUM,
+            )
+
+            register_instance(
+                name=local_tool.name,
+                instance=local_tool,
+                overwrite=overwrite,
+            )
+            registered.append(local_tool.name)
+
+    return mcp_mgr, registered
