@@ -414,7 +414,10 @@ async def sync_mcp_servers(*, cfg_mgr: ConfigManager, overwrite: bool = True,) -
         include: List[str] = srv.include or []
         save_dir: Optional[str] = srv.save_images_dir or None
 
-        # 1. 启动 server
+        if mcp_cfg.isolated and srv.isolated and "--isolated" not in args:
+            args.append("--isolated")
+
+        # 1. 启动 server, 默认使用 stdio
         if srv.type == "http":
             await mcp_mgr.add_http_server(name, command)
         else:
