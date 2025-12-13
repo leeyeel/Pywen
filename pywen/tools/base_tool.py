@@ -15,8 +15,6 @@ class BaseTool(ABC):
     display_name: str = ""
     description: str = ""
     parameter_schema: Dict[str, Any] = {}
-    is_output_markdown: bool = False
-    can_update_output: bool = False
     risk_level: ToolRiskLevel = ToolRiskLevel.SAFE
     
     @abstractmethod
