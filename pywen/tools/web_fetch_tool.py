@@ -1,37 +1,40 @@
-"""Web content fetching tool."""
-
 import asyncio
 import aiohttp
 import html
 import re
+from typing import Any, Mapping
+from .base_tool import BaseTool, ToolCallResult
+from pywen.tools.tool_manager import register_tool
 
-from .base import BaseTool, ToolResult
+CLAUDE_DESCRIPTION = """
+- Fetches content from a specified URL and processes it using an AI model
+- Takes a URL and a prompt as input
+- Fetches the URL content, converts HTML to markdown
+- Processes the content with the prompt using a small, fast model
+- Returns the model's response about the content
+- Use this tool when you need to retrieve and analyze web content
+"""
 
-
+@register_tool(name="web_fetch", providers=["claude", "pywen"])
 class WebFetchTool(BaseTool):
-    """Tool for fetching web content."""
-    
-    def __init__(self):
-        super().__init__(
-            name="web_fetch",
-            display_name="Fetch Web Content",
-            description="Fetch content from web URLs",
-            parameter_schema={
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "URL to fetch content from"
-                    },
-                    "timeout": {
-                        "type": "integer",
-                        "description": "Request timeout in seconds (default: 30)",
-                        "default": 30
-                    }
-                },
-                "required": ["url"]
+    name="web_fetch"
+    display_name="Fetch Web Content"
+    description="Fetch content from web URLs"
+    parameter_schema={
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "URL to fetch content from"
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "Request timeout in seconds (default: 30)",
+                "default": 30
             }
-        )
+        },
+        "required": ["url"]
+    }
     
     def _clean_html_content(self, html_content: str) -> str:
         """Extract clean text from HTML content using built-in modules."""
@@ -69,13 +72,13 @@ class WebFetchTool(BaseTool):
                 text = text[:5000] + "...[内容已截断]"
             return text
 
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Fetch web content and extract clean text."""
         url = kwargs.get("url")
         timeout = kwargs.get("timeout", 30)
         
         if not url:
-            return ToolResult(call_id="", error="No URL provided")
+            return ToolCallResult(call_id="", error="No URL provided")
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
@@ -92,22 +95,40 @@ class WebFetchTool(BaseTool):
                     if response.status == 200:
                         html_content = await response.text()
                         clean_text = self._clean_html_content(html_content)
-                        return ToolResult(
+                        return ToolCallResult(
                             call_id="",
                             result=f"Content from {url}:\n\n{clean_text}"
                         )
                     elif response.status == 403:
-                        return ToolResult(
+                        return ToolCallResult(
                             call_id="",
                             error=f"Access denied (403) for {url}. Website may have anti-bot protection."
                         )
                     else:
-                        return ToolResult(
+                        return ToolCallResult(
                             call_id="",
                             error=f"HTTP {response.status}: Failed to fetch {url}"
                         )
         
         except asyncio.TimeoutError:
-            return ToolResult(call_id="", error=f"Timeout fetching {url}")
+            return ToolCallResult(call_id="", error=f"Timeout fetching {url}")
         except Exception as e:
-            return ToolResult(call_id="", error=f"Error fetching {url}: {str(e)}")
+            return ToolCallResult(call_id="", error=f"Error fetching {url}: {str(e)}")
+
+    def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
+        if provider.lower() == "claude" or provider.lower() == "anthropic":
+            res = {
+                "name": self.name,
+                "description": CLAUDE_DESCRIPTION,
+                "input_schema": self.parameter_schema,
+            }
+        else:
+            res = {
+                "type": "function",
+                "function": {
+                    "name": self.name,
+                    "description": self.description,
+                    "parameters": self.parameter_schema
+                }
+            }
+        return res

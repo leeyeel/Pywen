@@ -1,14 +1,18 @@
-"""Web search tool using Serper API."""
-
 import asyncio
 import aiohttp
 import os
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional,Mapping
 from dataclasses import dataclass
+from .base_tool import BaseTool, ToolCallResult
+from pywen.tools.tool_manager import register_tool
 
-from .base import BaseTool, ToolResult
-from pywen.config.config import Config
-
+CLAUDE_DESCRIPTION = """
+- Allows Claude to search the web and use the results to inform responses
+- Provides up-to-date information for current events and recent data
+- Returns search result information formatted as search result blocks
+- Use this tool for accessing information beyond Claude's knowledge cutoff
+- Searches are performed automatically within a single API call
+"""
 
 @dataclass
 class SearchResult:
@@ -18,16 +22,12 @@ class SearchResult:
     snippet: str
     position: int = 0
 
-
+@register_tool(name="web_search", providers=["claude", "pywen"])
 class WebSearchTool(BaseTool):
-    """Tool for performing web searches using Serper API."""
-    
-    def __init__(self, config: Config):
-        super().__init__(
-            name="web_search",
-            display_name="Web Search",
-            description="Performs a web search using Serper API and returns the results. This tool is useful for finding current information on the internet.",
-            parameter_schema={
+    name="web_search"
+    display_name="Web Search"
+    description="Performs a web search using Serper API and returns the results. This tool is useful for finding current information on the internet."
+    parameter_schema={
                 "type": "object",
                 "properties": {
                     "query": {
@@ -44,17 +44,14 @@ class WebSearchTool(BaseTool):
                 },
                 "required": ["query"]
             }
-        )
-        self.config = config
-        # 从多个来源加载 API key
-        self.api_key = self._get_api_key()
-        self.base_url = "https://google.serper.dev/search"
+    api_key = ""
+    base_url = "https://google.serper.dev/search"
     
     def _get_api_key(self) -> str:
         """从配置或环境变量中获取 Serper API key"""
         # 1. 优先从配置文件中获取
-        if hasattr(self.config, 'serper_api_key') and self.config.serper_api_key:
-            return self.config.serper_api_key
+        #if hasattr(self.config, 'serper_api_key') and self.config.serper_api_key:
+            #return self.config.serper_api_key
         
         # 2. 从环境变量获取
         api_key = os.getenv("SERPER_API_KEY")
@@ -92,12 +89,12 @@ class WebSearchTool(BaseTool):
         num_results = kwargs.get("num_results", 10)
         return f'Searching the web for: "{query}" (returning {num_results} results)'
     
-    async def execute(self, **kwargs) -> ToolResult:
+    async def execute(self, **kwargs) -> ToolCallResult:
         """Perform web search using Serper API."""
         # Validate parameters
         validation_error = self.validate_params(**kwargs)
         if validation_error:
-            return ToolResult(
+            return ToolCallResult(
                 call_id=kwargs.get("call_id", ""),
                 error=f"Invalid parameters provided. Reason: {validation_error}"
             )
@@ -106,7 +103,6 @@ class WebSearchTool(BaseTool):
         num_results = kwargs.get("num_results", 5)
         
         try:
-            # Prepare request
             headers = {
                 "X-API-KEY": self.api_key,
                 "Content-Type": "application/json"
@@ -115,11 +111,10 @@ class WebSearchTool(BaseTool):
             payload = {
                 "q": query,
                 "num": num_results,
-                "gl": "us",  # Country
-                "hl": "en"   # Language
+                "gl": "us",
+                "hl": "en"
             }
             
-            # Make API request
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.base_url,
@@ -130,26 +125,24 @@ class WebSearchTool(BaseTool):
                     
                     if response.status != 200:
                         error_text = await response.text()
-                        return ToolResult(
+                        return ToolCallResult(
                             call_id=kwargs.get("call_id", ""),
                             error=f"Serper API error {response.status}: {error_text}"
                         )
                     
                     data = await response.json()
             
-            # Parse results
             search_results = self._parse_search_results(data)
             
             if not search_results:
-                return ToolResult(
+                return ToolCallResult(
                     call_id=kwargs.get("call_id", ""),
                     result=f'No search results found for query: "{query}"'
                 )
             
-            # Format results
             formatted_results = self._format_search_results(query, search_results)
             
-            return ToolResult(
+            return ToolCallResult(
                 call_id=kwargs.get("call_id", ""),
                 result=formatted_results,
                 metadata={
@@ -168,14 +161,14 @@ class WebSearchTool(BaseTool):
             )
             
         except asyncio.TimeoutError:
-            return ToolResult(
+            return ToolCallResult(
                 call_id=kwargs.get("call_id", ""),
                 error=f"Search request timed out for query: {query}"
             )
         except Exception as e:
             error_message = f'Error during web search for query "{query}": {str(e)}'
             print(f"❌ {error_message}")
-            return ToolResult(
+            return ToolCallResult(
                 call_id=kwargs.get("call_id", ""),
                 error=error_message
             )
@@ -195,25 +188,23 @@ class WebSearchTool(BaseTool):
             )
             results.append(search_result)
         
-        # Parse knowledge graph if available
         knowledge_graph = data.get("knowledgeGraph")
         if knowledge_graph:
             kg_result = SearchResult(
                 title=f"Knowledge Graph: {knowledge_graph.get('title', 'Information')}",
                 link=knowledge_graph.get("website", ""),
                 snippet=knowledge_graph.get("description", "Knowledge graph information"),
-                position=0  # Knowledge graph gets position 0
+                position=0
             )
             results.insert(0, kg_result)
         
-        # Parse answer box if available
         answer_box = data.get("answerBox")
         if answer_box:
             answer_result = SearchResult(
                 title=f"Answer: {answer_box.get('title', 'Direct Answer')}",
                 link=answer_box.get("link", ""),
                 snippet=answer_box.get("answer", answer_box.get("snippet", "Direct answer")),
-                position=0  # Answer box gets high priority
+                position=0
             )
             results.insert(0, answer_result)
         
@@ -222,14 +213,28 @@ class WebSearchTool(BaseTool):
     def _format_search_results(self, query: str, results: List[SearchResult]) -> str:
         """Format search results into a readable string."""
         formatted = f'Web search results for "{query}":\n\n'
-        
         for result in results:
             formatted += f"[{result.position}] {result.title}\n"
             formatted += f"🔗 {result.link}\n"
             formatted += f"📝 {result.snippet}\n\n"
-        
-        # Add summary
         formatted += f"Found {len(results)} results for your search query."
         
         return formatted
 
+    def build(self, provider:str = "", func_type: str = "") -> Mapping[str, Any]:
+        if provider.lower() == "claude" or provider.lower() == "anthropic":
+            res = {
+                "name": self.name,
+                "description": CLAUDE_DESCRIPTION,
+                "input_schema": self.parameter_schema,
+            }
+        else:
+            res = {
+                "type": "function",
+                "function": {
+                    "name": self.name,
+                    "description": self.description,
+                    "parameters": self.parameter_schema
+                }
+            }
+        return res

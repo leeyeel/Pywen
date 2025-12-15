@@ -1,92 +1,37 @@
-# pywen/config/manager.py
-"""configuration manager for Pywen (no .env write, env only read)."""
 from __future__ import annotations
-
-import json
-import os
-from copy import deepcopy
+import os,sys
+import yaml
+import stat
+import shutil
+import importlib.resources as pkgres
+import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-from .wizard import ConfigWizard
+from typing import Any, Dict, List, Mapping, Optional
+from .config import AppConfig, AgentConfig, ModelConfig
 
-from .config import (
-    Config,
-    ModelConfig,
-    ModelProvider,
-    MCPConfig,
-    MCPServerConfig,
-    MemorymonitorConfig,
-    PermissionLevel,
+PLACEHOLDERS = {
+    "your-qwen-api-key-here",
+    "changeme",
+    "placeholder",
+    "YOUR_API_KEY_HERE",
+}
+ENV_PREFIX = "PYWEN"
+EDIT_HINT_FIELDS = (
+    "model_name",
+    "api_key",
+    "base_url",
 )
 
-DEFAULT_MCP: Dict[str, Any] = {
-    "enabled": True,
-    "isolated": True,
-    "servers": [
-        {
-            "name": "browser_use",
-            "command": "uvx",
-            "args": ["-p", "3.11", "browser-use[cli]", "--mcp"],
-            "enabled": False,
-            "include": ["browser_*"],
-            "save_images_dir": "./outputs/playwright",
-            "isolated": True,
-        }
-    ],
-}
-
-DEFAULT_MEMORY_MONITOR: Dict[str, Any] = {
-    "check_interval": 3,
-    "maximum_capacity": 1_000_000,
-    "rules": [
-        [0.92, 1],
-        [0.80, 1],
-        [0.60, 2],
-        [0.00, 3],
-    ],
-    "model": "Qwen/Qwen3-235B-A22B-Instruct-2507",
-}
-
-DEFAULT_CONFIG_SCAFFOLD: Dict[str, Any] = {
-    "default_provider": "qwen",
-    "max_steps": 20,
-    "enable_lakeview": False,
-    "permission_level": "locked",
-    "serper_api_key": "",
-    "jina_api_key": "",
-    "model_providers": {
-        "qwen": {
-            "api_key": "your-qwen-api-key-here",
-            "base_url": "https://api-inference.modelscope.cn/v1",
-            "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-            "max_tokens": 4096,
-            "temperature": 0.1,
-            "top_p": 1,
-            "top_k": 0,
-            "parallel_tool_calls": True,
-            "max_retries": 3,
-        }
-    },
-    "mcp": DEFAULT_MCP,
-    "memory_monitor": DEFAULT_MEMORY_MONITOR,
-}
-
-REQUIRED_KEYS = ("api_key", "base_url", "model")
-
-ENV_ALIASES = {
-    "api_key":   ["QWEN_API_KEY", "DASHSCOPE_API_KEY", "API_KEY"],
-    "base_url":  ["QWEN_BASE_URL", "BASE_URL"],
-    "model":     ["QWEN_MODEL", "MODEL"],
-}
-
-PLACEHOLDERS = {"your-qwen-api-key-here", "changeme", "placeholder"}
+class ConfigError(RuntimeError):
+    """配置相关错误。"""
 
 class ConfigManager:
-    """Repository-style loader/saver for Pywen Config (no .env write)."""
-
-    def __init__(self, config_path: Optional[str | Path] = None):
-        self.config_path: Path = Path(config_path) if config_path else self.get_default_config_path()
-        self._current_config: Optional[Config] = None
+    def __init__(self, config_path: Optional[str | Path] = None) -> None:
+        self.config_path: Path = (
+            Path(config_path) if config_path else self.get_default_config_path()
+        )
+        self._raw_config: Optional[Dict[str, Any]] = None
+        self._app_config: Optional[AppConfig] = None
 
     @staticmethod
     def get_pywen_config_dir() -> Path:
@@ -94,13 +39,13 @@ class ConfigManager:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    @staticmethod
-    def get_default_config_path() -> Path:
-        return ConfigManager.get_pywen_config_dir() / "pywen_config.json"
+    @classmethod
+    def get_default_config_path(cls) -> Path:
+        return cls.get_pywen_config_dir() / "pywen_config.yaml"
 
     @staticmethod
     def get_default_hooks_path() -> Path:
-        return ConfigManager.get_pywen_config_dir() / "pywen_hooks.json"
+        return ConfigManager.get_pywen_config_dir() / "pywen_hooks.yaml"
 
     @staticmethod
     def get_trajectories_dir() -> Path:
@@ -108,111 +53,8 @@ class ConfigManager:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    @staticmethod
-    def get_logs_dir() -> Path:
-        d = ConfigManager.get_pywen_config_dir() / "logs"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
-
-    @staticmethod
-    def get_todos_dir() -> Path:
-        d = ConfigManager.get_pywen_config_dir() / "todos"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
-
-    def load(self, *, interactive_bootstrap: bool = False) -> Config:
-        """Load Config. If missing and interactive_bootstrap=True, run wizard."""
-        resolved = self._resolve_config_path(interactive_bootstrap=interactive_bootstrap)
-        data = self._read_json(resolved)
-        data = self._ensure_required_sections(data)
-        cfg = self._parse_config_data(data)
-        try:
-            setattr(cfg, "_config_file", str(resolved))
-        except Exception:
-            pass
-        self._current_config = cfg
-        return cfg
-
-    def save(self, cfg: Config) -> Path:
-        """Serialize Config to JSON (no .env write)."""
-        data = self._config_to_dict(cfg)
-        self._write_json(self.config_path, data)
-        self._current_config = cfg
-        return self.config_path
-
-    def save_as(self, cfg: Config, target_path: str | Path) -> Path:
-        """Serialize Config to a given JSON path (no .env write)."""
-        target = Path(target_path)
-        data = self._config_to_dict(cfg)
-        self._write_json(target, data)
-        self._current_config = cfg
-        return target
-
-    def write_config_data(self, data: Dict[str, Any]) -> Path:
-        """Write raw dict config to current JSON path (no .env write)."""
-        data = self._ensure_required_sections(data)
-        self._write_json(self.config_path, data)
-        self._current_config = self._parse_config_data(data)
-        return self.config_path
-
-    def get_config(self) -> Config:
-        if self._current_config is None:
-            if self.default_config_exists():
-                return self.load(interactive_bootstrap=False)
-            return self.create_runtime_empty_config()
-        return self._current_config
-
-    def load_config_file(self, path: str | Path) -> Config:
-        """Read specific config file as current config (no .env write)."""
-        p = Path(path)
-        if not p.exists():
-            raise FileNotFoundError(f"Config file not found: {p}")
-        self.config_path = p
-        data = self._read_json(p)
-        data = self._ensure_required_sections(data)
-        cfg = self._parse_config_data(data)
-        try:
-            setattr(cfg, "_config_file", str(p))
-        except Exception:
-            pass
-        self._current_config = cfg
-        return cfg
-
-    def __overwrite(self, config, cli_args):
-        """Only override when CLI explicitly passes (no persist)."""
-        if getattr(cli_args, "model", None):
-            config.model_config.model = cli_args.model
-        if getattr(cli_args, "temperature", None) is not None:
-            config.model_config.temperature = cli_args.temperature
-        if getattr(cli_args, "max_tokens", None):
-            config.model_config.max_tokens = cli_args.max_tokens
-        if getattr(cli_args, "api_key", None):
-            config.model_config.api_key = cli_args.api_key
-        if getattr(cli_args, "base_url", None):
-            config.model_config.base_url = cli_args.base_url
-        return config
-
-    def create_default_config(self, cli_args) -> Path:
-        """Create default config JSON (prefill from existing env, no .env write)."""
-        dft_data = self._prefill_from_env(DEFAULT_CONFIG_SCAFFOLD)
-        config = {
-            "api_key": cli_args.api_key or self._env_get("api_key"),
-            "base_url": cli_args.base_url or self._env_get("base_url"),
-            "model": cli_args.model or self._env_get("model"),
-        }
-        data = self._build_json_from_values(config)
-        dft_data.update(data)
-        self._write_json(self.config_path, dft_data)
-        self._current_config = self._parse_config_data(dft_data)
-        return self.config_path
-
-    def load_with_cli_overrides(self, cli_args) -> Config:
-        cfg = self.load(interactive_bootstrap=False)
-        self.__overwrite(cfg, cli_args)
-        return self.ensure_runtime_credentials(cfg, prompt_if_missing=True)
-
     @classmethod
-    def find_config_file(cls, filename: str = "pywen_config.json") -> Optional[Path]:
+    def find_config_file(cls, filename: str = "pywen_config.yaml") -> Optional[Path]:
         candidates = [cls.get_default_config_path(), Path.cwd() / filename]
         for parent in Path.cwd().parents:
             candidates.append(parent / filename)
@@ -221,431 +63,407 @@ class ConfigManager:
                 return p
         return None
 
-    def default_config_exists(self) -> bool:
-        return self.get_default_config_path().exists()
+    def get_raw_config(self) -> Dict[str, Any]:
+        if self._raw_config is None:
+            return self._load_raw()
+        return self._raw_config
 
-    def get_permission_level(self):
-        if self._current_config is not None:
-            return self._current_config.permission_level
+    def resolve_effective_config(self, args: Any | None = None) -> AppConfig:
+        """ 合并 YAML + CLI + ENV 后的配置，返回最终 AppConfig。允许不传 args。 """
+        raw = self.get_raw_config()
 
-        if self.default_config_exists():
-            self._current_config = self.load(interactive_bootstrap=False)
-            return self._current_config.permission_level
+        agents = self._normalize_and_check_agents(raw)
+        agents_by_name = self._index_agents(agents)
 
-        from .config import PermissionLevel
-        return PermissionLevel.LOCKED
+        active_name = self._select_active_agent_name(raw, agents_by_name, args)
+        active_agent_cfg = agents_by_name[active_name]
 
-    def _resolve_config_path(self, *, interactive_bootstrap: bool) -> Path:
-        if self.config_path.exists():
+        self._apply_field_priority(active_agent_cfg, active_name, args)
+
+        missing = self._find_missing_required_fields(active_agent_cfg)
+        if missing:
+            print(
+                f"Missing required fields in agent '{active_name}': {missing}. "
+                "Please update your YAML/ENV/CLI."
+            )
+            sys.exit(2)
+
+        runtime = raw.setdefault("runtime", {})
+        runtime["active_agent"] = active_name
+
+        cli_perm = getattr(args, "permission_mode", None) if args is not None else None
+        if isinstance(cli_perm, str) and cli_perm.strip():
+            raw["permission_level"] = cli_perm.strip()
+
+        app_cfg = AppConfig.model_validate(raw)
+        self._app_config = app_cfg
+        return app_cfg
+
+    def get_app_config(self, args: Any | None = None) -> AppConfig:
+        if self._app_config is None:
+            return self.resolve_effective_config(args)
+        return self._app_config
+
+    def get_active_agent(self, args: Any | None = None) -> AgentConfig:
+        app = self.get_app_config(args)
+        name = self.get_active_agent_name(args)
+        for ag in app.agents:
+            if ag.agent_name == name:
+                return ag
+        if app.agents:
+            return app.agents[0]
+        raise ConfigError("No agents configured.")
+
+    def get_active_agent_name(self, args: Any | None = None) -> str:
+        app = self.get_app_config(args)
+        runtime_name = app.runtime.get("active_agent") if app.runtime else None
+        if isinstance(runtime_name, str) and runtime_name.strip():
+            return runtime_name.strip()
+
+        raw = self.get_raw_config()
+        agents = self._normalize_and_check_agents(raw)
+        agents_by_name = self._index_agents(agents)
+        return self._select_active_agent_name(raw, agents_by_name, args)
+
+    def get_active_model(self, args: Any | None = None) -> ModelConfig:
+        return self.get_active_agent(args).model
+
+    def get_active_model_name(self, args: Any | None = None) -> str:
+        return self.get_active_model(args).model_name
+
+    def get_active_model_max_tokens(self, args: Any | None = None, default: int = 4096) -> int:
+        return self.get_active_model(args).max_tokens or default
+    def list_agent_names(self, args: Any | None = None) -> List[str]:
+        cfg = self._app_config if self._app_config else self.resolve_effective_config(args)
+        return [ag.agent_name for ag in cfg.agents]
+
+    def switch_active_agent(self, agent_name: str, args: Any | None = None) -> AppConfig:
+        raw = self.get_raw_config()
+
+        agents = self._normalize_and_check_agents(raw)
+        agents_by_name = self._index_agents(agents)
+
+        name = agent_name.strip()
+        if name.lower().endswith("agent"):
+            name = name[: -len("agent")]
+        if name not in agents_by_name:
+            raise ConfigError(f"Agent '{name}' is not defined in 'agents'.")
+
+        agent_cfg = agents_by_name[name]
+        self._apply_field_priority(agent_cfg, name, args)
+
+        missing = self._find_missing_required_fields(agent_cfg)
+        if missing:
+            raise ConfigError(
+                f"Missing required fields in agent '{name}': {missing}. "
+                "Please update your YAML/ENV/CLI."
+            )
+
+        runtime = raw.setdefault("runtime", {})
+        runtime["active_agent"] = name
+
+        cli_perm = getattr(args, "permission_mode", None) if args is not None else None
+        if isinstance(cli_perm, str) and cli_perm.strip():
+            raw["permission_level"] = cli_perm.strip()
+
+        app_cfg = AppConfig.model_validate(raw)
+        self._app_config = app_cfg
+        return app_cfg
+
+    def _resolve_config_path(self) -> Path:
+        """
+        寻找最终配置文件路径：
+        1) 若 self.config_path 存在 → 返回
+        2) 若可在默认/工作目录/父目录找到 → 返回
+        3) 否则尝试寻找 example，找到则复制到 ~/.pywen/pywen_config.yaml 并提示
+        4) 都没有 → 抛出包含操作指引的 ConfigError
+        """
+        if self.config_path and self.config_path.exists():
             return self.config_path
-        found = self.find_config_file(self.config_path.name)
+
+        found = self.find_config_file(
+            self.config_path.name if self.config_path else "pywen_config.yaml"
+        )
         if found:
             self.config_path = found
             return found
-        if interactive_bootstrap:
-            return self._bootstrap_if_missing()
-        raise FileNotFoundError(
-            f"Configuration file not found. Run with --create-config to create one at: {self.get_default_config_path()}"
-        )
 
-    def _bootstrap_if_missing(self) -> Path:
-        """
-        First-run flow: prefill scaffold from existing env -> optional wizard -> write JSON.
-        No .env reading/writing here.
-        """
-        data = self._prefill_from_env(DEFAULT_CONFIG_SCAFFOLD)
-
-        wiz = ConfigWizard(
-                config_path=self.config_path,
-                save_callback=self.write_config_data,
-        )
-        values = wiz.collect_pywen_config()
-        data = self._build_json_from_values(values)
-
-        self._write_json(self.config_path, data)
-        return self.config_path
-
-    def _parse_config_data(self, config_data: Dict[str, Any]) -> Config:
-        default_provider = config_data.get("default_provider", "qwen")
-        providers = config_data.get("model_providers", {})
-        if default_provider not in providers:
-            raise ValueError(f"Default provider '{default_provider}' not found in model_providers")
-
-        provider_map = {
-            "qwen": ModelProvider.QWEN,
-            "openai": ModelProvider.OPENAI,
-            "anthropic": ModelProvider.ANTHROPIC,
-        }
-        provider_enum = provider_map.get(default_provider.lower())
-        if not provider_enum:
-            raise ValueError(f"Unsupported provider: {default_provider}")
-
-        provider_cfg = providers[default_provider]
-        model_cfg = ModelConfig(
-            provider=provider_enum,
-            model=provider_cfg.get("model", "qwen-coder-plus"),
-            api_key=provider_cfg.get("api_key", ""),
-            base_url=provider_cfg.get("base_url"),
-            temperature=float(provider_cfg.get("temperature", 0.1)),
-            max_tokens=int(provider_cfg.get("max_tokens", 4096)),
-            top_p=float(provider_cfg.get("top_p", 0.95)),
-            top_k=int(provider_cfg.get("top_k", 50)),
-            extras={
-                k: v
-                for k, v in provider_cfg.items()
-                if k
-                not in {
-                    "model",
-                    "api_key",
-                    "base_url",
-                    "temperature",
-                    "max_tokens",
-                    "top_p",
-                    "top_k",
-                }
-            },
-        )
-        perm_level = config_data.get("permission_level", "locked")
-        perm_level = PermissionLevel.YOLO if perm_level == "yolo" else PermissionLevel.LOCKED
-
-        cfg = Config(
-            model_config=model_cfg,
-            max_iterations=int(config_data.get("max_steps", 10)),
-            enable_logging=True,
-            log_level="INFO",
-            permission_level=perm_level,
-            serper_api_key=config_data.get("serper_api_key") or os.getenv("SERPER_API_KEY"),
-            jina_api_key=config_data.get("jina_api_key") or os.getenv("JINA_API_KEY"),
-        )
-
-        mcp_raw = config_data.get("mcp", {})
-        if isinstance(mcp_raw, dict):
-            mcp_cfg = MCPConfig(
-                enabled=bool(mcp_raw.get("enabled", True)),
-                isolated=bool(mcp_raw.get("isolated", False)),
-                extras={},
-            )
-            servers: List[MCPServerConfig] = []
-            if isinstance(mcp_raw.get("servers", []), list):
-                for s in mcp_raw.get("servers", []):
-                    if not isinstance(s, dict):
-                        continue
-                    name, command = s.get("name"), s.get("command")
-                    if not (name and command):
-                        continue
-                    srv = MCPServerConfig(
-                        name=name,
-                        command=command,
-                        args=list(s.get("args", [])) if isinstance(s.get("args", []), list) else [],
-                        enabled=bool(s.get("enabled", True)),
-                        include=list(s.get("include", [])) if isinstance(s.get("include", []), list) else [],
-                        save_images_dir=s.get("save_images_dir"),
-                        isolated=bool(s.get("isolated", False)),
-                    )
-                    known_srv = {"name", "command", "args", "enabled", "include", "save_images_dir", "isolated"}
-                    srv.extras = {k: v for k, v in s.items() if k not in known_srv}
-                    servers.append(srv)
-            mcp_cfg.servers = servers
-            known_mcp = {"enabled", "isolated", "servers"}
-            mcp_cfg.extras = {k: v for k, v in mcp_raw.items() if k not in known_mcp}
-            cfg.mcp = mcp_cfg
-
-        mem_raw = config_data.get("memory_monitor", {})
-        if isinstance(mem_raw, dict) and mem_raw:
-            mm = MemorymonitorConfig(
-                check_interval=int(mem_raw.get("check_interval", 3)),
-                maximum_capacity=int(mem_raw.get("maximum_capacity", 1_000_000)),
-                rules=mem_raw.get("rules", DEFAULT_MEMORY_MONITOR["rules"]),
-                model=mem_raw.get("model", DEFAULT_MEMORY_MONITOR["model"]),
-            )
-            known = {"check_interval", "maximum_capacity", "rules", "model"}
-            mm.extras = {k: v for k, v in mem_raw.items() if k not in known}
-            cfg.memory_monitor = mm
-
-        used = {
-            "default_provider",
-            "model_providers",
-            "max_steps",
-            "enable_lakeview",
-            "permission_level",
-            "serper_api_key",
-            "jina_api_key",
-            "mcp",
-            "memory_monitor",
-        }
-        cfg.extras = {k: v for k, v in config_data.items() if k not in used}
-        return cfg
-
-    def _config_to_dict(self, cfg: Config) -> Dict[str, Any]:
-        provider_key = cfg.model_config.provider.value
-        providers_block = {
-            provider_key: {
-                "model": cfg.model_config.model,
-                "api_key": cfg.model_config.api_key,
-                "base_url": cfg.model_config.base_url,
-                "temperature": cfg.model_config.temperature,
-                "max_tokens": cfg.model_config.max_tokens,
-                "top_p": cfg.model_config.top_p,
-                "top_k": cfg.model_config.top_k,
-                **(cfg.model_config.extras or {}),
-            }
-        }
-
-        out: Dict[str, Any] = {
-            "default_provider": provider_key,
-            "model_providers": providers_block,
-            "max_steps": cfg.max_iterations,
-            "permission_level": "yolo" if cfg.permission_level.name == "YOLO" else "default",
-        }
-        if cfg.serper_api_key:
-            out["serper_api_key"] = cfg.serper_api_key
-        if cfg.jina_api_key:
-            out["jina_api_key"] = cfg.jina_api_key
-
-        if cfg.mcp:
-            out["mcp"] = {
-                "enabled": cfg.mcp.enabled,
-                "isolated": cfg.mcp.isolated,
-                "servers": [
-                    {
-                        "name": s.name,
-                        "command": s.command,
-                        "args": list(s.args),
-                        "enabled": s.enabled,
-                        "include": list(s.include),
-                        "save_images_dir": s.save_images_dir,
-                        "isolated": s.isolated,
-                        **(s.extras or {}),
-                    }
-                    for s in (cfg.mcp.servers or [])
-                ],
-                **(cfg.mcp.extras or {}),
-            }
-
-        if cfg.memory_monitor:
-            out["memory_monitor"] = {
-                "check_interval": cfg.memory_monitor.check_interval,
-                "maximum_capacity": cfg.memory_monitor.maximum_capacity,
-                "rules": cfg.memory_monitor.rules,
-                "model": cfg.memory_monitor.model,
-                **(cfg.memory_monitor.extras or {}),
-            }
-
-        for k, v in (cfg.extras or {}).items():
-            if k not in out:
-                out[k] = deepcopy(v)
-
-        return self._ensure_required_sections(out)
-
-    @staticmethod
-    def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-        for k, v in override.items():
-            if isinstance(v, dict) and isinstance(base.get(k), dict):
-                ConfigManager._deep_merge(base[k], v)
+        example = self._locate_example_config()
+        if example is not None:
+            target = self.get_default_config_path()
+            if not target.exists():
+                try:
+                    self._atomic_copy(example, target)
+                    self._chmod_private(target)
+                    self._print_copy_hint(example, target)
+                    self.config_path = target
+                    return target
+                except Exception as e:
+                    raise ConfigError(
+                        "Found example config but failed to copy to default location.\n"
+                        f"Source: {example}\nTarget: {target}\nError: {e}"
+                    ) from e
             else:
-                base[k] = v
-        return base
+                self.config_path = target
+                return target
 
-    def _prefill_from_env(self, scaffold: Dict[str, Any]) -> Dict[str, Any]:
-        """Prefill scaffold with existing environment (read-only)."""
-        data = deepcopy(scaffold)
-        qwen = data["model_providers"]["qwen"]
-
-        api_key = self._env_get("api_key") or qwen.get("api_key", "")
-        base_url = self._env_get("base_url") or qwen.get("base_url", "")
-        model = self._env_get("model") or qwen.get("model", "")
-
-        serper = self._env_get("serper_api_key") or data.get("serper_api_key", "")
-
-        if api_key:
-            qwen["api_key"] = api_key.strip()
-        if base_url:
-            qwen["base_url"] = base_url.strip().rstrip("/")
-        if model:
-            qwen["model"] = model.strip()
-        if serper:
-            data["serper_api_key"] = serper.strip()
-        return data
-
-    def _ensure_required_sections(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        merged = deepcopy(DEFAULT_CONFIG_SCAFFOLD)
-        self._deep_merge(merged, data or {})
-        return merged
-
-    @staticmethod
-    def _env_get(key: str, default: str = "") -> str:
-        aliases = {
-            "api_key": ["QWEN_API_KEY", "DASHSCOPE_API_KEY", "API_KEY"],
-            "serper_api_key": ["SERPER_API_KEY"],
-            "base_url": ["QWEN_BASE_URL", "BASE_URL"],
-            "model": ["QWEN_MODEL", "MODEL"],
-        }
-        if key in aliases:
-            for k in aliases[key]:
-                v = os.getenv(k)
-                if v:
-                    return v.strip()
-        return os.getenv(key.upper(), default)
-
-    @staticmethod
-    def _normalize_field(key: str, val: str | None) -> str | None:
-        if val is None:
-            return None
-        s = val.strip()
-        if not s:
-            return None
-        if key == "base_url":
-            return s.rstrip("/")
-        return s
-
-    @staticmethod
-    def _read_json(path: Path) -> Dict[str, Any]:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    @staticmethod
-    def _write_json(path: Path, data: Dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-
-    @staticmethod
-    def _build_json_from_values(values: Dict[str, Any]) -> Dict[str, Any]:
-        data = deepcopy(DEFAULT_CONFIG_SCAFFOLD)
-        qwen = data["model_providers"]["qwen"]
-        qwen.update(
-            {
-                "api_key": values.get("api_key", qwen["api_key"]),
-                "base_url": values.get("base_url", qwen["base_url"]),
-                "model": values.get("model", qwen["model"]),
-                "max_tokens": int(values.get("max_tokens", qwen["max_tokens"])),
-                "temperature": float(values.get("temperature", qwen["temperature"])),
-            }
+        default_path = self.get_default_config_path()
+        searched = [default_path, Path.cwd() / "pywen_config.yaml", *[p / "pywen_config.yaml" for p in Path.cwd().parents]]
+        searched_list = "\n  - " + "\n  - ".join(str(p) for p in searched)
+        raise ConfigError(
+            "Pywen config file not found.\n"
+            "Searched locations:" + searched_list + "\n"
+            f'You may copy an example file named one of pywen_config.example.yaml into "{default_path}".\n'
+            "Or set environment variables to run without a file:\n"
+            "  export PYWEN_MODEL='gpt-4.1'\n"
+            "  export PYWEN_API_KEY='sk-...'\n"
+            "  export PYWEN_BASE_URL='https://api.openai.com/v1/'\n"
+            "Or pass --config /path/to/pywen_config.yaml\n"
         )
-        data["max_steps"] = int(values.get("max_steps", data["max_steps"]))
-        if values.get("serper_api_key"):
-            data["serper_api_key"] = values["serper_api_key"]
-        if values.get("jina_api_key"):
-            data["jina_api_key"] = values["jina_api_key"]
+
+    def _load_raw(self) -> Dict[str, Any]:
+        path = self._resolve_config_path()
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            raise ConfigError(f"Config file must be a mapping (YAML dict): {path}")
+        self._raw_config = data
         return data
 
-    def _is_missing(self, v: str | None) -> bool:
-        if v is None:
+    @staticmethod
+    def _build_model_from_agent_fields(ag: Dict[str, Any]) -> Dict[str, Any]:
+        m = ag.get("model")
+        if isinstance(m, dict):
+            model_obj = dict(m)
+        else:
+            model_obj = {"model_name": (m or "")}
+        if "api_key" in ag and "api_key" not in model_obj:
+            model_obj["api_key"] = ag["api_key"]
+        if "base_url" in ag and "base_url" not in model_obj:
+            model_obj["base_url"] = ag["base_url"]
+        for k in ("temperature", "max_tokens", "top_p", "top_k"):
+            if k in ag and k not in model_obj:
+                model_obj[k] = ag[k]
+        model_obj.setdefault("model_name", "")
+        model_obj.setdefault("api_key", "")
+        model_obj.setdefault("base_url", "")
+        return model_obj
+
+    @staticmethod
+    def _normalize_and_check_agents(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
+        agents = raw.get("agents", [])
+        if not isinstance(agents, list):
+            raise ConfigError("Config field 'agents' must be a list.")
+        if not agents:
+            raise ConfigError("'agents' list is empty.")
+
+        seen = set()
+        for ag in agents:
+            if not isinstance(ag, dict):
+                raise ConfigError("Each item in 'agents' must be a mapping.")
+            name = ag.get("agent_name")
+            if not isinstance(name, str) or not name.strip():
+                raise ConfigError("Each agent must have a non-empty 'agent_name'.")
+            key = name.strip()
+            if key in seen:
+                raise ConfigError(f"Duplicate agent_name: {key}")
+            seen.add(key)
+            ag["model"] = ConfigManager._build_model_from_agent_fields(ag)
+
+        return agents
+
+    @staticmethod
+    def _index_agents(agents: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        return {ag["agent_name"].strip(): ag for ag in agents}
+
+    @staticmethod
+    def _is_missing(val: Any) -> bool:
+        if val is None:
             return True
-        s = str(v).strip()
+        s = str(val).strip()
         if not s:
             return True
         return s.lower() in PLACEHOLDERS
 
-    def ensure_runtime_credentials(self, cfg: Config, *, prompt_if_missing: bool) -> Config:
-        """
-        先用 ENV 覆盖默认值/占位/缺失；若仍不完整，按需进入 Wizard。
-        """
-        self._merge_missing_from_env(cfg)
-        complete, missing = self._is_config_complete(cfg)
-        if complete:
-            return cfg
-    
-        if not prompt_if_missing:
-            raise ValueError(
-                f"Missing required config: {', '.join(missing)} and cannot prompt in non-interactive mode."
-            )
-        defaults = {
-            "api_key":  cfg.model_config.api_key or self._env_get("api_key")  or "",
-            "base_url": cfg.model_config.base_url or self._env_get("base_url") or "",
-            "model":    cfg.model_config.model or self._env_get("model")      or "",
-        }
-        wiz = ConfigWizard(config_path=self.config_path, save_callback=self.write_config_data)
-        try:
-            values = wiz.collect_pywen_config(defaults=defaults)
-        except TypeError:
-            values = wiz.collect_pywen_config()
-    
-        if self._is_missing(cfg.model_config.api_key) and values.get("api_key"):
-            cfg.model_config.api_key = values["api_key"].strip()
-        if self._is_missing(cfg.model_config.base_url) and values.get("base_url"):
-            cfg.model_config.base_url = values["base_url"].strip().rstrip("/")
-        if self._is_missing(cfg.model_config.model) and values.get("model"):
-            cfg.model_config.model = values["model"].strip()
-    
-        self.save(cfg)
-        return cfg
+    @staticmethod
+    def _normalize_field(field: str, value: Any) -> Any:
+        if value is None:
+            return None
+        if field == "base_url":
+            return str(value).strip().rstrip("/")
+        if field in ("api_key", "model"):
+            return str(value).strip()
+        return value
 
-    def resolve_effective_config(
-        self,
-        args,
-        *,
-        allow_prompt: bool,
-    ) -> Config:
-        explicit_cfg_path = getattr(args, "config", None)
-        if explicit_cfg_path:
-            cfg = self.load_config_file(explicit_cfg_path)
-            self._merge_missing_from_env(cfg)
-            self._merge_missing_from_cli(cfg, args)
-            complete, missing = self._is_config_complete(cfg)
-            if complete:
-                return cfg
-            return self.ensure_runtime_credentials(cfg, prompt_if_missing=allow_prompt)
-        if self.default_config_exists():
-            self.config_path = self.get_default_config_path()
-            cfg = self.load(interactive_bootstrap=False)
-            self._merge_missing_from_cli(cfg, args)
-            complete, missing = self._is_config_complete(cfg)
-            if complete:
-                return cfg
-            return self.ensure_runtime_credentials(cfg, prompt_if_missing=allow_prompt)
+    def _get_env_for_field(self, field: str, agent_name: str) -> Optional[str]:
+        key_suffix = {
+            "api_key": "API_KEY",
+            "base_url": "BASE_URL",
+            "model": "MODEL",
+        }.get(field)
+        if key_suffix is None:
+            return None
 
-        cfg = self.create_runtime_empty_config()
-        self._merge_missing_from_env(cfg)
-        self._merge_missing_from_cli(cfg, args)
-        complete, missing = self._is_config_complete(cfg)
-        if complete:
-            return cfg
-        if allow_prompt:
-            return self.ensure_runtime_credentials(cfg, prompt_if_missing=True)
-        raise ValueError(f"Missing required config: {', '.join(missing)} and cannot prompt.")
+        name_up = agent_name.upper()
+        candidates = [
+            f"{ENV_PREFIX}_{name_up}_{key_suffix}",
+            f"{ENV_PREFIX}_{key_suffix}",
+            key_suffix,
+        ]
+        for k in candidates:
+            v = os.getenv(k)
+            if v and str(v).strip():
+                return str(v).strip()
+        return None
 
-    def _is_config_complete(self, cfg: Config) -> tuple[bool, List[str]]:
+    @staticmethod
+    def _find_missing_required_fields(agent_cfg: Mapping[str, Any]) -> List[str]:
+        m = agent_cfg.get("model", {})
+        if not isinstance(m, dict):
+            return ["model (must be an object)"]
+
         missing: List[str] = []
-        mc = cfg.model_config
-        if self._is_missing(mc.api_key):
-            missing.append("api_key")
-        if self._is_missing(mc.base_url):
-            missing.append("base_url")
-        if self._is_missing(mc.model):
-            missing.append("model")
-        return (len(missing) == 0, missing)
+        if ConfigManager._is_missing(m.get("model_name")):
+            missing.append("model.model_name")
+        if ConfigManager._is_missing(m.get("api_key")):
+            missing.append("model.api_key")
+        if ConfigManager._is_missing(m.get("base_url")):
+            missing.append("model.base_url")
+        return missing
 
-    def create_runtime_empty_config(self) -> Config:
-        data = self._ensure_required_sections(DEFAULT_CONFIG_SCAFFOLD)
-        cfg = self._parse_config_data(data)
-        self._current_config = cfg
-        return cfg
+    def _select_active_agent_name(
+        self,
+        raw_cfg: Mapping[str, Any],
+        agents_by_name: Mapping[str, Dict[str, Any]],
+        args: Any | None,
+    ) -> str:
+        """ 选择当前 active agent 名称 """
+        cli_agent = getattr(args, "agent", None) if args is not None else None
+        if isinstance(cli_agent, str) and cli_agent.strip():
+            name = cli_agent.strip()
+            if name not in agents_by_name:
+                raise ConfigError(
+                    f"CLI requested agent '{name}', but it's not found in 'agents'."
+                )
+            return name
 
-    def _merge_missing_from_cli(self, cfg: Config, args) -> None:
-        if hasattr(args, "api_key") and args.api_key is not None:
-            v = self._normalize_field("api_key", args.api_key)
-            if v is not None and v != "":
-                cfg.model_config.api_key = v
+        default_agent = raw_cfg.get("default_agent")
+        if isinstance(default_agent, str) and default_agent.strip():
+            name = default_agent.strip()
+            if name not in agents_by_name:
+                raise ConfigError(
+                    f"default_agent '{name}' is not defined in 'agents'."
+                )
+            return name
 
-        if hasattr(args, "base_url") and args.base_url is not None:
-            v = self._normalize_field("base_url", args.base_url)
-            if v is not None and v != "":
-                cfg.model_config.base_url = v
+        if len(agents_by_name) == 1:
+            return next(iter(agents_by_name.keys()))
 
-        if hasattr(args, "model") and args.model is not None:
-            v = self._normalize_field("model", args.model)
-            if v is not None and v != "":
-                cfg.model_config.model = v
+        raise ConfigError(
+            "No agent selected and 'default_agent' is not set, "
+            "while multiple agents are configured. "
+            "Please set 'default_agent' or use --agent."
+        )
 
-    def _merge_missing_from_env(self, cfg: Config) -> None:
-       env_map = {
-            "api_key": self._env_get("api_key"),
-            "base_url": self._env_get("base_url"),
-            "model": self._env_get("model"),
-        }
-       for key,env_val in env_map.items():
-           if not env_val: continue
-           normalized = self._normalize_field(key, env_val)
-           if normalized is not None:
-               setattr(cfg.model_config, key, normalized)
+    def _apply_field_priority(
+        self,
+        agent_cfg: Dict[str, Any],
+        agent_name: str,
+        args: Any | None,
+    ) -> None:
+        cli_fields = ("model", "api_key", "base_url", "temperature", "max_tokens", "top_p", "top_k")
+        m = agent_cfg["model"]
+
+        for field in cli_fields:
+            # 1) CLI
+            cli_value = getattr(args, field, None) if args is not None else None
+            if cli_value is not None:
+                if field == "model":
+                    m["model_name"] = self._normalize_field("model", cli_value)
+                else:
+                    m[field] = self._normalize_field(field, cli_value)
+                continue
+
+            # 2) YAML 原值
+            current = m.get("model_name") if field == "model" else m.get(field)
+            if not self._is_missing(current):
+                if field == "model":
+                    m["model_name"] = self._normalize_field("model", current)
+                else:
+                    m[field] = self._normalize_field(field, current)
+                continue
+
+            # 3) ENV
+            if field in ("api_key", "base_url", "model"):
+                env_val = self._get_env_for_field(field, agent_name)
+                if env_val is not None:
+                    if field == "model":
+                        m["model_name"] = self._normalize_field("model", env_val)
+                    else:
+                        m[field] = self._normalize_field(field, env_val)
+
+    @classmethod
+    def _locate_example_config(cls) -> Optional[Path]:
+        """
+        只在 Pywen 项目根目录寻找 example：
+        1) <repo_root>/pywen_config.example.yaml  （优先，符合你的要求）
+        2) <repo_root>/pywen/pywen_config.example.yaml  （常见备选）
+        3) 兜底：如果 example 被打进包里，从包资源读取
+        """
+        here = Path(__file__).resolve()
+        # manager.py -> config -> pywen -> <repo_root>
+        # parents[0]=config, [1]=pywen(包根), [2]=项目根
+        try:
+            pkg_root = here.parents[1]     # .../pywen
+            repo_root = here.parents[2]    # .../<repo_root>
+        except IndexError:
+            pkg_root = here.parent
+            repo_root = pkg_root.parent
+
+        EXAMPLE_FILENAME = "pywen_config.example.yaml"
+
+        candidates = [
+            repo_root / EXAMPLE_FILENAME,      # 首选：项目根
+            pkg_root / EXAMPLE_FILENAME,       # 备选：包根
+        ]
+        for p in candidates:
+            if p.exists():
+                return p
+
+        try:
+            res = pkgres.files("pywen").joinpath(EXAMPLE_FILENAME)
+            if res.is_file():
+                with pkgres.as_file(res) as fp:
+                    return Path(fp)
+        except Exception:
+            pass
+
+        return None
+
+    def _atomic_copy(self, src: Path, dst: Path) -> None:
+        """原子复制，避免并发读写时的半成品文件。"""
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("wb", delete=False, dir=str(dst.parent)) as tf:
+            with open(src, "rb") as sf:
+                shutil.copyfileobj(sf, tf)
+            tmp = Path(tf.name)
+        os.replace(tmp, dst)
+
+    def _chmod_private(self, path: Path) -> None:
+        """在 *nix 上将权限收紧到 0o600；Windows 忽略。"""
+        try:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        except Exception:
+            pass
+
+    def _print_copy_hint(self, example_src: Path, target: Path) -> None:
+        """在交互终端输出一次拷贝提示与需要修改的关键字段。"""
+        if sys.stderr.isatty():
+            print(
+                    "\n[Pywen] 未找到配置文件，已从示例复制默认配置：\n"
+                    f"  源: {example_src}\n"
+                    f"  目标: {target}\n\n"
+                    "请至少检查/修改以下字段以确保可用：\n"
+                    + "".join(f"  - {f}\n" for f in EDIT_HINT_FIELDS),
+                    file=sys.stderr,
+            )

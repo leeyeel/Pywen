@@ -6,6 +6,9 @@ dist/
 wheels/
 *.egg-info
 
+~/gorilla/
+sb-cli-reports/
+
 # Virtual environments
 .venv
 .memory/*
@@ -16,3 +19,10 @@ pywen_config.json
 pywen/trajectories/*
 trajectories/*
 !.gitkeep
+
+# evaluation
+evaluation/*/results/
+evaluation/swebench/claude_workspace/
+evaluation/swebench/pywen_workspace/
+evaluation/bfcl/gorilla/
+sb-cli-reports/

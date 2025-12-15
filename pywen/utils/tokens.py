@@ -4,7 +4,7 @@ Direct translation from TypeScript to Python
 """
 
 from typing import List, Optional, Dict, Any, Union
-from pywen.utils.llm_basics import LLMMessage
+from pywen.llm.llm_basics import LLMMessage
 
 # Synthetic assistant messages that should be ignored for token counting
 # This would be populated with messages that are system-generated

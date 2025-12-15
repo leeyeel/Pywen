@@ -12,6 +12,7 @@
 
 ## 🧬 近期更新
 
+- **最新**：重构核心智能体命名，从 QwenAgent 改为 PywenAgent，提升清晰度和一致性
 - 2025.08.26 更新 `/agent` 模块，新增Claude Code智能体，执行逻辑对标Claude Code，实现task tool、todowrite tool等专有工具。你可以使用`/agent claude`切换为Claude Code智能体。
 - 2025.08.08 更新 `/agent` 切换智能体模块，新增DeepResearch 智能体，执行逻辑对标Google开源的DeepResearch LangGraph版本。你可以使用`/agent research`切换为 GeminiResearchDemo 智能体。在你使用之前，请确保你具有serper api key。
 - 2025.08.06 更新第一版Pywen，执行逻辑对标Gemini CLI/Qwen Code
@@ -35,12 +36,14 @@ Pywen 是一个基于 Python 开发的 CLI 工具，具有良好的 Python 生�
 
 ## ✨ 特性
 
-- 🤖 **Qwen3-Coder-Plus 驱动**：基于阿里云最新的代码专用大模型
-- 📦 **模块化**：基于模块化架构，可扩展和可定制(后续支持多智能体框架)
-- 🛠️ **丰富的工具生态系统**：文件编辑、bash 执行、顺序思考等
+- 🤖 **多智能体支持**：Pywen 智能体（基于 Qwen3-Coder）、Claude Code 智能体、Codex 智能体和研究智能体
+- 🚀 **Qwen3-Coder-Plus 驱动**：基于阿里云最新的代码专用大模型
+- 📦 **模块化**：基于模块化架构，可扩展和可定制
+- 🛠️ **丰富的工具生态系统**：文件编辑、bash 执行、网络搜索、内存管理等
 - 📊 **轨迹记录**：详细记录所有 Agent 操作以供调试和分析
-- ⚙️ **智能配置**：首次运行自动引导配置，支持环境变量
+- ⚙️ **智能配置**：基于 YAML 的配置系统，支持环境变量
 - 📈 **会话统计**：实时跟踪 API 调用、工具使用和Token消耗
+- 🔄 **智能体切换**：使用 `/agent` 命令在不同智能体间无缝切换
 
 ## 🚀 快速开始
 
@@ -73,7 +76,19 @@ source .venv/bin/activate
 直接运行 `pywen` 命令即可启动：
 
 ```bash
+# 交互模式（默认）
 pywen
+
+# 单次提示模式
+pywen "创建一个 Python hello world 脚本"
+
+# 指定智能体类型
+pywen --agent pywen
+pywen --agent claude
+pywen --agent codex
+
+# 通过命令行指定模型和 API 密钥
+pywen --model "Qwen/Qwen3-Coder-Plus" --api_key "your-key"
 ```
 
 如果是首次运行且没有配置文件，Pywen 会自动启动配置向导：
@@ -88,12 +103,13 @@ pywen
 
 Configuration file not found, starting setup wizard...
 
-API Key: [输入您的通义千问 API 密钥]
-Base URL: https://dashscope.aliyuncs.com/compatible-mode/v1
-Model: qwen3-coder-plus
+API Key: [输入您的 API 密钥]
+Base URL: https://api-inference.modelscope.cn/v1
+Model: Qwen/Qwen3-Coder-Plus
+Agent: pywen
 ...
 
-✅ Configuration saved to pywen_config.json
+✅ Configuration saved to ~/.pywen/pywen_config.yaml
 ```
 
 配置完成后，您就可以开始使用 Pywen 了！
@@ -125,27 +141,54 @@ Model: qwen3-coder-plus
 ```bash
 # 系统命令
 /about       show version info
-/auth        change the auth method
+/agent       switch between different agents (pywen/claude/codex/research)
 /clear       clear the screen and conversation history
 /help        for help on pywen code
-/memory      Commands for interacting with memory.show
-  Show       the current memory contents.add
-  Add        content to the memory.refresh
-  Refresh    the memory from the source.
-/stats       check session stats. Usage:/stats         
+/memory      Commands for interacting with memory
+  show       the current memory contents
+  add        content to the memory
+  refresh    the memory from the source
+/model       view and manage model configurations
+/stats       check session stats
 /tools       list available Pywen tools 
 /bug         submit a bug report
 /quit        exit the cli
-!            shell command                                  
 
 # 特殊命令
-!<command>    - Execute shell command
+!<command>   - Execute shell command
 
 # 键盘快捷键
-Ctrl+Y        - Toggle YOLO mode (auto-approve all operations - use with caution!)
+Ctrl+Y       - Toggle YOLO mode (auto-approve all operations - use with caution!)
 
 # 直接输入任务描述即可执行智能体
 ```
+
+#### 智能体切换
+
+Pywen 支持多种专业化的智能体：
+
+```bash
+# 列出可用智能体
+/agent
+
+# 切换到 Pywen 智能体（默认，基于 Qwen3-Coder）
+/agent pywen
+
+# 切换到 Claude Code 智能体
+/agent claude
+
+# 切换到 Codex 智能体（OpenAI GPT-5 Codex）
+/agent codex
+
+# 切换到研究智能体（基于 Gemini）
+/agent research
+```
+
+**可用智能体：**
+- **Pywen 智能体** (`pywen`)：基于 Qwen3-Coder 的通用编程助手
+- **Claude Code 智能体** (`claude`)：高级文件操作和项目理解能力
+- **Codex 智能体** (`codex`)：基于 OpenAI Codex 的编程助手
+- **研究智能体** (`research`)：多步骤研究智能体，用于全面信息收集
 
 ### YOLO 模式
 
@@ -157,23 +200,51 @@ Ctrl+Y        - Toggle YOLO mode (auto-approve all operations - use with caution
 
 ### 配置管理
 
-Pywen 使用 `pywen_config.json` 文件进行配置：
+Pywen 使用 YAML 格式的配置文件。默认配置文件位于 `~/.pywen/pywen_config.yaml`。
 
-```json
-{
-  "default_provider": "qwen",
-  "max_steps": 20,
-  "enable_lakeview": false,
-  "model_providers": {
-    "qwen": {
-      "api_key": "your-qwen-api-key",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "model": "qwen3-coder-plus",
-      "max_tokens": 4096,
-      "temperature": 0.5
-    }
-  }
-}
+**配置示例：**
+
+```yaml
+# 默认使用的智能体
+default_agent: pywen
+
+# 模型配置
+models:
+  # Pywen 智能体（Qwen3-Coder）
+  - agent_name: pywen
+    model: "Qwen/Qwen3-Coder-Plus"
+    api_key: "your-api-key"
+    base_url: "https://api-inference.modelscope.cn/v1"
+    provider: openai
+    wire_api: chat
+
+  # Claude Code 智能体
+  - agent_name: claude
+    provider: anthropic
+    model: "claude-3.5-sonnet"
+    api_key: "your-anthropic-key"
+    base_url: "https://api.anthropic.com/v1"
+    wire_api: chat
+
+  # Codex 智能体
+  - agent_name: codex
+    provider: openai
+    model: "gpt-5.1"
+    api_key: "your-openai-key"
+    base_url: "https://api.openai.com/v1/"
+    wire_api: responses
+
+# 权限等级：locked / edit_only / planning / yolo
+permission_level: locked
+
+# 最大对话轮数
+max_turns: 10
+
+# 内存监控设置
+memory_monitor:
+  check_interval: 3
+  maximum_capacity: 100000
+  model: "Qwen/Qwen3-235B-A22B-Instruct-2507"
 ```
 
 **配置优先级：**
@@ -182,28 +253,58 @@ Pywen 使用 `pywen_config.json` 文件进行配置：
 3. 环境变量
 4. 默认值（最低）
 
+**配置文件位置：**
+- 默认：`~/.pywen/pywen_config.yaml`
+- 可以使用 `--config` 参数指定自定义路径
+
 ### 环境变量
 
-您也可以通过环境变量设置 API 密钥：
+您可以通过环境变量设置 API 密钥。Pywen 支持智能体特定的环境变量：
 
 ```bash
-# 通义千问（推荐）
-export QWEN_API_KEY="your-qwen-api-key"
+# Pywen 智能体（Qwen3-Coder）
+export PYWEN_PYWEN_API_KEY="your-api-key"
+export PYWEN_PYWEN_BASE_URL="https://api-inference.modelscope.cn/v1"
+export PYWEN_PYWEN_MODEL="Qwen/Qwen3-Coder-Plus"
 
-# 其他支持的提供商
-export OPENAI_API_KEY="your-openai-api-key"
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
+# Claude 智能体
+export PYWEN_CLAUDE_API_KEY="your-anthropic-key"
+export PYWEN_CLAUDE_BASE_URL="https://api.anthropic.com/v1"
+export PYWEN_CLAUDE_MODEL="claude-3.5-sonnet"
+
+# Codex 智能体
+export PYWEN_CODEX_API_KEY="your-openai-key"
+export PYWEN_CODEX_BASE_URL="https://api.openai.com/v1/"
+export PYWEN_CODEX_MODEL="gpt-5.1"
+
+# 通用回退（如果未设置智能体特定变量）
+export PYWEN_API_KEY="your-api-key"
+export PYWEN_BASE_URL="https://api-inference.modelscope.cn/v1"
+
+# 工具 API 密钥（可选但推荐）
+export SERPER_API_KEY="your-serper-api-key"  # 用于网络搜索
+export JINA_API_KEY="your-jina-api-key"      # 用于内容读取
 ```
+
+**环境变量格式：**
+- 智能体特定：`PYWEN_<智能体名称>_<字段>`（例如：`PYWEN_PYWEN_API_KEY`）
+- 通用：`PYWEN_<字段>`（如果未设置智能体特定变量则使用此回退）
 
 ## 🛠️ 可用工具
 
-Pywen 为软件开发提供了全面的工具包：
+Pywen 为软件开发提供了全面的工具包。不同的智能体可能具有不同的工具访问权限：
 
-- **文件操作**：创建、编辑、读取和管理文件
-- **Bash 执行**：运行 shell 命令和脚本
-- **顺序思考**：结构化问题解决方法
-- **任务完成**：用摘要标记任务完成
-- **JSON 操作**：解析和操作 JSON 数据
+**通用工具（大多数智能体可用）：**
+- **文件操作**：`read_file`、`write_file`、`edit`、`read_many_files`
+- **文件系统**：`ls`、`glob`、`grep`
+- **Bash 执行**：`bash` - 运行 shell 命令和脚本
+- **网络操作**：`web_search`、`web_fetch`
+- **内存管理**：`memory` - 存储和检索信息
+
+**智能体特定工具：**
+- **Claude 智能体**：`task`、`todo` - 任务规划和管理
+- **Codex 智能体**：`update_plan`、`apply_patch` - Codex 特定操作
+- **研究智能体**：专业化的研究工作流工具
 
 有关所有可用工具及其功能的详细信息，请参阅 [docs/tools.md](docs/tools.md)。
 
@@ -214,25 +315,22 @@ Pywen 还支持 **MCP（Model Context Protocol）**，可用于连接外部工�
 ### 启用 MCP
 1. 打开配置文件：
    ```bash
-   ~/.pywen/pywen_config.json
+   ~/.pywen/pywen_config.yaml
    ```
 2. 找到 `mcp` 配置并启用：
-   ```json
-   "mcp": {
-     "enabled": true,
-     "isolated": true,
-     "servers": [
-       {
-         "name": "playwright",
-         "command": "npx",
-         "args": ["@playwright/mcp@latest"],
-         "enabled": true,
-         "include": ["browser_*"],
-         "save_images_dir": "./outputs/playwright",
-         "isolated": true 
-       }
-     ]
-   }
+   ```yaml
+   mcp:
+     enabled: true
+     isolated: false
+     servers:
+       - name: "playwright"
+         command: "npx"
+         args:
+           - "@playwright/mcp@latest"
+         enabled: true
+         include:
+           - "browser_*"
+         save_images_dir: "./outputs/playwright"
    ```
 ### 安装 Node.js 环境
 
@@ -308,8 +406,13 @@ trajectories/trajectory_xxxxxx.json
 ## 📋 要求
 
 - Python 3.9+,<3.13
-- 通义千问 API 密钥（推荐）或其他支持的 LLM 提供商 API 密钥
+- 所选智能体的 API 密钥：
+  - **Pywen 智能体**：ModelScope API 密钥或通义千问 API 密钥
+  - **Claude 智能体**：Anthropic API 密钥
+  - **Codex 智能体**：OpenAI API 密钥
+  - **研究智能体**：Google API 密钥（以及用于网络搜索的 Serper API 密钥）
 - 用于 API 访问的互联网连接
+- （可选）Node.js 用于 MCP 服务器支持
 
 ## 🔧 故障排除
 
@@ -318,17 +421,29 @@ trajectories/trajectory_xxxxxx.json
 **配置问题：**
 ```bash
 # 重新运行配置向导
-rm pywen_config.json
+rm ~/.pywen/pywen_config.yaml
 pywen
 ```
 
 **API 密钥问题：**
 ```bash
-# 验证您的 API 密钥已设置
-echo $QWEN_API_KEY
+# 验证您的 API 密钥已设置（Pywen 智能体）
+echo $PYWEN_PYWEN_API_KEY
+
+# 或检查通用回退
+echo $PYWEN_API_KEY
 
 # 在 Pywen 中检查配置
-> /config
+> /model
+```
+
+**智能体切换问题：**
+```bash
+# 列出可用智能体
+> /agent
+
+# 检查当前智能体类型
+> /stats
 ```
 
 

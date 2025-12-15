@@ -11,8 +11,9 @@
 
 ## 🧬 Recent Updates
 
-- 2025.08.26 Updated the `/agent` module by adding the Claude Code agent, with execution logic aligned to Claude Code, and introducing dedicated tools such as the task tool and todowrite tool. You can switch to the Claude Code agent using `/agent claude`.
-- 2025.08.08: Updated the `/agent` switch agent module, added DeepResearch agent, with execution logic aligned with Google's open-source DeepResearch LangGraph version. You can use `/agent research` to switch GeminiResearchDemo agent.Before you use it, please make sure you have the serper api key.
+- **Latest**: Refactored core agent naming from QwenAgent to PywenAgent for better clarity and consistency
+- 2025.08.26: Updated the `/agent` module by adding the Claude Code agent, with execution logic aligned to Claude Code, and introducing dedicated tools such as the task tool and todowrite tool. You can switch to the Claude Code agent using `/agent claude`.
+- 2025.08.08: Updated the `/agent` switch agent module, added DeepResearch agent, with execution logic aligned with Google's open-source DeepResearch LangGraph version. You can use `/agent research` to switch GeminiResearchDemo agent. Before you use it, please make sure you have the serper api key.
 - 2025.08.06: Released the first version of Pywen, with execution logic aligned with Gemini CLI/Qwen Code
 
 ## 🎯 Project Background
@@ -33,12 +34,14 @@ Pywen is a Python-based CLI tool with excellent Python ecosystem compatibility a
 
 ## ✨ Features
 
-- 🤖 **Qwen3-Coder-Plus Powered**: Based on Alibaba Cloud's latest code-specialized large model
-- 📦 **Modular**: Built on modular architecture, extensible and customizable (future support for multi-agent frameworks)
-- 🛠️ **Rich Tool Ecosystem**: File editing, bash execution, sequential thinking, and more
+- 🤖 **Multi-Agent Support**: Pywen Agent (Qwen3-Coder based), Claude Code Agent, Codex Agent, and Research Agent
+- 🚀 **Qwen3-Coder-Plus Powered**: Based on Alibaba Cloud's latest code-specialized large model
+- 📦 **Modular**: Built on modular architecture, extensible and customizable
+- 🛠️ **Rich Tool Ecosystem**: File editing, bash execution, web search, memory management, and more
 - 📊 **Trajectory Recording**: Detailed logging of all Agent operations for debugging and analysis
-- ⚙️ **Smart Configuration**: Automatic guided configuration on first run, supports environment variables
+- ⚙️ **Smart Configuration**: YAML-based configuration with environment variable support
 - 📈 **Session Statistics**: Real-time tracking of API calls, tool usage, and token consumption
+- 🔄 **Agent Switching**: Seamlessly switch between different agents using `/agent` command
 
 ## 🚀 Quick Start
 
@@ -71,7 +74,19 @@ source .venv/bin/activate
 Simply run the `pywen` command to start:
 
 ```bash
+# Interactive mode (default)
 pywen
+
+# Single prompt mode
+pywen "Create a Python hello world script"
+
+# Specify agent type
+pywen --agent pywen
+pywen --agent claude
+pywen --agent codex
+
+# Specify model and API key via command line
+pywen --model "Qwen/Qwen3-Coder-Plus" --api_key "your-key"
 ```
 
 If it's your first run and there's no configuration file, Pywen will automatically start the configuration wizard:
@@ -86,12 +101,13 @@ If it's your first run and there's no configuration file, Pywen will automatical
 
 Configuration file not found, starting setup wizard...
 
-API Key: [Enter your Qwen API key]
-Base URL: https://dashscope.aliyuncs.com/compatible-mode/v1
-Model: qwen3-coder-plus
+API Key: [Enter your API key]
+Base URL: https://api-inference.modelscope.cn/v1
+Model: Qwen/Qwen3-Coder-Plus
+Agent: pywen
 ...
 
-✅ Configuration saved to pywen_config.json
+✅ Configuration saved to ~/.pywen/pywen_config.yaml
 ```
 
 After configuration is complete, you can start using Pywen!
@@ -123,27 +139,54 @@ Once you enter the Pywen command-line interface, you can:
 ```bash
 # System commands
 /about       show version info
-/auth        change the auth method
+/agent       switch between different agents (pywen/claude/codex/research)
 /clear       clear the screen and conversation history
 /help        for help on pywen code
-/memory      Commands for interacting with memory.show
-  Show       the current memory contents.add
-  Add        content to the memory.refresh
-  Refresh    the memory from the source.
-/stats       check session stats. Usage:/stats         
+/memory      Commands for interacting with memory
+  show       the current memory contents
+  add        content to the memory
+  refresh    the memory from the source
+/model       view and manage model configurations
+/stats       check session stats
 /tools       list available Pywen tools 
 /bug         submit a bug report
 /quit        exit the cli
-!            shell command                                  
 
 # Special commands
-!<command>    - Execute shell command
+!<command>   - Execute shell command
 
 # Keyboard shortcuts
-Ctrl+Y        - Toggle YOLO mode (auto-approve all operations - use with caution!)
+Ctrl+Y       - Toggle YOLO mode (auto-approve all operations - use with caution!)
 
 # Direct input of task descriptions to execute agent
 ```
+
+#### Agent Switching
+
+Pywen supports multiple specialized agents:
+
+```bash
+# List available agents
+/agent
+
+# Switch to Pywen Agent (default, Qwen3-Coder based)
+/agent pywen
+
+# Switch to Claude Code Agent
+/agent claude
+
+# Switch to Codex Agent (OpenAI GPT-5 Codex)
+/agent codex
+
+# Switch to Research Agent (Gemini-based)
+/agent research
+```
+
+**Available Agents:**
+- **Pywen Agent** (`pywen`): General-purpose coding assistant based on Qwen3-Coder
+- **Claude Code Agent** (`claude`): Advanced file operations and project understanding
+- **Codex Agent** (`codex`): OpenAI Codex-based coding assistant
+- **Research Agent** (`research`): Multi-step research agent for comprehensive information gathering
 
 ### YOLO Mode
 
@@ -157,23 +200,51 @@ Ctrl+Y        - Toggle YOLO mode (auto-approve all operations - use with caution
 
 ### Configuration Management
 
-Pywen uses the `pywen_config.json` file for configuration:
+Pywen uses YAML configuration files. The default configuration file is located at `~/.pywen/pywen_config.yaml`.
 
-```json
-{
-  "default_provider": "qwen",
-  "max_steps": 20,
-  "enable_lakeview": false,
-  "model_providers": {
-    "qwen": {
-      "api_key": "your-qwen-api-key",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "model": "qwen3-coder-plus",
-      "max_tokens": 4096,
-      "temperature": 0.5
-    }
-  }
-}
+**Example Configuration:**
+
+```yaml
+# Default agent to use
+default_agent: pywen
+
+# Model configurations
+models:
+  # Pywen Agent (Qwen3-Coder)
+  - agent_name: pywen
+    model: "Qwen/Qwen3-Coder-Plus"
+    api_key: "your-api-key"
+    base_url: "https://api-inference.modelscope.cn/v1"
+    provider: openai
+    wire_api: chat
+
+  # Claude Code Agent
+  - agent_name: claude
+    provider: anthropic
+    model: "claude-3.5-sonnet"
+    api_key: "your-anthropic-key"
+    base_url: "https://api.anthropic.com/v1"
+    wire_api: chat
+
+  # Codex Agent
+  - agent_name: codex
+    provider: openai
+    model: "gpt-5.1"
+    api_key: "your-openai-key"
+    base_url: "https://api.openai.com/v1/"
+    wire_api: responses
+
+# Permission level: locked / edit_only / planning / yolo
+permission_level: locked
+
+# Maximum conversation turns
+max_turns: 10
+
+# Memory monitor settings
+memory_monitor:
+  check_interval: 3
+  maximum_capacity: 100000
+  model: "Qwen/Qwen3-235B-A22B-Instruct-2507"
 ```
 
 **Configuration Priority:**
@@ -182,22 +253,42 @@ Pywen uses the `pywen_config.json` file for configuration:
 3. Environment variables
 4. Default values (lowest)
 
+**Configuration File Location:**
+- Default: `~/.pywen/pywen_config.yaml`
+- You can specify a custom path with `--config` flag
+
 ### Environment Variables
 
-You can set API keys through environment variables:
+You can set API keys through environment variables. Pywen supports agent-specific environment variables:
 
 ```bash
-# Qwen (required)
-export QWEN_API_KEY="your-qwen-api-key"
+# Pywen Agent (Qwen3-Coder)
+export PYWEN_PYWEN_API_KEY="your-api-key"
+export PYWEN_PYWEN_BASE_URL="https://api-inference.modelscope.cn/v1"
+export PYWEN_PYWEN_MODEL="Qwen/Qwen3-Coder-Plus"
+
+# Claude Agent
+export PYWEN_CLAUDE_API_KEY="your-anthropic-key"
+export PYWEN_CLAUDE_BASE_URL="https://api.anthropic.com/v1"
+export PYWEN_CLAUDE_MODEL="claude-3.5-sonnet"
+
+# Codex Agent
+export PYWEN_CODEX_API_KEY="your-openai-key"
+export PYWEN_CODEX_BASE_URL="https://api.openai.com/v1/"
+export PYWEN_CODEX_MODEL="gpt-5.1"
+
+# Generic fallback (if agent-specific not set)
+export PYWEN_API_KEY="your-api-key"
+export PYWEN_BASE_URL="https://api-inference.modelscope.cn/v1"
 
 # Tool API Keys (optional but recommended)
 export SERPER_API_KEY="your-serper-api-key"  # For web search
 export JINA_API_KEY="your-jina-api-key"      # For content reading
-
-# Other supported providers
-export OPENAI_API_KEY="your-openai-api-key"
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
 ```
+
+**Environment Variable Format:**
+- Agent-specific: `PYWEN_<AGENT_NAME>_<FIELD>` (e.g., `PYWEN_PYWEN_API_KEY`)
+- Generic: `PYWEN_<FIELD>` (fallback if agent-specific not set)
 
 ### Getting API Keys
 
@@ -213,13 +304,19 @@ export ANTHROPIC_API_KEY="your-anthropic-api-key"
 
 ## 🛠️ Available Tools
 
-Pywen provides a comprehensive toolkit for software development:
+Pywen provides a comprehensive toolkit for software development. Different agents may have access to different tools:
 
-- **File Operations**: Create, edit, read, and manage files
-- **Bash Execution**: Run shell commands and scripts
-- **Sequential Thinking**: Structured problem-solving approach
-- **Task Completion**: Mark tasks as complete with summaries
-- **JSON Operations**: Parse and manipulate JSON data
+**Common Tools (Available to most agents):**
+- **File Operations**: `read_file`, `write_file`, `edit`, `read_many_files`
+- **File System**: `ls`, `glob`, `grep`
+- **Bash Execution**: `bash` - Run shell commands and scripts
+- **Web Operations**: `web_search`, `web_fetch`
+- **Memory Management**: `memory` - Store and retrieve information
+
+**Agent-Specific Tools:**
+- **Claude Agent**: `task`, `todo` - Task planning and management
+- **Codex Agent**: `update_plan`, `apply_patch` - Codex-specific operations
+- **Research Agent**: Specialized research workflow tools
 
 For detailed information about all available tools and their capabilities, see [docs/tools.md](docs/tools.md).
 
@@ -230,30 +327,22 @@ Pywen also supports **MCP (Model Context Protocol)** to connect external tools a
 ### Enabling MCP
 1. Open your configuration file:
    ```bash
-   ~/.pywen/pywen_config.json
+   ~/.pywen/pywen_config.yaml
    ```
 2. Locate the `mcp` section and enable it:
-   ```json
-   "mcp": {
-       "enabled": true,
-           "isolated": true,
-           "servers": [
-           {
-               "name": "playwright",
-               "command": "npx",
-               "args": [
-                   "@playwright/mcp@latest"
-               ],
-               "enabled": true,
-               "include": [
-                   "browser_*"
-               ],
-               "save_images_dir": "./outputs/playwright",
-               "isolated": true 
-           }
-           ]
-   }
-
+   ```yaml
+   mcp:
+     enabled: true
+     isolated: false
+     servers:
+       - name: "playwright"
+         command: "npx"
+         args:
+           - "@playwright/mcp@latest"
+         enabled: true
+         include:
+           - "browser_*"
+         save_images_dir: "./outputs/playwright"
    ```
 ### Node.js 
 Ensure that you have Node.js installed. You can verify it with the following command:
@@ -334,8 +423,13 @@ We welcome contributions to Pywen! Here's how to get started:
 ## 📋 Requirements
 
 - Python 3.9+,<3.13
-- Qwen API key (recommended) or other supported LLM provider API keys
+- API key for your chosen agent:
+  - **Pywen Agent**: ModelScope API key or Qwen API key
+  - **Claude Agent**: Anthropic API key
+  - **Codex Agent**: OpenAI API key
+  - **Research Agent**: Google API key (and Serper API key for web search)
 - Internet connection for API access
+- (Optional) Node.js for MCP server support
 
 ## 🔧 Troubleshooting
 
@@ -344,17 +438,29 @@ We welcome contributions to Pywen! Here's how to get started:
 **Configuration Issues:**
 ```bash
 # Re-run configuration wizard
-rm pywen_config.json
+rm ~/.pywen/pywen_config.yaml
 pywen
 ```
 
 **API Key Issues:**
 ```bash
-# Verify your API key is set
-echo $QWEN_API_KEY
+# Verify your API key is set (for Pywen agent)
+echo $PYWEN_PYWEN_API_KEY
+
+# Or check generic fallback
+echo $PYWEN_API_KEY
 
 # Check configuration in Pywen
-> /config
+> /model
+```
+
+**Agent Switching Issues:**
+```bash
+# List available agents
+> /agent
+
+# Check current agent type
+> /stats
 ```
 
 ## 🙏 Acknowledgments

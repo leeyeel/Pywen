@@ -2,9 +2,7 @@ import time
 import math
 from pathlib import Path
 
-
 class IntelligentFileRestorer():
-
     def __init__(self):
         self.max_files = 20
         self.max_tokens_per_file = 8192
@@ -15,7 +13,6 @@ class IntelligentFileRestorer():
             "operation": 0.20,
             "fileType": 0.20,
         }
-
 
     def calculate_importance_score(self, metadata):
         total_score = 0.0
@@ -30,9 +27,8 @@ class IntelligentFileRestorer():
 
         return round(total_score)
 
-
     def calculate_temporal_score(self, metadata):
-        now = time.time() * 1000  # in milliseconds
+        now = time.time() * 1000
         hours_since_last_access = (now - metadata["lastAccessTime"]) / (1000 * 60 * 60)
         if hours_since_last_access <= 1:
             return 100
@@ -43,14 +39,12 @@ class IntelligentFileRestorer():
         else:
             return max(10, 75 * math.exp(-0.1 * (hours_since_last_access - 24)))
 
-
     def calculate_frequency_score(self, metadata):
         total_operations = metadata["readCount"] + metadata["writeCount"] + metadata["editCount"]
         score = min(80, total_operations * 5)
         recent_operations = metadata.get("operationsInLastHour", 0)
         score += min(20, recent_operations * 10)
         return min(100, score)
-
 
     def calculate_operation_score(self, metadata):
         score = 0
@@ -62,7 +56,6 @@ class IntelligentFileRestorer():
         elif metadata.get("lastOperation") == "edit":
             score += 15
         return min(100, score)
-
 
     def calculate_file_type_score(self, metadata):
         extension = metadata["path"].split(".")[-1].lower()
@@ -92,14 +85,12 @@ class IntelligentFileRestorer():
             return doc_extensions[extension]
         return 30
 
-
     def find_best_fit_file(self, files, remaining_tokens):
         sorted_files = sorted(files, key=lambda f: f["score"], reverse=True)
         for f in sorted_files:
             if f["estimatedTokens"] <= remaining_tokens:
                 return f
         return None
-
 
     def select_optimal_file_set(self, ranked_files):
         selected_files = []
@@ -138,7 +129,7 @@ class IntelligentFileRestorer():
             "efficiency": (total_tokens / self.total_token_limit) * 100 if self.total_token_limit > 0 else 0
         }
 
- 
+    # API
     def file_recover(self, file_counter) -> str:
         if not file_counter:
             #print("⚠️ 暂无文件记录，无法恢复。")
@@ -174,7 +165,7 @@ class IntelligentFileRestorer():
 
         return "".join(contents)
 
-    
+    # API
     def update_file_metrics(self, arguments, result, file_metrics, tool_name):
         try:
             # 1) 取文件路径
@@ -218,7 +209,7 @@ class IntelligentFileRestorer():
                 "readCount": init_read,
                 "writeCount": init_write,
                 "editCount": init_edit,
-                "operationsInLastHour": 0,      # 可按需要再维护
+                "operationsInLastHour": 0,
                 "lastOperation": last_op,
                 "estimatedTokens": est_tokens,
             }
