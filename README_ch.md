@@ -1,6 +1,6 @@
 # Pywen
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Python 3.12-](https://img.shields.io/badge/python-3.12-red.svg)](https://www.python.org/downloads/)  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Alpha](https://img.shields.io/badge/Status-Alpha-red)
 
@@ -91,28 +91,25 @@ pywen --agent codex
 pywen --model "Qwen/Qwen3-Coder-Plus" --api_key "your-key"
 ```
 
-如果是首次运行且没有配置文件，Pywen 会自动启动配置向导：
+如果是首次运行且没有配置文件：
 
-```
-██████╗ ██╗   ██╗██╗    ██╗███████╗███╗   ██║
-██╔══██╗╚██╗ ██╔╝██║    ██║██╔════╝████╗  ██║
-██████╔╝ ╚████╔╝ ██║ █╗ ██║█████╗  ██╔██╗ ██║
-██╔═══╝   ╚██╔╝  ██║███╗██║██╔══╝  ██║╚██╗██║
-██║        ██║   ╚███╔███╔╝███████╗██║ ╚████║
-╚═╝        ╚═╝    ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝
+- Pywen 会优先查找配置文件：
+  - 默认路径：`~/.pywen/pywen_config.yaml`
+  - 当前工作目录或父目录中的 `pywen_config.yaml`
+- 如果都找不到，会尝试查找示例配置 `pywen_config.example.yaml`，并自动复制到默认路径：
 
-Configuration file not found, starting setup wizard...
-
-API Key: [输入您的 API 密钥]
-Base URL: https://api-inference.modelscope.cn/v1
-Model: Qwen/Qwen3-Coder-Plus
-Agent: pywen
-...
-
-✅ Configuration saved to ~/.pywen/pywen_config.yaml
+```bash
+# 在 Pywen 仓库根目录
+cp pywen_config.example.yaml ~/.pywen/pywen_config.yaml
 ```
 
-配置完成后，您就可以开始使用 Pywen 了！
+- 如果既没有实际配置文件，也找不到示例文件，则会报错提示，并给出两种解决方式：
+  - 手动复制示例文件为 `pywen_config.yaml` 并编辑其中的 `api_key` / `model` 等字段
+  - 或者通过环境变量直接提供配置（例如 `PYWEN_API_KEY` / `PYWEN_MODEL` / `PYWEN_BASE_URL`）
+
+因此，**推荐做法** 是先根据示例文件或 README 的配置示例，准备好 `pywen_config.yaml` 或相关环境变量，然后再运行 `pywen`。
+
+完成上述配置后，您就可以正常使用 Pywen 了。
 
 ### 基本用法
 
@@ -144,10 +141,6 @@ Agent: pywen
 /agent       switch between different agents (pywen/claude/codex/research)
 /clear       clear the screen and conversation history
 /help        for help on pywen code
-/memory      Commands for interacting with memory
-  show       the current memory contents
-  add        content to the memory
-  refresh    the memory from the source
 /model       view and manage model configurations
 /stats       check session stats
 /tools       list available Pywen tools 
@@ -405,7 +398,7 @@ trajectories/trajectory_xxxxxx.json
 
 ## 📋 要求
 
-- Python 3.9+,<3.13
+- Python 3.11+,<3.13
 - 所选智能体的 API 密钥：
   - **Pywen 智能体**：ModelScope API 密钥或通义千问 API 密钥
   - **Claude 智能体**：Anthropic API 密钥

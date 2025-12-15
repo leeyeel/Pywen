@@ -1,6 +1,6 @@
 # Pywen
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/) [![Python 3.12-](https://img.shields.io/badge/python-3.12-red.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/) [![Python 3.12-](https://img.shields.io/badge/python-3.12-red.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Alpha](https://img.shields.io/badge/Status-Alpha-red)
 
 [**中文版**](README_ch.md) | **English**
@@ -89,28 +89,23 @@ pywen --agent codex
 pywen --model "Qwen/Qwen3-Coder-Plus" --api_key "your-key"
 ```
 
-If it's your first run and there's no configuration file, Pywen will automatically start the configuration wizard:
+If it's your first run and there's no configuration file:
 
-```
-██████╗ ██╗   ██╗██╗    ██╗███████╗███╗   ██║
-██╔══██╗╚██╗ ██╔╝██║    ██║██╔════╝████╗  ██║
-██████╔╝ ╚████╔╝ ██║ █╗ ██║█████╗  ██╔██╗ ██║
-██╔═══╝   ╚██╔╝  ██║███╗██║██╔══╝  ██║╚██╗██║
-██║        ██║   ╚███╔███╔╝███████╗██║ ╚████║
-╚═╝        ╚═╝    ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝
+- Pywen will first try to locate a config file:
+  - Default path: `~/.pywen/pywen_config.yaml`
+  - A `pywen_config.yaml` in the current working directory or any parent directory
+- If none is found, it will try to locate an example config `pywen_config.example.yaml` and copy it to the default path:
 
-Configuration file not found, starting setup wizard...
-
-API Key: [Enter your API key]
-Base URL: https://api-inference.modelscope.cn/v1
-Model: Qwen/Qwen3-Coder-Plus
-Agent: pywen
-...
-
-✅ Configuration saved to ~/.pywen/pywen_config.yaml
+```bash
+# In the Pywen repository root
+cp pywen_config.example.yaml ~/.pywen/pywen_config.yaml
 ```
 
-After configuration is complete, you can start using Pywen!
+- If there is neither a real config file nor an example file, Pywen will exit with an error message and suggest two options:
+  - Manually copy an example file to `pywen_config.yaml` and edit fields like `api_key` / `model`
+  - Or provide configuration via environment variables (e.g. `PYWEN_API_KEY`, `PYWEN_MODEL`, `PYWEN_BASE_URL`)
+
+Therefore, the **recommended workflow** is to prepare `pywen_config.yaml` (or the relevant environment variables) according to the example configuration before running `pywen`.
 
 ### Basic Usage
 
@@ -142,10 +137,6 @@ Once you enter the Pywen command-line interface, you can:
 /agent       switch between different agents (pywen/claude/codex/research)
 /clear       clear the screen and conversation history
 /help        for help on pywen code
-/memory      Commands for interacting with memory
-  show       the current memory contents
-  add        content to the memory
-  refresh    the memory from the source
 /model       view and manage model configurations
 /stats       check session stats
 /tools       list available Pywen tools 
@@ -422,7 +413,7 @@ We welcome contributions to Pywen! Here's how to get started:
 
 ## 📋 Requirements
 
-- Python 3.9+,<3.13
+- Python 3.11+,<3.13
 - API key for your chosen agent:
   - **Pywen Agent**: ModelScope API key or Qwen API key
   - **Claude Agent**: Anthropic API key
