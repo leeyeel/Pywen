@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import uuid
+from pywen import get_version
 from pywen.utils.permission_manager import PermissionLevel, PermissionManager
 from pywen.config.manager import ConfigManager
 from pywen.agents.agent_manager import AgentManager
@@ -15,6 +16,7 @@ from pywen.cli.runtime import HeadlessRunner, InteractiveSession
 async def async_main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Pywen Python Agent")
+    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {get_version()}")
     parser.add_argument("--config", type=str, default=None, help="Config file path (default: ~/.pywen/pywen/pywen_config.json)")
     parser.add_argument("--model", type=str, help="Override model name")
     parser.add_argument("--api_key", help="Qwen API key", default=None)

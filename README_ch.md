@@ -1,6 +1,6 @@
 # Pywen
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Python 3.12-](https://img.shields.io/badge/python-3.12-red.svg)](https://www.python.org/downloads/)  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Alpha](https://img.shields.io/badge/Status-Alpha-red)
 
@@ -100,7 +100,7 @@ pywen --model "Qwen/Qwen3-Coder-Plus" --api_key "your-key"
 
 ```bash
 # 在 Pywen 仓库根目录
-cp pywen_config.example.yaml ~/.pywen/pywen_config.yaml
+cp pywen/config/pywen_config.example.yaml ~/.pywen/pywen_config.yaml
 ```
 
 - 如果既没有实际配置文件，也找不到示例文件，则会报错提示，并给出两种解决方式：
@@ -202,7 +202,7 @@ Pywen 使用 YAML 格式的配置文件。默认配置文件位于 `~/.pywen/pyw
 default_agent: pywen
 
 # 模型配置
-models:
+agents:
   # Pywen 智能体（Qwen3-Coder）
   - agent_name: pywen
     model: "Qwen/Qwen3-Coder-Plus"
@@ -398,7 +398,7 @@ trajectories/trajectory_xxxxxx.json
 
 ## 📋 要求
 
-- Python 3.11+,<3.13
+- Python 3.10+,<3.13
 - 所选智能体的 API 密钥：
   - **Pywen 智能体**：ModelScope API 密钥或通义千问 API 密钥
   - **Claude 智能体**：Anthropic API 密钥
@@ -413,7 +413,7 @@ trajectories/trajectory_xxxxxx.json
 
 **配置问题：**
 ```bash
-# 重新运行配置向导
+# 使用默认配置重新生成配置
 rm ~/.pywen/pywen_config.yaml
 pywen
 ```
