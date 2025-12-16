@@ -1,6 +1,6 @@
 # Pywen
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/) [![Python 3.12-](https://img.shields.io/badge/python-3.12-red.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![Python 3.12-](https://img.shields.io/badge/python-3.12-red.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Alpha](https://img.shields.io/badge/Status-Alpha-red)
 
 [**中文版**](README_ch.md) | **English**
@@ -98,9 +98,8 @@ If it's your first run and there's no configuration file:
 
 ```bash
 # In the Pywen repository root
-cp pywen_config.example.yaml ~/.pywen/pywen_config.yaml
+cp pywen/config/pywen_config.example.yaml ~/.pywen/pywen_config.yaml
 ```
-
 - If there is neither a real config file nor an example file, Pywen will exit with an error message and suggest two options:
   - Manually copy an example file to `pywen_config.yaml` and edit fields like `api_key` / `model`
   - Or provide configuration via environment variables (e.g. `PYWEN_API_KEY`, `PYWEN_MODEL`, `PYWEN_BASE_URL`)
@@ -200,7 +199,7 @@ Pywen uses YAML configuration files. The default configuration file is located a
 default_agent: pywen
 
 # Model configurations
-models:
+agents:
   # Pywen Agent (Qwen3-Coder)
   - agent_name: pywen
     model: "Qwen/Qwen3-Coder-Plus"
@@ -245,6 +244,7 @@ memory_monitor:
 4. Default values (lowest)
 
 **Configuration File Location:**
+Pywen ships an embedded example configuration; on first run it will copy it to the default config path.
 - Default: `~/.pywen/pywen_config.yaml`
 - You can specify a custom path with `--config` flag
 
@@ -413,7 +413,7 @@ We welcome contributions to Pywen! Here's how to get started:
 
 ## 📋 Requirements
 
-- Python 3.11+,<3.13
+- Python 3.10+,<3.13
 - API key for your chosen agent:
   - **Pywen Agent**: ModelScope API key or Qwen API key
   - **Claude Agent**: Anthropic API key
@@ -428,7 +428,7 @@ We welcome contributions to Pywen! Here's how to get started:
 
 **Configuration Issues:**
 ```bash
-# Re-run configuration wizard
+# re-create config from the built-in example template
 rm ~/.pywen/pywen_config.yaml
 pywen
 ```

@@ -15,9 +15,8 @@ PLACEHOLDERS = {
     "placeholder",
     "YOUR_API_KEY_HERE",
 }
-ENV_PREFIX = "PYWEN"
 EDIT_HINT_FIELDS = (
-    "model_name",
+    "model",
     "api_key",
     "base_url",
 )
@@ -215,9 +214,9 @@ class ConfigManager:
             "Searched locations:" + searched_list + "\n"
             f'You may copy an example file named one of pywen_config.example.yaml into "{default_path}".\n'
             "Or set environment variables to run without a file:\n"
-            "  export PYWEN_MODEL='gpt-4.1'\n"
+            "  export PYWEN_MODEL='xxx'\n"
             "  export PYWEN_API_KEY='sk-...'\n"
-            "  export PYWEN_BASE_URL='https://api.openai.com/v1/'\n"
+            "  export PYWEN_BASE_URL='https://xx.xx.xx/'\n"
             "Or pass --config /path/to/pywen_config.yaml\n"
         )
 
@@ -306,8 +305,7 @@ class ConfigManager:
 
         name_up = agent_name.upper()
         candidates = [
-            f"{ENV_PREFIX}_{name_up}_{key_suffix}",
-            f"{ENV_PREFIX}_{key_suffix}",
+            f"{name_up}_{key_suffix}",
             key_suffix,
         ]
         for k in candidates:
@@ -324,11 +322,11 @@ class ConfigManager:
 
         missing: List[str] = []
         if ConfigManager._is_missing(m.get("model_name")):
-            missing.append("model.model_name")
+            missing.append("model")
         if ConfigManager._is_missing(m.get("api_key")):
-            missing.append("model.api_key")
+            missing.append("api_key")
         if ConfigManager._is_missing(m.get("base_url")):
-            missing.append("model.base_url")
+            missing.append("base_url")
         return missing
 
     def _select_active_agent_name(
@@ -405,38 +403,25 @@ class ConfigManager:
     @classmethod
     def _locate_example_config(cls) -> Optional[Path]:
         """
-        只在 Pywen 项目根目录寻找 example：
-        1) <repo_root>/pywen_config.example.yaml  （优先，符合你的要求）
-        2) <repo_root>/pywen/pywen_config.example.yaml  （常见备选）
-        3) 兜底：如果 example 被打进包里，从包资源读取
+        1) 优先从 package resources 读取
+        2) 开发态 fallback：直接从 pywen/config 目录查找
         """
-        here = Path(__file__).resolve()
-        # manager.py -> config -> pywen -> <repo_root>
-        # parents[0]=config, [1]=pywen(包根), [2]=项目根
-        try:
-            pkg_root = here.parents[1]     # .../pywen
-            repo_root = here.parents[2]    # .../<repo_root>
-        except IndexError:
-            pkg_root = here.parent
-            repo_root = pkg_root.parent
-
         EXAMPLE_FILENAME = "pywen_config.example.yaml"
 
-        candidates = [
-            repo_root / EXAMPLE_FILENAME,      # 首选：项目根
-            pkg_root / EXAMPLE_FILENAME,       # 备选：包根
-        ]
-        for p in candidates:
-            if p.exists():
-                return p
-
+        # 安装态：package resources
         try:
-            res = pkgres.files("pywen").joinpath(EXAMPLE_FILENAME)
+            res = pkgres.files("pywen.config").joinpath(EXAMPLE_FILENAME)
             if res.is_file():
                 with pkgres.as_file(res) as fp:
                     return Path(fp)
         except Exception:
             pass
+
+        # 开发态 
+        here = Path(__file__).resolve()
+        p = here.parent / EXAMPLE_FILENAME
+        if p.exists():
+            return p
 
         return None
 

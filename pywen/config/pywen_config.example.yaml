@@ -39,7 +39,7 @@ agents:
   # Qwen Coder / ModelScope API
   # ------------------------------
   - agent_name: pywen
-    model: ""                                  # 模型名称
+    model_name: ""                             # 模型名称
     api_key: "your-qwen-api-key-here"          # 模型api_key
     base_url: ""                               # 模型base_url
     provider: openai                           # 因为使用 OpenAI 风格接口，所以 provider=openai
