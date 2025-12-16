@@ -97,7 +97,7 @@ If it's your first run and there's no configuration file:
 - If none is found, it will try to locate an example config `pywen_config.example.yaml` and copy it to the default path:
 
 ```bash
-# In the Pywen repository root
+# built-in example configuration located at `pywen/config/pywen_config.example.yaml`
 cp pywen/config/pywen_config.example.yaml ~/.pywen/pywen_config.yaml
 ```
 - If there is neither a real config file nor an example file, Pywen will exit with an error message and suggest two options:
