@@ -13,7 +13,7 @@ PLACEHOLDERS = {
     "your-qwen-api-key-here",
     "changeme",
     "placeholder",
-    "YOUR_API_KEY_HERE",
+    "your_api_key_here",
 }
 EDIT_HINT_FIELDS = (
     "model",
@@ -81,9 +81,15 @@ class ConfigManager:
 
         missing = self._find_missing_required_fields(active_agent_cfg)
         if missing:
+            cfg = str(self.config_path) if self.config_path else "<unknown config>"
             print(
-                f"Missing required fields in agent '{active_name}': {missing}. "
-                "Please update your YAML/ENV/CLI."
+                "Configuration file:\n"
+                f"  {cfg}\n\n"
+                f"Missing required fields for agent '{active_name}':\n"
+                + "".join(f"  - {field}\n" for field in missing)
+                + "\nPlease update the configuration file, environment variables, "
+                "or CLI arguments.",
+                file=sys.stderr,
             )
             sys.exit(2)
 
@@ -153,8 +159,9 @@ class ConfigManager:
 
         missing = self._find_missing_required_fields(agent_cfg)
         if missing:
+            cfg = str(self.config_path) if self.config_path else "<unknown config>"
             raise ConfigError(
-                f"Missing required fields in agent '{name}': {missing}. "
+                f"'{cfg}' missing required fields in agent '{name}': {missing}. "
                 "Please update your YAML/ENV/CLI."
             )
 
