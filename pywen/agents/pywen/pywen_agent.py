@@ -1,5 +1,6 @@
 """Pywen Agent implementation with streaming logic."""
 import os,subprocess, json
+import platform, shutil
 from pathlib import Path
 from typing import Dict, List, Any, AsyncGenerator,Mapping
 from pywen.agents.base_agent import BaseAgent
@@ -294,6 +295,41 @@ To help you check their settings, I can read their contents. Which one would you
 Your core function is efficient and safe assistance. Balance extreme conciseness with the crucial need for clarity, especially regarding safety and potential system modifications. Always prioritize user control and project conventions. Never make assumptions about the contents of files; instead use 'ReadFileTool.Name' or 'ReadManyFilesTool.Name' to ensure you aren't making broad assumptions. Finally, you are an agent - please keep going until the user's query is completely resolved.
 """
 
+RUNTIME_ENV_WINDOWS_PROMPT = """# Runtime Environment (IMPORTANT)
+- OS: Windows ({release})
+- Python: {python}
+- Shell: {shell_hint} (COMSPEC={comspec})
+
+# Command Rules (Windows)
+- DO NOT output bash/zsh commands (no `ls`, `cat`, `grep`, `sed`, `awk`, `rm -rf`, or GNU-style pipes).
+- Prefer PowerShell commands:
+  - File listing: `Get-ChildItem`
+  - Read file: `Get-Content`
+  - Search text: `Select-String`
+  - Delete files: `Remove-Item -Recurse -Force`
+- Do NOT assume `/tmp`, `/proc`, `/dev`, or POSIX permissions.
+- If Unix-like tools are required, explicitly ask whether Git Bash or WSL is available before using them.
+"""
+
+RUNTIME_ENV_MACOS_PROMPT = """# Runtime Environment (IMPORTANT)
+- OS: macOS ({release})
+- Python: {python}
+
+# Command Rules (macOS)
+- Use bash/zsh compatible commands.
+- Do NOT assume GNU extensions (`sed -i`, `grep -P`, etc.) without verification.
+- Prefer portable POSIX flags when possible.
+"""
+
+RUNTIME_ENV_LINUX_PROMPT = """# Runtime Environment (IMPORTANT)
+- OS: Linux ({release})
+- Python: {python}
+
+# Command Rules (Linux)
+- Use bash commands with typical GNU userland.
+- Standard Linux filesystem layout is assumed unless otherwise stated.
+"""
+
 class PywenAgent(BaseAgent):
     """Pywen Agent with streaming iterative tool calling logic."""
     
@@ -451,13 +487,43 @@ class PywenAgent(BaseAgent):
                 self.conversation_history.append(tool_msg)
                 yield AgentEvent.tool_result(call_id, name, error_msg, False, arguments)
 
+    def _build_runtime_env_prompt(self) -> str:
+        sys_name = platform.system()
+        release = platform.release()
+        python = platform.python_version()
+    
+        if sys_name == "Windows":
+            comspec = os.environ.get("COMSPEC", "")
+            ps = shutil.which("powershell") or shutil.which("pwsh")
+            shell_hint = "PowerShell preferred" if ps else "cmd.exe"
+    
+            return RUNTIME_ENV_WINDOWS_PROMPT.format(
+                release=release,
+                python=python,
+                shell_hint=shell_hint,
+                comspec=comspec,
+            )
+    
+        if sys_name == "Darwin":
+            return RUNTIME_ENV_MACOS_PROMPT.format(
+                release=release,
+                python=python,
+            )
+    
+        # Linux / other Unix
+        return RUNTIME_ENV_LINUX_PROMPT.format(
+            release=release,
+            python=python,
+        )
+
     def _update_system_prompt(self, system_prompt: str) -> List[LLMMessage]:
         cwd_prompt = (
             f"Please note that the user launched Pywen under the path {Path.cwd()}.\n"
             "All subsequent file-creation, file-writing, file-reading, and similar "
             "operations should be performed within this directory."
         )
-        prompt = system_prompt.rstrip() + "\n\n" + cwd_prompt
+        env_prompt = self._build_runtime_env_prompt()
+        prompt = system_prompt.rstrip() + "\n\n" + env_prompt + "\n\n" + cwd_prompt 
         system_message = LLMMessage(role="system", content= prompt)
         return [system_message]
 
