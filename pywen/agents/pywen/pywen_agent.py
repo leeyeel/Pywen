@@ -1,5 +1,6 @@
 """Pywen Agent implementation with streaming logic."""
 import os,subprocess, json
+from functools import lru_cache
 import platform, shutil
 from pathlib import Path
 from typing import Dict, List, Any, AsyncGenerator,Mapping
@@ -330,6 +331,12 @@ RUNTIME_ENV_LINUX_PROMPT = """# Runtime Environment (IMPORTANT)
 - Standard Linux filesystem layout is assumed unless otherwise stated.
 """
 
+STYLE_PROMPT = (
+    "The codebase follows strict style guidelines shown below. "
+    "All code changes must strictly adhere to these guidelines to maintain "
+    "consistency and quality."
+)
+
 class PywenAgent(BaseAgent):
     """Pywen Agent with streaming iterative tool calling logic."""
     
@@ -516,6 +523,34 @@ class PywenAgent(BaseAgent):
             python=python,
         )
 
+    def _build_pywen_md_prompt(self) -> str:
+        filename = "PYWEN.md"
+        parts: list[str] = []
+        current_dir = Path.cwd().resolve()
+        max_hops = 512
+        hops = 0
+        while True:
+            md_path = current_dir / filename
+            if md_path.is_file():
+                try:
+                    content = md_path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    content = md_path.read_text(encoding="utf-8", errors="replace")
+                parts.append(f"Contents of {md_path}:\n\n{content}")
+
+            parent = current_dir.parent
+            if parent == current_dir:
+                break
+            current_dir = parent
+            hops += 1
+            if hops >= max_hops:
+                break
+        if not parts:
+            return ""
+        parts.reverse()
+
+        return f"{STYLE_PROMPT}\n\n" + "\n\n".join(parts)
+
     def _update_system_prompt(self, system_prompt: str) -> List[LLMMessage]:
         cwd_prompt = (
             f"Please note that the user launched Pywen under the path {Path.cwd()}.\n"
@@ -523,7 +558,8 @@ class PywenAgent(BaseAgent):
             "operations should be performed within this directory."
         )
         env_prompt = self._build_runtime_env_prompt()
-        prompt = system_prompt.rstrip() + "\n\n" + env_prompt + "\n\n" + cwd_prompt 
+        style_prompt = self._build_pywen_md_prompt()
+        prompt = system_prompt.rstrip() + "\n\n" + style_prompt + "\n\n" + env_prompt + "\n\n" + cwd_prompt
         system_message = LLMMessage(role="system", content= prompt)
         return [system_message]
 
