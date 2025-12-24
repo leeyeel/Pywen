@@ -1,6 +1,7 @@
 import os
 import datetime
 import json
+from pathlib import Path
 from typing import Dict, List, Optional, AsyncGenerator, Any
 from pywen.agents.base_agent import BaseAgent
 from pywen.llm.llm_basics import LLMResponse, LLMMessage, ToolCall, ToolCallResult
@@ -133,6 +134,7 @@ class ClaudeAgent(BaseAgent):
         env_info = self.prompts.get_env_info(self.project_path)
         workflow_with_env = f"{workflow_content}\n\n{env_info}"
         messages.append(LLMMessage(role="system", content=workflow_with_env))
+        messages.append(LLMMessage(role="system", content= self.prompts.get_claude_md_prompt()))
         messages.append(LLMMessage(role="user", content=get_system_reminder_start() ))
         for msg in self.conversation_history[:-1]:
             messages.append(msg)
